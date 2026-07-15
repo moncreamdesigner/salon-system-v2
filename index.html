@@ -1,0 +1,907 @@
+﻿<!doctype html>
+<html lang="mn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Халгай салбарын систем</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=202607162245">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="assets/khalgai-salon-logo.png" alt="Халгай салбар">
+      </div>
+
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-item active" data-view="bookings">Цаг захиалга</button>
+        <button class="nav-item" data-view="customers">Хэрэглэгчид</button>
+        <button class="nav-item" data-view="vouchers">Ваучер</button>
+        <button class="nav-item" data-view="giftCards">Бэлгийн карт</button>
+        <button class="nav-item" data-view="kass">Касс хуваарь</button>
+        <button class="nav-item" data-view="staff">Ажилтан</button>
+        <div class="nav-group">
+          <button class="nav-item nav-parent" type="button" id="settingsToggle" aria-expanded="false">Тохиргоо</button>
+          <div class="nav-submenu" id="settingsSubmenu">
+            <button class="nav-subitem" data-view="branches">Салбар</button>
+            <button class="nav-subitem" data-view="settingsSchedule">Цагийн хуваарь</button>
+            <button class="nav-subitem" data-view="settingsHolidays">Амралтын өдөр</button>
+            <button class="nav-subitem" data-view="settingsServices">Үйлчилгээ</button>
+            <button class="nav-subitem" data-view="settingsHumanResources">Хүний нөөц</button>
+            <button class="nav-subitem" data-view="settingsPricing">Үнийн бодлого</button>
+            <button class="nav-subitem" data-view="settingsDiscounts">Хямдрал</button>
+            <button class="nav-subitem" data-view="settingsGeneral">Ерөнхий</button>
+          </div>
+        </div>
+        <button class="nav-item" data-view="audit">Үйлдлийн түүх</button>
+        <button class="nav-item" data-view="dashboard">Хяналт</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user-avatar">M</div>
+        <div class="sidebar-user-info">
+          <strong>Менежер</strong>
+          <span>Хан-Уул салбар</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar"><button class="icon-btn" id="menuButton" aria-label="Цэс">☰</button></header>
+      <section class="info-strip" id="infoHeader" aria-live="polite">
+        <div>
+          <h2 id="infoTitle">НИЙТ ЗАХИАЛГА</h2>
+          <p id="infoStats">Нийт: <strong>0</strong></p>
+        </div>
+        <button class="info-excel-btn hidden" id="infoExcelBtn" type="button">↓ Excel татах</button>
+      </section>
+
+      <section class="view" id="dashboardView">
+        <div class="metric-grid">
+          <article class="metric">
+            <span class="metric-label">Өнөөдрийн орлого</span>
+            <strong>4,820,000₮</strong>
+            <span class="metric-note">3 салбар нийлбэр</span>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Өнөөдрийн захиалга</span>
+            <strong>48</strong>
+            <span class="metric-note">12 хүлээгдэж буй</span>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Идэвхтэй курс</span>
+            <strong>126</strong>
+            <span class="metric-note">17 төлбөр дутуу</span>
+          </article>
+          <article class="metric">
+            <span class="metric-label">QR хүлээгдэж буй</span>
+            <strong>9</strong>
+            <span class="metric-note">баталгаажуулах шаардлагатай</span>
+          </article>
+        </div>
+
+        <div class="content-grid">
+          <section class="panel wide">
+            <div class="panel-head">
+              <div>
+                <h2>Салоны үйл ажиллагаа</h2>
+                <p>Ачаалал, захиалга, ажилтны хүрэлцээ</p>
+              </div>
+              <button class="secondary-btn">Excel</button>
+            </div>
+            <div class="table-wrap">
+              <table class="booking-table">
+                <thead>
+                  <tr>
+                    <th>Салон</th>
+                    <th>Захиалга</th>
+                    <th>Орлого</th>
+                    <th>Ажилтан</th>
+                    <th>Төлөв</th>
+                  </tr>
+                </thead>
+                <tbody id="salonRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Ажилтны томилгоо</h2>
+                <p>Өнөөдрийн түр томилгоо</p>
+              </div>
+            </div>
+            <div id="assignmentList" class="stack-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="branchesView">
+        <section class="branch-add-shell">
+          <div class="branch-add-title">
+            <span>Шинэ салбар нэмэх</span>
+          </div>
+          <form class="branch-add-form clean-form" id="branchForm">
+            <div class="branch-form-grid">
+              <label>Нэр<input class="input" id="branchName" required placeholder="Жишээ: Хан-Уул салбар"></label>
+              <label>Утас<input class="input" id="branchPhone" inputmode="numeric" maxlength="8" required placeholder="80024373"></label>
+              <label>Хаяг<input class="input" id="branchAddress" required placeholder="Салбарын дэлгэрэнгүй хаяг"></label>
+              <div class="form-actions">
+                <button class="primary-btn" type="submit" id="branchSubmit">Хадгалах</button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel wide branch-panel">
+          <div class="table-wrap">
+            <table class="branch-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Нэр</th>
+                  <th>Хаяг</th>
+                  <th>Утас</th>
+                  <th>Төлөв</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="branchRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="customersView">
+        <section class="customer-active-strip" id="activeTreatmentStrip"></section>
+
+        <form class="clean-form customer-inline-form" id="customerInlineForm">
+          <label>Нэр
+            <input id="inlineCustomerName" class="input" required placeholder="Нэр бичих">
+          </label>
+          <label>Утас
+            <input id="inlineCustomerPhone" class="input" required inputmode="numeric" maxlength="8" minlength="8" placeholder="99112233">
+          </label>
+          <label>Нас
+            <input id="inlineCustomerAge" class="input" required type="number" min="1" max="120" placeholder="32">
+          </label>
+          <label>Хүйс
+            <select id="inlineCustomerGender" class="input" required>
+              <option value="" disabled selected>Сонгох</option>
+              <option>Эмэгтэй</option>
+              <option>Эрэгтэй</option>
+            </select>
+          </label>
+          <label>Дүүрэг
+            <select id="inlineCustomerDistrict" class="input" required></select>
+          </label>
+          <label>Хороо
+            <input id="inlineCustomerKhoroo" class="input" required placeholder="Хороо">
+          </label>
+          <label>Төрөл
+            <select id="inlineCustomerType" class="input" required></select>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="primary-btn">Хадгалах</button>
+          </div>
+        </form>
+
+        <section class="panel customer-list-panel">
+          <div class="customer-toolbar">
+            <div class="customer-filter-group">
+              <input class="search" id="customerSearch" placeholder="Нэр эсвэл утас хайх">
+              <select class="select" id="customerDistrictFilter"></select>
+              <input class="search compact" id="customerKhorooFilter" placeholder="Хороо">
+              <select class="select" id="customerTypeFilter">
+                <option value="all">Бүгд</option>
+                <option value="Хэрэглэгч">Хэрэглэгч</option>
+                <option value="Тусгай хэрэглэгч">Тусгай хэрэглэгч</option>
+                <option value="Ажилтан">Ажилтан</option>
+              </select>
+              <select class="select" id="customerWorkFilter">
+                <option value="all">Бүх төлөв</option>
+                <option value="active">Үйлчилгээтэй</option>
+                <option value="unpaid">Төлбөр дутуу</option>
+                <option value="group">Групптэй</option>
+              </select>
+              <button class="secondary-btn icon-clear" id="clearCustomerFilters" type="button" aria-label="Цэвэрлэх">×</button>
+            </div>
+            <div class="customer-sort-actions" aria-label="Эрэмбэлэх">
+              <button class="sort-text-btn active" id="customerSortDate" type="button" data-sort="date">Огноо <span>↓</span></button>
+              <button class="sort-text-btn" id="customerSortName" type="button" data-sort="name">Нэр <span>↕</span></button>
+            </div>
+          </div>
+          <div class="table-wrap customer-table-wrap">
+            <table class="booking-table customer-table">
+              <thead>
+                <tr>
+                  <th>Нэр</th>
+                  <th>Утас</th>
+                  <th>Төрөл</th>
+                  <th>Бүртгэсэн огноо</th>
+                  <th>Оролт</th>
+                  <th>Үлдэгдэл</th>
+                  <th>Бонус</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="customerRows"></tbody>
+            </table>
+          </div>
+          <div class="pagination-row" id="customerPagination"></div>
+        </section>
+      </section>
+
+      <section class="view" id="kassView">
+        <section class="kass-add-shell">
+          <form class="clean-form kass-form" id="kassScheduleForm">
+            <label>Эхлэх өдөр
+              <input class="input" id="kassStartDate" type="date" required>
+            </label>
+            <label>Дуусах өдөр
+              <input class="input" id="kassEndDate" type="date" required>
+            </label>
+            <label>Салбар
+              <select class="input" id="kassSalon"></select>
+            </label>
+            <label>Ажилтан
+              <select class="input" id="kassStaff" required></select>
+            </label>
+          <div class="form-actions">
+            <button class="primary-btn" type="submit" id="kassSubmit">Нэмэх</button>
+          </div>
+        </form>
+      </section>
+
+        <section class="panel kass-history-panel">
+          <div class="kass-filter-row">
+            <input class="input" id="kassFromFilter" type="date">
+            <input class="input" id="kassToFilter" type="date">
+            <input class="input" id="kassStaffFilter" placeholder="Ажилтан хайх">
+            <select class="input" id="kassSalonFilter"></select>
+            <button class="secondary-btn icon-clear" type="button" id="kassClearBtn" aria-label="Цэвэрлэх">×</button>
+          </div>
+          <div class="table-wrap kass-table-wrap">
+            <table class="branch-table kass-table">
+              <thead>
+                <tr>
+                  <th>Огноо</th>
+                  <th>Ажилтан</th>
+                  <th>Салбар</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="kassRows"></tbody>
+            </table>
+          </div>
+          <div class="pagination-row" id="kassPagination"></div>
+        </section>
+      </section>
+
+      <section class="view" id="profileView">
+        <section class="profile-shell" id="profileShell"></section>
+      </section>
+
+      <section class="view" id="servicesView">
+        <div class="form-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Үйлчилгээ нэмэх</h2>
+                <p>Үнэ, surcharge, төлбөрийн basic урсгал</p>
+              </div>
+            </div>
+            <form id="serviceForm" class="clean-form">
+              <label>Хэрэглэгч
+                <select id="serviceCustomer" class="input"></select>
+              </label>
+              <label>Үйлчилгээ
+                <select id="serviceItem" class="input"></select>
+              </label>
+              <label>Ажилтан
+                <select id="serviceStaff" class="input"></select>
+              </label>
+              <div class="check-grid">
+                <label class="check"><input type="checkbox" id="vipRoom"> Вип өрөө +20,000₮</label>
+                <label class="check"><input type="checkbox" id="vipStaff"> Вип ажилтан +15,000₮</label>
+              </div>
+              <div class="summary-box">
+                <div><span>Үндсэн үнэ</span><strong id="basePrice">0₮</strong></div>
+                <div><span>Нэмэлт</span><strong id="surchargePrice">0₮</strong></div>
+                <div><span>Нийт</span><strong id="totalPrice">0₮</strong></div>
+              </div>
+              <button class="primary-btn full" type="submit">Үйлчилгээ хадгалах</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Сүүлд нэмэгдсэн</h2>
+                <p>Идэвхтэй үйлчилгээний бүртгэлээс бодогдоно</p>
+              </div>
+            </div>
+            <div id="serviceList" class="stack-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="bookingsView">
+          <section class="panel wide booking-entry-panel">
+            <div id="bookingInlineSlot"></div>
+          </section>
+
+          <section class="panel wide booking-list-panel">
+            <div class="booking-filter-group booking-filter-row">
+              <input class="search small phone-filter" id="bookingSearch" inputmode="numeric" maxlength="8" placeholder="Утас хайх">
+              <input type="hidden" id="bookingSalonFilter" value="all">
+              <div class="custom-select salon-filter" id="bookingSalonDropdown">
+                <button class="custom-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span>Бүх салбар</span>
+                </button>
+                <div class="custom-select-menu" role="listbox">
+                  <button type="button" data-value="all" class="active">Бүх салбар</button>
+                  <button type="button" data-value="Хан-Уул салбар">Хан-Уул салбар</button>
+                  <button type="button" data-value="Төв салбар">Төв салбар</button>
+                  <button type="button" data-value="Вип салбар">Вип салбар</button>
+                </div>
+              </div>
+              <input class="input filter-date" id="bookingDateFilter" type="date" aria-label="Огноо хайх">
+              <input type="hidden" id="bookingStatusFilter" value="all">
+              <div class="custom-select compact" id="bookingStatusDropdown">
+                <button class="custom-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span>Бүх төлөв</span>
+                </button>
+                <div class="custom-select-menu" role="listbox">
+                  <button type="button" data-value="all" class="active">Бүх төлөв</button>
+                  <button type="button" data-value="pending">Хүлээгдэж буй</button>
+                  <button type="button" data-value="confirmed">Баталгаажсан</button>
+                </div>
+              </div>
+            <button class="secondary-btn clear-filter-btn icon-clear" id="clearBookingFilters" aria-label="Цэвэрлэх">×</button>
+            </div>
+            <div class="table-wrap">
+              <table class="booking-table">
+                <thead>
+                  <tr>
+                    <th>№</th>
+                    <th>Салон</th>
+                    <th>Огноо</th>
+                    <th>Цаг</th>
+                    <th>Утас</th><th>Эх сурвалж</th><th>Төлөв</th><th>Үйлдэл</th>
+                  </tr>
+                </thead>
+                <tbody id="bookingRows"></tbody>
+              </table>
+            </div>
+            <div class="pagination-row" id="bookingPagination"></div>
+          </section>
+      </section>
+
+
+      <section class="view" id="kassView">
+        <div class="content-grid">
+          <section class="panel wide">
+            <div class="panel-head"><div><h2>Касс хуваарь</h2><p>Өдрийн касс, ээлж, хариуцсан ажилтны хяналт</p></div><button class="secondary-btn">Excel</button></div>
+            <div class="table-wrap"><table><thead><tr><th>Огноо</th><th>Салон</th><th>Ээлж</th><th>Касс ажилтан</th><th>Төлөв</th></tr></thead><tbody>
+              <tr><td>2026-07-11</td><td>Хан-Уул салбар</td><td>09:00-18:00</td><td>Номин</td><td><span class="badge green">Нээлттэй</span></td></tr>
+              <tr><td>2026-07-11</td><td>Төв салбар</td><td>10:00-19:00</td><td>Болор</td><td><span class="badge yellow">Хүлээгдэж буй</span></td></tr>
+            </tbody></table></div>
+          </section>
+          <section class="panel"><div class="panel-head"><div><h2>Өдрийн хаалт</h2><p>Бэлэн, карт, шилжүүлэг тусдаа шалгана</p></div></div><div class="stack-list"><div class="stack-item"><strong>Бэлэн мөнгө</strong><span>1,240,000₮ баталгаажсан</span></div><div class="stack-item"><strong>Карт / Пос</strong><span>2,680,000₮ тулгалт хүлээгдэж байна</span></div><div class="stack-item"><strong>Bonus ашиглалт</strong><span>180,000₮ хэрэглэгдсэн</span></div></div></section>
+        </div>
+      </section>
+
+      <section class="view" id="paymentsView">
+        <section class="panel"><div class="panel-head"><div><h2>Касс орлого</h2><p>Үйлчилгээ, бүтээгдэхүүн, бонус, ваучер орлогын нэгтгэл</p></div><button class="secondary-btn">Excel</button></div><div class="table-wrap"><table><thead><tr><th>Цаг</th><th>Хэрэглэгч</th><th>Төрөл</th><th>Төлбөр</th><th>Нийт</th><th>Төлөв</th></tr></thead><tbody>
+          <tr><td>10:20</td><td>Бат Хулан</td><td>Курс эмчилгээ</td><td>Карт</td><td>96,250₮</td><td><span class="badge green">Төлөгдсөн</span></td></tr>
+          <tr><td>11:05</td><td>Энх Номин</td><td>Оношилгоо</td><td>Bonus + Бэлэн</td><td>80,000₮</td><td><span class="badge green">Төлөгдсөн</span></td></tr>
+          <tr><td>12:30</td><td>Болор</td><td>Бүтээгдэхүүн</td><td>Шилжүүлэг</td><td>65,000₮</td><td><span class="badge red">Дутуу</span></td></tr>
+        </tbody></table></div></section>
+      </section>
+
+      <section class="view" id="performanceView">
+        <section class="panel"><div class="panel-head"><div><h2>Ажилтны гүйцэтгэл</h2><p>Устсан үйлчилгээ гүйцэтгэл дээр үлдэхгүй байх зарчмаар бодогдоно</p></div><button class="secondary-btn">Excel</button></div><div class="table-wrap"><table><thead><tr><th>Ажилтан</th><th>Салон</th><th>Үйлчилгээ</th><th>Борлуулалт</th><th>Гүйцэтгэлийн хувь</th></tr></thead><tbody>
+          <tr><td>Хулан</td><td>Хан-Уул салбар</td><td>8</td><td>760,000₮</td><td>76,000₮</td></tr>
+          <tr><td>Номин</td><td>Вип салбар</td><td>5</td><td>520,000₮</td><td>62,400₮</td></tr>
+          <tr><td>Болор</td><td>Төв салбар</td><td>6</td><td>410,000₮</td><td>32,800₮</td></tr>
+        </tbody></table></div></section>
+      </section>
+
+      <section class="view" id="reportsView">
+        <div class="metric-grid"><article class="metric"><span class="metric-label">Сарын орлого</span><strong>128,400,000₮</strong><span class="metric-note">Бүх салбар нийлбэр</span></article><article class="metric"><span class="metric-label">Курс дуусаагүй</span><strong>126</strong><span class="metric-note">17 төлбөр дутуу</span></article><article class="metric"><span class="metric-label">Бонус үлдэгдэл</span><strong>18,900,000₮</strong><span class="metric-note">Идэвхтэй хэрэглэгчид</span></article><article class="metric"><span class="metric-label">QR хүлээгдэж буй</span><strong>9</strong><span class="metric-note">Баталгаажуулах шаардлагатай</span></article></div>
+        <section class="panel"><div class="panel-head"><div><h2>Тайлангийн төрлүүд</h2><p>Админ Excel татах үндсэн хэсэг</p></div></div><div class="stack-list"><div class="stack-item"><strong>Салбарын орлогын тайлан</strong><span>Өдөр, сар, салбар, төлбөрийн төрлөөр</span></div><div class="stack-item"><strong>Хэрэглэгчийн тайлан</strong><span>Курс, төлбөр дутуу, bonus, тусгай хэрэглэгч</span></div><div class="stack-item"><strong>Ажилтны тайлан</strong><span>Гүйцэтгэл, томилгоо, Вип нэмэлт төлбөр</span></div></div></section>
+      </section>
+
+      <section class="view" id="loyaltyView">
+        <div class="content-grid"><section class="panel wide"><div class="panel-head"><div><h2>Бонус / Ваучер</h2><p>2 жилийн хэрэглээ, тусгай хувь, ажилтны хөнгөлөлт</p></div></div><div class="table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Төрөл</th><th>Одоогийн хувь</th><th>Бонус үлдэгдэл</th><th>Дүрэм</th></tr></thead><tbody>
+          <tr><td>Бат Хулан</td><td>Хэрэглэгч</td><td>5%</td><td>128,000₮</td><td>2 жилийн хэрэглээгээр өснө/буурна</td></tr>
+          <tr><td>Энх Номин</td><td>Тусгай хэрэглэгч</td><td>10%</td><td>420,000₮</td><td>Эхлэх хувь admin тохируулна</td></tr>
+          <tr><td>Болор</td><td>Ажилтан</td><td>-</td><td>0₮</td><td>Ажилтны хөнгөлөлт тусдаа</td></tr>
+        </tbody></table></div></section><section class="panel"><div class="panel-head"><div><h2>Ваучер</h2><p>Дараагийн шатанд эрх үүсгэх, ашиглах урсгал</p></div></div><div class="stack-list"><div class="stack-item"><strong>Бэлгийн ваучер</strong><span>Код, дүн, хугацаа, ашигласан түүх</span></div><div class="stack-item"><strong>Урамшууллын ваучер</strong><span>Салбар эсвэл бүх салбарт хүчинтэй</span></div></div></section></div>
+      </section>
+
+      <section class="view" id="vouchersView">
+        <section class="panel wide voucher-admin-panel">
+          <form class="voucher-role-form" id="voucherRoleForm">
+            <label>Нэр
+              <input class="input" id="voucherRoleName" placeholder="Нэр" required>
+            </label>
+            <label>Албан тушаал
+              <input class="input" id="voucherRolePosition" placeholder="Жишээ: Захирал">
+            </label>
+            <button class="primary-btn" id="voucherRoleSubmit" type="submit">Нэмэх</button>
+          </form>
+        </section>
+
+        <section class="panel wide voucher-role-panel">
+          <div class="voucher-role-list" id="voucherRoleRows"></div>
+        </section>
+
+        <section class="panel wide voucher-log-panel">
+          <div class="voucher-log-filter">
+            <input class="input native-date voucher-filter-input" id="voucherDateFilter" type="date" aria-label="Огноо">
+            <input class="input voucher-filter-input" id="voucherCustomerFilter" placeholder="Хэрэглэгч нэр">
+            <input class="input voucher-filter-input phone-filter" id="voucherPhoneFilter" placeholder="Утас" maxlength="8" inputmode="numeric">
+            <select class="input voucher-filter-input" id="voucherRoleFilter" aria-label="Роль">
+              <option value="">Бүх роль</option>
+            </select>
+            <button class="secondary-btn clear-icon-btn" id="voucherClearBtn" type="button" aria-label="Цэвэрлэх">×</button>
+          </div>
+          <div class="table-wrap voucher-log-table-wrap">
+            <table class="voucher-log-table">
+              <thead>
+                <tr>
+                  <th>Огноо</th>
+                  <th>Цаг</th>
+                  <th>Хэрэглэгч</th>
+                  <th>Утас</th>
+                  <th>Роль</th>
+                  <th>Ваучер дүн</th>
+                  <th>Тайлбар</th>
+                </tr>
+              </thead>
+              <tbody id="voucherLogRows"></tbody>
+            </table>
+          </div>
+          <div class="pagination-row" id="voucherPagination"></div>
+        </section>
+      </section>
+
+      <section class="view" id="giftCardsView">
+        <section class="panel wide gift-card-form-panel">
+          <form class="gift-card-form" id="giftCardForm">
+            <label>Картын дугаарууд
+              <textarea class="input gift-card-textarea" id="giftCardNumbers" rows="4" placeholder="Мөр бүрт нэг дугаар" required></textarea>
+            </label>
+            <label>Картын дүн ₮
+              <input class="input" id="giftCardAmount" type="number" min="1" step="1" placeholder="50000" required>
+            </label>
+            <label>Дуусах өдөр
+              <input class="input native-date" id="giftCardExpiry" type="date">
+            </label>
+            <button class="primary-btn" id="giftCardSubmit" type="submit">Нэмэх</button>
+            <div class="gift-card-import-row">
+              <label>Файл оруулах
+                <input class="input gift-card-file" id="giftCardImportFile" type="file" accept=".csv,.txt">
+              </label>
+              <button class="primary-btn" id="giftCardImportBtn" type="button">Импорт хийх</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel wide gift-card-list-panel">
+          <div class="gift-card-filter">
+            <input class="input" id="giftCardNumberFilter" placeholder="Дугаараар хайх">
+            <select class="input" id="giftCardStatusFilter">
+              <option value="all">Бүх төлөв</option>
+              <option value="fresh">Идэвхтэй</option>
+              <option value="partial">Ашиглаж байгаа</option>
+              <option value="used">Дууссан</option>
+              <option value="inactive">Идэвхгүй</option>
+            </select>
+            <input class="input native-date" id="giftCardFromFilter" type="date" aria-label="Эхлэх өдөр">
+            <input class="input native-date" id="giftCardToFilter" type="date" aria-label="Дуусах өдөр">
+            <button class="secondary-btn clear-icon-btn" id="giftCardClearBtn" type="button" aria-label="Цэвэрлэх">×</button>
+          </div>
+          <div class="table-wrap gift-card-table-wrap">
+            <table class="gift-card-table">
+              <thead>
+                <tr>
+                  <th>Дугаар</th>
+                  <th>Төлөв</th>
+                  <th>Дүн</th>
+                  <th>Үлдэгдэл</th>
+                  <th>Үүсгэсэн</th>
+                  <th>Дуусах</th>
+                  <th>Ашиглалт</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="giftCardRows"></tbody>
+            </table>
+          </div>
+          <div class="pagination-row" id="giftCardPagination"></div>
+        </section>
+      </section>
+
+      <section class="view" id="settingsServicesView">
+        <section class="panel wide service-master-panel">
+          <div class="service-settings-top">
+            <section class="service-rule-box">
+              <h2>Хүүхдийн насны хязгаар</h2>
+              <div class="service-rule-row">
+                <div class="age-stepper" aria-label="Хүүхдийн насны хязгаар">
+                  <button class="secondary-btn slot-step-btn" id="childAgeMinus" type="button" aria-label="Нас хасах">−</button>
+                  <input class="input slot-count-input" id="childAgeLimit" type="text" value="9" readonly aria-label="Хүүхдийн нас">
+                  <button class="secondary-btn slot-step-btn" id="childAgePlus" type="button" aria-label="Нас нэмэх">+</button>
+                </div>
+                <p id="childAgeNote"><strong>10+</strong> настай бол том хүний үнээр бодогдоно.</p>
+              </div>
+            </section>
+            <section class="service-rule-box">
+              <h2>Касс ангилал</h2>
+              <form class="service-category-form" id="productGroupForm">
+                <input class="input" id="productGroupName" placeholder="Жишээ: Шинэ брэнд">
+                <button class="primary-btn" type="submit">Нэмэх</button>
+              </form>
+              <div class="service-category-list" id="productGroupManager"></div>
+            </section>
+          </div>
+          <section class="service-form-panel">
+            <h2>Бараа, үйлчилгээ нэмэх</h2>
+            <form class="service-add-form" id="serviceSettingsForm">
+              <label>Код<input class="input" id="serviceCode" placeholder="B001"></label>
+              <label class="service-name-field">Үйлчилгээний нэр<input class="input" id="serviceName" required></label>
+              <label class="service-kind-field">Төрөл
+                <select class="input" id="serviceKind">
+                  <option value="single">Нэг удаа</option>
+                  <option value="course">Курс эмчилгээ</option>
+                  <option value="products">Касс (бараа)</option>
+                </select>
+              </label>
+              <label class="service-customer-field">Хэрэглэгч
+                <select class="input" id="serviceCustomerType">
+                  <option>Том хүн</option>
+                  <option>Хүүхэд</option>
+                  <option>Бүгд</option>
+                </select>
+              </label>
+              <label class="service-price-field">Үнэ ₮<input class="input" id="servicePrice" type="number" min="0" required></label>
+              <label class="course-only">Орлын тоо<input class="input" id="serviceVisits" type="number" min="1" value="4"></label>
+              <label class="product-only service-qty-field">Тоо<input class="input" id="serviceSaleQty" type="number" min="1" value="3" placeholder="3"></label>
+              <label class="product-only service-sale-field">Хямд үнэ ₮<input class="input" id="serviceSalePrice" type="number" min="0" placeholder="Байхгүй"></label>
+              <label class="product-only service-brand-field">Брэнд
+                <select class="input" id="serviceBrand"></select>
+              </label>
+              <button class="primary-btn service-add-submit" id="serviceSubmitBtn" type="submit">Нэмэх</button>
+            </form>
+          </section>
+          <div class="service-settings-tabs" id="serviceMainTabs"></div>
+          <div class="service-product-tabs" id="serviceProductTabs"></div>
+          <div class="table-wrap service-master-table-wrap">
+            <table class="service-master-table">
+              <thead id="serviceSettingsHead"></thead>
+              <tbody id="serviceSettingsRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="settingsScheduleView">
+        <section class="panel wide schedule-selector">
+          <label>Салбар
+            <select class="input" id="scheduleSalon">
+              <option value="" disabled>Салбар сонгох</option>
+              <option>Хан-Уул салбар</option>
+              <option>Төв салбар</option>
+              <option>Вип салбар</option>
+            </select>
+          </label>
+          <button class="primary-btn schedule-save" id="scheduleSave" type="button">Хадгалах</button>
+        </section>
+        <div class="schedule-grid">
+          <section class="panel schedule-box">
+            <h3>Ажлын өдөр (Да-Ба)</h3>
+            <div class="settings-fields two">
+              <label>Эхлэх цаг<input class="input" id="scheduleWorkStart" type="time" value="09:00"></label>
+              <label>Дуусах цаг<input class="input" id="scheduleWorkEnd" type="time" value="19:00"></label>
+            </div>
+          </section>
+          <section class="panel schedule-box">
+            <h3>Амралтын өдөр (Бя-Ня)</h3>
+            <div class="settings-fields two">
+              <label>Эхлэх цаг<input class="input" id="scheduleWeekendStart" type="time" value="10:00"></label>
+              <label>Дуусах цаг<input class="input" id="scheduleWeekendEnd" type="time" value="19:00"></label>
+            </div>
+          </section>
+          <section class="panel schedule-box">
+            <h3>Захиалгын тохиргоо</h3>
+            <div class="settings-fields two">
+              <label>Үргэлжлэх хугацаа (мин)<input class="input" id="scheduleDuration" type="number" min="10" step="5" value="30"></label>
+              <label>Нэг цагт хэдэн захиалга<input class="input" id="scheduleCapacity" type="number" min="1" value="4"></label>
+            </div>
+            <div class="settings-hint" id="scheduleHint">30 мин → 09:00, 09:30, 10:00... · 4 → нэг цагт 4 хүн</div>
+          </section>
+        </div>
+        <section class="panel wide schedule-preview">
+          <div class="panel-head"><div><h2>Цагийн сонголтын урьдчилсан харагдац</h2></div></div>
+          <p id="schedulePreviewCount">Нийт 21 цагийн сонголт:</p>
+          <div class="preview-slots" id="schedulePreviewSlots">
+            <span>09:00</span><span>09:30</span><span>10:00</span><span>10:30</span><span>11:00</span><span>11:30</span><span>12:00</span><span>12:30</span><span>13:00</span><span>13:30</span><span>14:00</span><span>14:30</span><span>15:00</span><span>15:30</span><span>16:00</span><span>16:30</span><span>17:00</span><span>17:30</span><span>18:00</span><span>18:30</span><span>19:00</span>
+          </div>
+        </section>
+      </section>
+      <section class="view" id="settingsHolidaysView">
+        <section class="branch-add-shell">
+          <div class="branch-add-title">
+            <span>Амралтын өдөр нэмэх</span>
+          </div>
+          <form class="branch-add-form clean-form" id="holidayForm">
+            <div class="holiday-form-grid">
+              <div class="holiday-salon-field">
+                <span>Салбар</span>
+                <div class="holiday-checks" id="holidaySalonChecks"></div>
+              </div>
+              <label>Огноо<input class="input" id="holidayDate" type="date" required></label>
+              <label>Амралтын нэр<input class="input" id="holidayName" required placeholder="Жишээ: Дотоод сургалт"></label>
+              <div class="form-actions">
+                <button class="primary-btn" type="submit">Хадгалах</button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel wide holiday-panel">
+          <div class="panel-head"><div><h2>Амралтын өдрийн жагсаалт</h2></div></div>
+          <div class="holiday-list" id="holidayList"></div>
+        </section>
+      </section>
+      <section class="view" id="settingsGeneralView">
+        <section class="panel general-settings-panel">
+          <form class="general-settings-form" id="generalSettingsForm">
+            <label>Оношилгооны зургийн тоо
+              <input class="input" id="diagnosisPhotoLimit" type="number" min="1">
+            </label>
+            <label>Засах, устгах код
+              <input class="input" id="deleteActionCode" maxlength="12">
+            </label>
+            <label>Касс засах хоног
+              <input class="input" id="kassEditDays" type="number" min="1">
+            </label>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit">Хадгалах</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel diagnosis-panel">
+          <h2>Оношилгоо</h2>
+          <form class="diagnosis-form" id="diagnosisTypeForm">
+            <input class="input" id="diagnosisTypeName" placeholder="Жишээ: Хуурайшилттай">
+            <button class="primary-btn" type="submit">Нэмэх</button>
+          </form>
+          <div class="service-category-list diagnosis-list" id="diagnosisTypeList"></div>
+        </section>
+      </section>
+      <section class="view" id="settingsPricingView">
+        <section class="panel pricing-policy-panel">
+          <form class="pricing-policy-form" id="pricePolicyForm">
+            <label>Вип өрөө нэмэгдэл ₮
+              <input class="input" id="vipRoomFee" type="number" min="0">
+            </label>
+            <label>Мастер массажист нэмэгдэл ₮
+              <input class="input" id="masterStaffFee" type="number" min="0">
+            </label>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit">Хадгалах</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel pricing-rule-panel">
+          <div class="pricing-rule-row">
+            <strong>Bonus шатлал</strong>
+            <span id="bonusTierSummary"></span>
+          </div>
+          <p class="pricing-note">Тусгай хэрэглэгчийн хувь 2 жилийн хэрэглээнээс хамаарч энэ дүрмээр дахин бодогдоно.</p>
+        </section>
+
+        <section class="panel pricing-type-panel">
+          <h2>Хэрэглэгчийн төрөл</h2>
+          <form class="pricing-type-form" id="customerTypeForm">
+            <input class="input" id="customerTypeName" placeholder="Жишээ: Вип хэрэглэгч">
+            <input class="input" id="customerTypeBonus" type="number" min="0" max="100" placeholder="Bonus %">
+            <select class="input" id="customerTypeDynamic">
+              <option value="true">Дүрмээр бодогдоно</option>
+              <option value="false">Байнгын</option>
+            </select>
+            <button class="primary-btn" id="customerTypeSubmit" type="submit">Нэмэх</button>
+          </form>
+          <div class="table-wrap customer-type-table-wrap">
+            <table class="branch-table customer-type-table">
+              <thead>
+                <tr>
+                  <th>Төрөл</th>
+                  <th>Эхлэх bonus</th>
+                  <th>Тохиргоо</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="customerTypeManager"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+      <section class="view" id="settingsDiscountsView">
+        <section class="discount-form-shell">
+          <form class="discount-form" id="discountForm">
+            <label class="discount-name-field">Нэр<input class="input" id="discountName" required placeholder="Жишээ: Мартын 8-ны хямдрал"></label>
+            <label>Хувь %<input class="input" id="discountPercent" type="number" min="1" max="100" required placeholder="10"></label>
+            <label>Эхлэх өдөр<input class="input" id="discountStartDate" type="date" required></label>
+            <label>Дуусах өдөр<input class="input" id="discountEndDate" type="date" required></label>
+            <div class="discount-salon-field">
+              <span>Салбар</span>
+              <div class="holiday-checks" id="discountSalonChecks"></div>
+            </div>
+            <div class="discount-days-field">
+              <span>Үйлчлэх гариг</span>
+              <div class="discount-day-list" id="discountDayList"></div>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel discount-service-panel">
+          <div class="discount-service-list" id="discountServiceList"></div>
+          <div class="form-actions discount-submit-actions">
+            <button class="primary-btn" id="discountSubmit" type="submit" form="discountForm">Нэмэх</button>
+          </div>
+        </section>
+
+        <section class="panel discount-list-panel">
+          <h2>Хямдралын жагсаалт</h2>
+          <div class="table-wrap customer-type-table-wrap">
+            <table class="branch-table discount-table">
+              <thead>
+                <tr>
+                  <th>Нэр</th>
+                  <th>Хувь</th>
+                  <th>Хугацаа</th>
+                  <th>Үйлчлэх гариг</th>
+                  <th>Салбар</th>
+                  <th>Үйлчилгээ</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="discountList"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+      <section class="view" id="staffView">
+        <div class="content-grid">
+          <section class="panel wide">
+            <div class="panel-head">
+              <div>
+                <h2>Ажилтнууд</h2>
+                <p>Үндсэн салон ба Вип ажилтан</p>
+              </div>
+              <button class="primary-btn" id="newStaffBtn">Ажилтан нэмэх</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Нэр</th>
+                    <th>Үндсэн салон</th>
+                    <th>Вип</th>
+                    <th>Гүйцэтгэлийн хувь</th>
+                    <th>Төлөв</th>
+                  </tr>
+                </thead>
+                <tbody id="staffRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Томилгоо</h2>
+                <p>Менежер шууд томилно</p>
+              </div>
+            </div>
+            <form id="assignmentForm" class="clean-form">
+              <label>Ажилтан
+                <select id="assignStaff" class="input"></select>
+              </label>
+              <label>Салбар
+                <select id="assignSalon" class="input"></select>
+              </label>
+              <label>Огноо
+                <input id="assignDate" class="input" type="date" value="2026-07-11">
+              </label>
+              <button class="primary-btn full" type="submit">Томилох</button>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="catalogView">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Үйлчилгээний сан</h2>
+              <p>Салбар өөрөө үнэ/үйлчилгээ засахгүй</p>
+            </div>
+            <button class="primary-btn" id="newCatalogBtn">Санд нэмэх</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Код</th>
+                  <th>Нэр</th>
+                  <th>Төрөл</th>
+                  <th>Default үнэ</th>
+                  <th>Салон</th>
+                  <th>Дүрэм</th>
+                </tr>
+              </thead>
+              <tbody id="catalogRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="auditView">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Үйлдлийн түүх</h2>
+              <p>Хэн, хэзээ, юу өөрчилсөн</p>
+            </div>
+          </div>
+          <div id="auditList" class="history-list"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" aria-hidden="true">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="modalTitle">Form</h2>
+          <p id="modalSubtitle">Мэдээллээ бөглөөд хадгална</p>
+        </div>
+        <button class="icon-btn visible" id="modalClose" aria-label="Close">×</button>
+      </div>
+      <div id="modalBody"></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast">Амжилттай хадгаллаа</div>
+  <script src="app.js?v=202607162245"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
