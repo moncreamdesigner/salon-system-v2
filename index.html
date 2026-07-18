@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607162245">
+  <link rel="stylesheet" href="styles.css?v=202607181800">
 </head>
 <body>
   <div class="app-shell">
@@ -20,10 +20,11 @@
       <nav class="nav" aria-label="Main navigation">
         <button class="nav-item active" data-view="bookings">Цаг захиалга</button>
         <button class="nav-item" data-view="customers">Хэрэглэгчид</button>
+        <button class="nav-item" data-view="kass">Касс хуваарь</button>
+        <button class="nav-item" data-view="performance">Гүйцэтгэл</button>
         <button class="nav-item" data-view="vouchers">Ваучер</button>
         <button class="nav-item" data-view="giftCards">Бэлгийн карт</button>
-        <button class="nav-item" data-view="kass">Касс хуваарь</button>
-        <button class="nav-item" data-view="staff">Ажилтан</button>
+        <button class="nav-item" data-view="dashboard">Хяналтын самбар</button>
         <div class="nav-group">
           <button class="nav-item nav-parent" type="button" id="settingsToggle" aria-expanded="false">Тохиргоо</button>
           <div class="nav-submenu" id="settingsSubmenu">
@@ -34,11 +35,12 @@
             <button class="nav-subitem" data-view="settingsHumanResources">Хүний нөөц</button>
             <button class="nav-subitem" data-view="settingsPricing">Үнийн бодлого</button>
             <button class="nav-subitem" data-view="settingsDiscounts">Хямдрал</button>
+            <button class="nav-subitem" data-view="groups">Групп</button>
+            <button class="nav-subitem" data-view="settingsDatabase">Өгөгдлийн сан</button>
             <button class="nav-subitem" data-view="settingsGeneral">Ерөнхий</button>
+            <button class="nav-subitem" data-view="audit">Үйлдлийн түүх</button>
           </div>
         </div>
-        <button class="nav-item" data-view="audit">Үйлдлийн түүх</button>
-        <button class="nav-item" data-view="dashboard">Хяналт</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -60,7 +62,7 @@
         <button class="info-excel-btn hidden" id="infoExcelBtn" type="button">↓ Excel татах</button>
       </section>
 
-      <section class="view" id="dashboardView">
+      <section class="view" id="groupsView">
         <div class="metric-grid">
           <article class="metric">
             <span class="metric-label">Өнөөдрийн орлого</span>
@@ -252,29 +254,24 @@
             <label>Ажилтан
               <select class="input" id="kassStaff" required></select>
             </label>
-          <div class="form-actions">
-            <button class="primary-btn" type="submit" id="kassSubmit">Нэмэх</button>
-          </div>
-        </form>
-      </section>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit" id="kassSubmit">Нэмэх</button>
+            </div>
+          </form>
+        </section>
 
         <section class="panel kass-history-panel">
           <div class="kass-filter-row">
             <input class="input" id="kassFromFilter" type="date">
             <input class="input" id="kassToFilter" type="date">
-            <input class="input" id="kassStaffFilter" placeholder="Ажилтан хайх">
             <select class="input" id="kassSalonFilter"></select>
+            <select class="input" id="kassStaffFilter" aria-label="Ажилтан шүүх"></select>
             <button class="secondary-btn icon-clear" type="button" id="kassClearBtn" aria-label="Цэвэрлэх">×</button>
           </div>
           <div class="table-wrap kass-table-wrap">
             <table class="branch-table kass-table">
               <thead>
-                <tr>
-                  <th>Огноо</th>
-                  <th>Ажилтан</th>
-                  <th>Салбар</th>
-                  <th>Үйлдэл</th>
-                </tr>
+                <tr><th>Огноо</th><th>Ажилтан</th><th>Салбар</th><th>Үйлдэл</th></tr>
               </thead>
               <tbody id="kassRows"></tbody>
             </table>
@@ -384,19 +381,6 @@
       </section>
 
 
-      <section class="view" id="kassView">
-        <div class="content-grid">
-          <section class="panel wide">
-            <div class="panel-head"><div><h2>Касс хуваарь</h2><p>Өдрийн касс, ээлж, хариуцсан ажилтны хяналт</p></div><button class="secondary-btn">Excel</button></div>
-            <div class="table-wrap"><table><thead><tr><th>Огноо</th><th>Салон</th><th>Ээлж</th><th>Касс ажилтан</th><th>Төлөв</th></tr></thead><tbody>
-              <tr><td>2026-07-11</td><td>Хан-Уул салбар</td><td>09:00-18:00</td><td>Номин</td><td><span class="badge green">Нээлттэй</span></td></tr>
-              <tr><td>2026-07-11</td><td>Төв салбар</td><td>10:00-19:00</td><td>Болор</td><td><span class="badge yellow">Хүлээгдэж буй</span></td></tr>
-            </tbody></table></div>
-          </section>
-          <section class="panel"><div class="panel-head"><div><h2>Өдрийн хаалт</h2><p>Бэлэн, карт, шилжүүлэг тусдаа шалгана</p></div></div><div class="stack-list"><div class="stack-item"><strong>Бэлэн мөнгө</strong><span>1,240,000₮ баталгаажсан</span></div><div class="stack-item"><strong>Карт / Пос</strong><span>2,680,000₮ тулгалт хүлээгдэж байна</span></div><div class="stack-item"><strong>Bonus ашиглалт</strong><span>180,000₮ хэрэглэгдсэн</span></div></div></section>
-        </div>
-      </section>
-
       <section class="view" id="paymentsView">
         <section class="panel"><div class="panel-head"><div><h2>Касс орлого</h2><p>Үйлчилгээ, бүтээгдэхүүн, бонус, ваучер орлогын нэгтгэл</p></div><button class="secondary-btn">Excel</button></div><div class="table-wrap"><table><thead><tr><th>Цаг</th><th>Хэрэглэгч</th><th>Төрөл</th><th>Төлбөр</th><th>Нийт</th><th>Төлөв</th></tr></thead><tbody>
           <tr><td>10:20</td><td>Бат Хулан</td><td>Курс эмчилгээ</td><td>Карт</td><td>96,250₮</td><td><span class="badge green">Төлөгдсөн</span></td></tr>
@@ -406,11 +390,83 @@
       </section>
 
       <section class="view" id="performanceView">
-        <section class="panel"><div class="panel-head"><div><h2>Ажилтны гүйцэтгэл</h2><p>Устсан үйлчилгээ гүйцэтгэл дээр үлдэхгүй байх зарчмаар бодогдоно</p></div><button class="secondary-btn">Excel</button></div><div class="table-wrap"><table><thead><tr><th>Ажилтан</th><th>Салон</th><th>Үйлчилгээ</th><th>Борлуулалт</th><th>Гүйцэтгэлийн хувь</th></tr></thead><tbody>
-          <tr><td>Хулан</td><td>Хан-Уул салбар</td><td>8</td><td>760,000₮</td><td>76,000₮</td></tr>
-          <tr><td>Номин</td><td>Вип салбар</td><td>5</td><td>520,000₮</td><td>62,400₮</td></tr>
-          <tr><td>Болор</td><td>Төв салбар</td><td>6</td><td>410,000₮</td><td>32,800₮</td></tr>
-        </tbody></table></div></section>
+        <div class="performance-section-tabs service-settings-tabs" role="tablist" aria-label="Гүйцэтгэлийн хэсэг">
+          <button class="performance-section-tab service-main-tab active" type="button" role="tab" data-performance-tab="revenue" aria-selected="true">Касс орлого</button>
+          <button class="performance-section-tab service-main-tab" type="button" role="tab" data-performance-tab="staff" aria-selected="false">Ажилтны гүйцэтгэл</button>
+        </div>
+
+        <div class="performance-tab-panel" id="performanceRevenueTab" role="tabpanel">
+          <section class="panel kass-revenue-filter-panel">
+            <div class="kass-revenue-filter-row">
+              <label>Эхлэх огноо<input class="input" id="kassRevenueFrom" type="date"></label>
+              <label>Дуусах огноо<input class="input" id="kassRevenueTo" type="date"></label>
+              <label>Салбар<select class="input" id="kassRevenueSalon"></select></label>
+              <button class="secondary-btn icon-clear" type="button" id="kassRevenueClear" aria-label="Шүүлтүүр цэвэрлэх">×</button>
+            </div>
+          </section>
+
+          <section class="kass-revenue-summary-grid">
+            <article class="panel kass-revenue-total-card">
+              <span>Нийт орлого</span>
+              <strong id="kassRevenueTotal">0₮</strong>
+              <small id="kassRevenueCount">0 төлбөр</small>
+            </article>
+            <article class="panel kass-revenue-method-card">
+              <span class="kass-revenue-summary-title">Төлбөрийн хэлбэрээр</span>
+              <div class="kass-revenue-methods" id="kassRevenueMethods"></div>
+            </article>
+          </section>
+
+          <section class="panel kass-revenue-list-panel">
+            <div class="table-wrap kass-revenue-table-wrap">
+              <table class="booking-table kass-revenue-table">
+                <thead>
+                  <tr><th>Огноо</th><th>Цаг</th><th>Овог нэр</th><th>Утас</th><th>Авсан үйлчилгээ</th><th>Салбар</th><th>Төлбөр</th><th>Үнийн дүн</th></tr>
+                </thead>
+                <tbody id="kassRevenueRows"></tbody>
+              </table>
+            </div>
+            <div class="pagination-row" id="kassRevenuePagination"></div>
+          </section>
+        </div>
+
+        <div class="performance-tab-panel hidden" id="performanceStaffTab" role="tabpanel">
+          <section class="panel performance-filter-panel">
+            <form id="performanceFilterForm" class="clean-form performance-filter-form">
+              <label>Сар
+                <select class="input" id="performanceMonth"></select>
+              </label>
+              <label>Эхлэх огноо
+                <input class="input" id="performanceFrom" type="date">
+              </label>
+              <label>Дуусах огноо
+                <input class="input" id="performanceTo" type="date">
+              </label>
+              <label>Салбар
+                <select class="input" id="performanceSalon"></select>
+              </label>
+              <button class="secondary-btn clear-icon-btn performance-clear-btn" id="performanceClear" type="button" aria-label="Шүүлтүүр цэвэрлэх">×</button>
+            </form>
+          </section>
+          <section class="panel performance-list-panel">
+            <div class="table-wrap performance-table-wrap">
+              <table class="performance-table">
+                <thead>
+                  <tr>
+                    <th>Ажилтан</th>
+                    <th>Үйлчилгээ</th>
+                    <th class="amount-cell">Нийт төлбөр</th>
+                    <th class="amount-cell">Үйлчилгээ %</th>
+                    <th class="amount-cell">Касс %</th>
+                    <th class="amount-cell">Нийт %</th>
+                    <th>Үйлдэл</th>
+                  </tr>
+                </thead>
+                <tbody id="performanceRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section class="view" id="reportsView">
@@ -528,6 +584,27 @@
           </div>
           <div class="pagination-row" id="giftCardPagination"></div>
         </section>
+      </section>
+
+      <section class="view" id="dashboardView">
+        <section class="panel dashboard-filter-panel">
+          <div class="dashboard-filter-fields">
+            <label>Харагдац
+              <select class="input" id="dashboardViewMode"></select>
+            </label>
+            <label>Хугацаа
+              <select class="input" id="dashboardMonth"></select>
+            </label>
+            <label>Салбар
+              <select class="input" id="dashboardSalon"></select>
+            </label>
+          </div>
+          <div class="dashboard-filter-actions">
+            <span class="dashboard-scope-note" id="dashboardScopeNote"></span>
+            <button class="primary-btn" id="dashboardExportExcel" type="button">↓ Excel татах</button>
+          </div>
+        </section>
+        <div id="dashboardContent"></div>
       </section>
 
       <section class="view" id="settingsServicesView">
@@ -665,14 +742,27 @@
       <section class="view" id="settingsGeneralView">
         <section class="panel general-settings-panel">
           <form class="general-settings-form" id="generalSettingsForm">
-            <label>Оношилгооны зургийн тоо
-              <input class="input" id="diagnosisPhotoLimit" type="number" min="1">
-            </label>
             <label>Засах, устгах код
               <input class="input" id="deleteActionCode" maxlength="12">
             </label>
-            <label>Касс засах хоног
+            <label>Үйлчилгээ засах, устгах хоног
+              <input class="input" id="serviceEditDays" type="number" min="1">
+            </label>
+            <label>Касс, томилгоо
               <input class="input" id="kassEditDays" type="number" min="1">
+            </label>
+            <label>Оношилгооны зургийн хэмжээ
+              <select class="input" id="diagnosisCaptureMode">
+                <option value="native">Камерын үндсэн хэмжээ</option>
+                <option value="fixed">Тогтсон хэмжээ</option>
+              </select>
+            </label>
+            <label id="diagnosisCaptureSizeField">Тогтсон хэмжээ
+              <select class="input" id="diagnosisCaptureSize">
+                <option value="1920x1440">1920 × 1440 · Өндөр чанар</option>
+                <option value="1280x960">1280 × 960 · Зөвлөмж</option>
+                <option value="960x720">960 × 720 · Бага хэмжээ</option>
+              </select>
             </label>
             <div class="form-actions">
               <button class="primary-btn" type="submit">Хадгалах</button>
@@ -687,6 +777,84 @@
             <button class="primary-btn" type="submit">Нэмэх</button>
           </form>
           <div class="service-category-list diagnosis-list" id="diagnosisTypeList"></div>
+        </section>
+      </section>
+      <section class="view" id="settingsDatabaseView">
+        <section class="panel database-shell">
+        <div class="database-section-tabs service-settings-tabs" role="tablist" aria-label="Өгөгдлийн сангийн хэсэг">
+          <button class="database-section-tab service-main-tab active" type="button" role="tab" data-database-tab="import" aria-selected="true">Шилжүүлэх</button>
+          <button class="database-section-tab service-main-tab" type="button" role="tab" data-database-tab="backup" aria-selected="false">Backup</button>
+          <button class="database-section-tab service-main-tab" type="button" role="tab" data-database-tab="cleanup" aria-selected="false">Цэвэрлэх</button>
+        </div>
+
+        <section class="database-scope-bar" id="databaseScopeBar">
+          <label>Өгөгдлийн ангилал
+            <select class="input" id="databaseCategory">
+              <option value="all">Бүх өгөгдөл</option>
+              <option value="customers">Хэрэглэгч ба групп</option>
+              <option value="bookings">Цаг захиалга</option>
+              <option value="services">Үйлчилгээ ба оношилгоо</option>
+              <option value="kass">Касс ба төлбөр</option>
+              <option value="staff">Ажилтан ба томилгоо</option>
+              <option value="settings">Салбар ба тохиргоо</option>
+            </select>
+          </label>
+          <span id="databaseCategorySummary"></span>
+        </section>
+
+        <div class="database-tab-panel" id="databaseImportTab" role="tabpanel">
+          <section class="database-card">
+            <div class="database-card-head">
+              <strong>Өгөгдөл оруулах</strong>
+              <span>Сонгосон ангиллын JSON файлыг оруулна. Холбоотой мэдээлэл хамт шилжинэ.</span>
+            </div>
+            <form class="database-import-form" id="databaseImportForm">
+              <label>Оруулах хэлбэр
+                <select class="input" id="databaseImportMode">
+                  <option value="merge">Одоогийн мэдээлэлтэй нэгтгэх</option>
+                  <option value="replace">Бүрэн солих</option>
+                </select>
+              </label>
+              <label>JSON файл
+                <input class="input database-file-input" id="databaseImportFile" type="file" accept=".json,application/json" required>
+              </label>
+              <button class="primary-btn" type="submit">Өгөгдөл оруулах</button>
+            </form>
+            <p class="database-file-summary" id="databaseImportSummary">Файл сонгоогүй байна.</p>
+            <div class="database-note">Импорт хийхийн өмнө одоогийн мэдээллээс автомат backup үүснэ. SQL болон CSV файлыг эхлээд JSON бүтэц рүү хөрвүүлэх шаардлагатай.</div>
+          </section>
+
+          <section class="database-card database-export-card">
+            <div class="database-card-head">
+              <strong>Одоогийн өгөгдлийг татах</strong>
+              <span>Сонгосон ангиллын мэдээллийг нэг JSON файл болгоно.</span>
+            </div>
+            <button class="secondary-btn" id="databaseExportCurrent" type="button">JSON татах</button>
+          </section>
+        </div>
+
+        <div class="database-tab-panel hidden" id="databaseBackupTab" role="tabpanel">
+          <section class="database-card">
+            <div class="database-backup-toolbar">
+              <div class="database-card-head">
+                <strong>Backup жагсаалт</strong>
+                <span>Сэргээхээс өмнө одоогийн мэдээлэл мөн автоматаар хадгалагдана.</span>
+              </div>
+              <button class="primary-btn" id="databaseCreateBackup" type="button">Backup үүсгэх</button>
+            </div>
+            <div class="database-backup-list" id="databaseBackupList"></div>
+          </section>
+        </div>
+
+        <div class="database-tab-panel hidden" id="databaseCleanupTab" role="tabpanel">
+          <section class="database-card database-danger-card">
+            <div class="database-card-head">
+              <strong>Үйл ажиллагааны өгөгдөл цэвэрлэх</strong>
+              <span>Хэрэглэгч, захиалга, үйлчилгээний түүх, төлбөр болон кассын бүртгэлийг устгана. Салбар, ажилтан, үйлчилгээний тохиргоо үлдэнэ.</span>
+            </div>
+            <button class="danger-btn" id="databaseClearOperationalData" type="button">Backup аваад цэвэрлэх</button>
+          </section>
+        </div>
         </section>
       </section>
       <section class="view" id="settingsPricingView">
@@ -783,55 +951,6 @@
           </div>
         </section>
       </section>
-      <section class="view" id="staffView">
-        <div class="content-grid">
-          <section class="panel wide">
-            <div class="panel-head">
-              <div>
-                <h2>Ажилтнууд</h2>
-                <p>Үндсэн салон ба Вип ажилтан</p>
-              </div>
-              <button class="primary-btn" id="newStaffBtn">Ажилтан нэмэх</button>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Нэр</th>
-                    <th>Үндсэн салон</th>
-                    <th>Вип</th>
-                    <th>Гүйцэтгэлийн хувь</th>
-                    <th>Төлөв</th>
-                  </tr>
-                </thead>
-                <tbody id="staffRows"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Томилгоо</h2>
-                <p>Менежер шууд томилно</p>
-              </div>
-            </div>
-            <form id="assignmentForm" class="clean-form">
-              <label>Ажилтан
-                <select id="assignStaff" class="input"></select>
-              </label>
-              <label>Салбар
-                <select id="assignSalon" class="input"></select>
-              </label>
-              <label>Огноо
-                <input id="assignDate" class="input" type="date" value="2026-07-11">
-              </label>
-              <button class="primary-btn full" type="submit">Томилох</button>
-            </form>
-          </section>
-        </div>
-      </section>
-
       <section class="view" id="catalogView">
         <section class="panel">
           <div class="panel-head">
@@ -861,13 +980,16 @@
 
       <section class="view" id="auditView">
         <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Үйлдлийн түүх</h2>
-              <p>Хэн, хэзээ, юу өөрчилсөн</p>
-            </div>
+          <div class="audit-filter-row">
+            <label>Үйлдлийн төрөл
+              <select class="input" id="auditActionFilter">
+                <option value="">Бүх үйлдэл</option>
+              </select>
+            </label>
+            <button class="secondary-btn icon-clear" id="auditFilterClear" type="button" aria-label="Шүүлтүүр цэвэрлэх">×</button>
           </div>
           <div id="auditList" class="history-list"></div>
+          <div class="pagination-row" id="auditPagination"></div>
         </section>
       </section>
     </main>
@@ -887,7 +1009,7 @@
   </div>
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
-  <script src="app.js?v=202607162245"></script>
+  <script src="app.js?v=202607181800"></script>
 </body>
 </html>
 

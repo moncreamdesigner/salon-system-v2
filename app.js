@@ -4,6 +4,7 @@ const parseMoneyInput = value => Number(String(value || "").replace(/[^\d]/g, ""
 const moneyInputValue = value => Number(value || 0) > 0 ? formatNumber(value) : "";
 
 const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
+const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
 const DELETE_CODE = "1989";
 let bookingDropdownCloseBound = false;
 let nativeSelectCloseBound = false;
@@ -94,6 +95,9 @@ const defaultState = {
   },
   generalSettings: {
     diagnosisPhotoLimit: 5,
+    diagnosisCaptureMode: "fixed",
+    diagnosisCaptureSize: "1280x960",
+    diagnosisJpegQuality: 0.92,
     deleteCode: "1989",
     kassEditDays: 3,
     serviceEditDays: 3,
@@ -143,6 +147,9 @@ const defaultState = {
 };
 
 let state = loadState();
+state.audit = (Array.isArray(state.audit) ? state.audit : []).map(item =>
+  Object.prototype.hasOwnProperty.call(item, "createdAt") ? item : { ...item, createdAt: "" }
+);
 state.bookings = state.bookings.filter(booking => booking.status !== "cancelled");
 state.holidays = Array.isArray(state.holidays) ? state.holidays : [];
 state.kassSchedules = Array.isArray(state.kassSchedules) ? state.kassSchedules : [...defaultState.kassSchedules];
@@ -209,21 +216,80 @@ const humanResourceSeed = [
   { id: 11, name: "Энхзул", phone: "80057040", position: "Касс", bonusCommission: 0, kassCommission: 2, status: "active" }
 ];
 ensureHumanResourcesData();
+state.assignments = (Array.isArray(state.assignments) ? state.assignments : []).map((assignment, index) => {
+  const staff = state.staff.find(item => Number(item.id) === Number(assignment.staffId) || item.name === assignment.staff);
+  return {
+    id: Number(assignment.id) || index + 1,
+    staffId: Number(assignment.staffId) || Number(staff?.id) || null,
+    staff: assignment.staff || staff?.name || "",
+    from: assignment.from || staff?.salon || "",
+    to: assignment.to || "",
+    startDate: assignment.startDate || assignment.date || todayText(),
+    endDate: assignment.endDate || assignment.date || todayText(),
+    startTime: assignment.startTime || String(assignment.time || "09:00-20:00").split("-")[0] || "09:00",
+    endTime: assignment.endTime || String(assignment.time || "09:00-20:00").split("-")[1] || "20:00",
+    reason: assignment.reason || "Салбарын ачаалал нөхөх",
+    status: assignment.status || "active"
+  };
+});
+removePaginationDemoData();
 let activeView = "bookings";
 let bookingTimeOptions = [];
 let branchEditingId = null;
 let humanResourceEditingId = null;
+let assignmentEditingId = null;
+let assignmentPage = 1;
+let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
-const retiredViews = new Set(["services", "payments", "performance", "reports", "catalog"]);
+const retiredViews = new Set(["services", "payments", "reports", "catalog", "staff"]);
 const activeAccount = { role: "admin", salon: "Хан-Уул салбар" };
+
+const dashboardDemoData = {
+  months: [
+    { key: "2026-02", label: "2026 оны 2 сар", short: "2 сар", revenue: 112800000, payments: 1846, visits: 1572, products: 28600000, newCustomers: 118, outstanding: 7400000, completion: 89, occupancy: 67 },
+    { key: "2026-03", label: "2026 оны 3 сар", short: "3 сар", revenue: 126400000, payments: 2032, visits: 1718, products: 31400000, newCustomers: 136, outstanding: 6900000, completion: 91, occupancy: 71 },
+    { key: "2026-04", label: "2026 оны 4 сар", short: "4 сар", revenue: 119700000, payments: 1944, visits: 1640, products: 29800000, newCustomers: 121, outstanding: 8100000, completion: 88, occupancy: 69 },
+    { key: "2026-05", label: "2026 оны 5 сар", short: "5 сар", revenue: 138900000, payments: 2218, visits: 1886, products: 35200000, newCustomers: 154, outstanding: 7600000, completion: 92, occupancy: 76 },
+    { key: "2026-06", label: "2026 оны 6 сар", short: "6 сар", revenue: 147600000, payments: 2341, visits: 1997, products: 38100000, newCustomers: 167, outstanding: 7200000, completion: 93, occupancy: 79 },
+    { key: "2026-07", label: "2026 оны 7 сар", short: "7 сар", revenue: 156840000, payments: 2476, visits: 2114, products: 42600000, newCustomers: 183, outstanding: 6750000, completion: 94, occupancy: 82 }
+  ],
+  branches: [
+    { name: "Хан-Уул салбар", share: .41, completionDelta: 1, occupancyDelta: 3 },
+    { name: "Төв салбар", share: .36, completionDelta: -1, occupancyDelta: 0 },
+    { name: "Вип салбар", share: .23, completionDelta: 2, occupancyDelta: -4 }
+  ],
+  services: [
+    { name: "Курс эмчилгээ", share: 38, color: "#60bf63" },
+    { name: "Нэг удаагийн үйлчилгээ", share: 27, color: "#91cf86" },
+    { name: "Касс бүтээгдэхүүн", share: 21, color: "#bfdcae" },
+    { name: "Оношилгоо", share: 14, color: "#dfe9d7" }
+  ],
+  payments: [
+    { name: "Карт", share: 46, color: "#60bf63" },
+    { name: "QPay", share: 29, color: "#87c77e" },
+    { name: "Бэлэн", share: 17, color: "#b7d9aa" },
+    { name: "Ваучер / карт", share: 8, color: "#dfe9d7" }
+  ],
+  topServices: [
+    ["Үс ургуулах курс эмчилгээ", 342, 28400000],
+    ["Халгай Nano багц", 298, 22600000],
+    ["Хуйх, үсний оношилгоо", 276, 13800000],
+    ["Үс уналтын нэг удаагийн эмчилгээ", 244, 17600000],
+    ["Халгай шампунь 550", 219, 11800000]
+  ]
+};
 let activeServiceMainTab = "single";
 let activeProductGroup = "gift";
+let activeDatabaseTab = "import";
 let serviceEditingRef = null;
 let customerPage = 1;
 let holidayEditingId = null;
 let customerTypeEditingName = null;
 let kassEditingId = null;
 let kassPage = 1;
+let kassRevenuePage = 1;
+let activePerformanceTab = "revenue";
+let auditPage = 1;
 let bookingPage = 1;
 let voucherPage = 1;
 let giftCardPage = 1;
@@ -445,6 +511,11 @@ function clearCustomerUiState(customer) {
   delete customer.profileServiceKind;
   delete customer.profileServiceEditingIndex;
   delete customer.profileServiceEditMode;
+  delete customer.profileKassGroup;
+  delete customer.profileKassCart;
+  delete customer.profileKassEditingIndex;
+  delete customer.profileKassDraftSalon;
+  delete customer.profileKassDraftDate;
   delete customer.profileInfoEditing;
   delete customer.profileJoinGroupOpen;
   (customer.serviceHistory || []).forEach(item => {
@@ -455,7 +526,250 @@ function clearCustomerUiState(customer) {
 }
 
 function saveState() {
+  const createdAt = auditNowText();
+  state.audit.forEach(item => {
+    if (!Object.prototype.hasOwnProperty.call(item, "createdAt")) item.createdAt = createdAt;
+  });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+}
+
+function auditNowText() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function removePaginationDemoData() {
+  if (!state.paginationDemoSeedV1) return;
+  const seededOn = "2026-07-17";
+  const salons = state.salons.map(item => item.name).filter(Boolean);
+  const staffList = state.staff.filter(item => item.status !== "inactive");
+  const demoDate = offset => {
+    const date = new Date(`${seededOn}T12:00:00`);
+    date.setDate(date.getDate() - offset);
+    return localDateText(date);
+  };
+  const demoCustomers = state.customers.filter(customer =>
+    /^Demo хэрэглэгч \d{3}$/.test(String(customer.name || "")) ||
+    (customer.serviceHistory || []).some(item => item.demoPagination)
+  );
+  const demoPhones = new Set(demoCustomers.map(customer => String(customer.phone || "")));
+
+  state.customers = state.customers.filter(customer => !demoCustomers.includes(customer));
+  state.bookings = state.bookings.filter(booking => {
+    const phone = String(booking.phone || "");
+    return !demoPhones.has(phone) && !/^70000\d{3}$/.test(phone);
+  });
+  state.voucherLogs = state.voucherLogs.filter(log => !/^Demo хэрэглэгч \d{3}$/.test(String(log.customer || "")));
+  state.giftCards = state.giftCards.filter(card => !/^GC-1\d{6}$/.test(String(card.cardNumber || "")));
+  state.audit = state.audit.filter(item => !String(item.meta || "").includes("• Demo бүртгэл "));
+
+  const kassMatches = (item, generatedIndex) => {
+    const expectedDate = demoDate(generatedIndex % 60);
+    return item.date === expectedDate &&
+      item.createdAt === expectedDate &&
+      item.salon === (salons[generatedIndex % Math.max(salons.length, 1)] || "Хан-Уул салбар") &&
+      item.staff === (staffList[generatedIndex % Math.max(staffList.length, 1)]?.name || "Ариундулам");
+  };
+  const kassOffset = Array.from({ length: Math.min(50, state.kassSchedules.length) + 1 }, (_, offset) => offset)
+    .find(offset => kassMatches(state.kassSchedules.at(-1) || {}, state.kassSchedules.length - offset));
+  if (kassOffset !== undefined) {
+    while (state.kassSchedules.length > kassOffset && kassMatches(state.kassSchedules.at(-1), state.kassSchedules.length - kassOffset)) {
+      state.kassSchedules.pop();
+    }
+  }
+
+  const assignmentMatches = (item, generatedIndex) => {
+    const staff = staffList[generatedIndex % Math.max(staffList.length, 1)] || {};
+    const from = staff.salon || salons[0] || "Хан-Уул салбар";
+    const destination = salons.find(name => name !== from) || salons[0] || "Төв салбар";
+    const expectedDate = demoDate(generatedIndex % 50);
+    return item.staff === (staff.name || "Ариундулам") &&
+      item.from === from && item.to === destination &&
+      item.startDate === expectedDate && item.endDate === expectedDate &&
+      item.startTime === "09:00" && item.endTime === "20:00" &&
+      item.reason === (generatedIndex % 2 ? "Салбарын ачаалал нөхөх" : "Ажилтан түр орлон ажиллах");
+  };
+  const assignmentOffset = Array.from({ length: Math.min(50, state.assignments.length) + 1 }, (_, offset) => offset)
+    .find(offset => assignmentMatches(state.assignments.at(-1) || {}, state.assignments.length - offset));
+  if (assignmentOffset !== undefined) {
+    while (state.assignments.length > assignmentOffset && assignmentMatches(state.assignments.at(-1), state.assignments.length - assignmentOffset)) {
+      state.assignments.pop();
+    }
+  }
+
+  delete state.paginationDemoSeedV1;
+  state.paginationDemoCleanupV1 = true;
+  saveState();
+}
+
+function ensurePaginationDemoData() {
+  if (state.paginationDemoSeedV1) return;
+  const targetCount = 115;
+  const today = todayText();
+  const salons = state.salons.map(item => item.name).filter(Boolean);
+  const staffList = state.staff.filter(item => item.status !== "inactive");
+  const serviceNames = ["Үс ургуулах эмчилгээ", "Хуйхны оношилгоо", "Гүн цэвэрлэгээ", "Толгойн бариа", "Арчилгааны бүтээгдэхүүн"];
+  const paymentMethods = ["card", "cash", "qpay", "transfer"];
+  const demoDate = offset => {
+    const date = new Date(`${today}T12:00:00`);
+    date.setDate(date.getDate() - offset);
+    return localDateText(date);
+  };
+  const nextCollectionId = collection => Math.max(0, ...collection.map(item => Number(item.id) || 0)) + 1;
+
+  state.customers = Array.isArray(state.customers) ? state.customers : [];
+  let activeCustomerCount = state.customers.filter(item => !item.deleted && !item.deletedAt).length;
+  let customerId = nextCollectionId(state.customers);
+  while (activeCustomerCount < targetCount) {
+    const index = activeCustomerCount + 1;
+    const salon = salons[index % Math.max(salons.length, 1)] || "Хан-Уул салбар";
+    const staff = staffList[index % Math.max(staffList.length, 1)]?.name || "Ариундулам";
+    const service = serviceNames[index % serviceNames.length];
+    const method = paymentMethods[index % paymentMethods.length];
+    const amount = 35000 + (index % 12) * 7500;
+    const time = `${String(9 + (index % 11)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`;
+    state.customers.push({
+      id: customerId,
+      name: `Demo хэрэглэгч ${String(index).padStart(3, "0")}`,
+      phone: String(70000000 + index),
+      type: index % 9 === 0 ? "Тусгай хэрэглэгч" : "Хэрэглэгч",
+      bonus: index % 9 === 0 ? "10%" : "2%",
+      activeCourse: false,
+      course: "",
+      unpaid: false,
+      spent: amount,
+      balance: 0,
+      last: today,
+      registeredAt: demoDate(index % 45),
+      age: 24 + (index % 30),
+      gender: index % 4 === 0 ? "Эрэгтэй" : "Эмэгтэй",
+      district: ["Хан-Уул", "Баянгол", "Чингэлтэй", "Сүхбаатар"][index % 4],
+      khoroo: `${1 + (index % 20)}-р хороо`,
+      salon,
+      groupId: null,
+      groupRole: "",
+      currentTreatment: null,
+      serviceHistory: [{
+        demoPagination: true,
+        kind: "single",
+        title: service,
+        service,
+        date: today,
+        time,
+        createdAt: today,
+        staff,
+        salon,
+        price: amount,
+        basePrice: amount,
+        balance: 0,
+        payments: [{ paidAmount: amount, amount, date: today, time, createdAt: `${today} ${time}`, method }],
+        signed: true
+      }]
+    });
+    customerId += 1;
+    activeCustomerCount += 1;
+  }
+  ensureCustomerWorkflowData();
+
+  state.bookings = Array.isArray(state.bookings) ? state.bookings : [];
+  let bookingId = nextCollectionId(state.bookings);
+  while (state.bookings.length < targetCount) {
+    const index = state.bookings.length + 1;
+    state.bookings.push({
+      id: bookingId++,
+      salon: salons[index % Math.max(salons.length, 1)] || "Хан-Уул салбар",
+      date: demoDate(index % 35),
+      time: `${String(9 + (index % 10)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`,
+      phone: String(70000000 + ((index % targetCount) + 1)),
+      source: index % 3 === 0 ? "site" : "admin",
+      status: index % 4 === 0 ? "pending" : "confirmed"
+    });
+  }
+
+  state.kassSchedules = Array.isArray(state.kassSchedules) ? state.kassSchedules : [];
+  let kassId = nextCollectionId(state.kassSchedules);
+  while (state.kassSchedules.length < targetCount) {
+    const index = state.kassSchedules.length + 1;
+    state.kassSchedules.push({
+      id: kassId++,
+      date: demoDate(index % 60),
+      salon: salons[index % Math.max(salons.length, 1)] || "Хан-Уул салбар",
+      staff: staffList[index % Math.max(staffList.length, 1)]?.name || "Ариундулам",
+      createdAt: demoDate(index % 60)
+    });
+  }
+
+  state.assignments = Array.isArray(state.assignments) ? state.assignments : [];
+  let assignmentId = nextCollectionId(state.assignments);
+  while (state.assignments.length < targetCount) {
+    const index = state.assignments.length + 1;
+    const staff = staffList[index % Math.max(staffList.length, 1)] || {};
+    const from = staff.salon || salons[0] || "Хан-Уул салбар";
+    const destination = salons.find(name => name !== from) || salons[0] || "Төв салбар";
+    const date = demoDate(index % 50);
+    state.assignments.push({
+      id: assignmentId++,
+      staffId: Number(staff.id) || null,
+      staff: staff.name || "Ариундулам",
+      from,
+      to: destination,
+      startDate: date,
+      endDate: date,
+      startTime: "09:00",
+      endTime: "20:00",
+      reason: index % 2 ? "Салбарын ачаалал нөхөх" : "Ажилтан түр орлон ажиллах",
+      status: "active"
+    });
+  }
+
+  state.voucherLogs = Array.isArray(state.voucherLogs) ? state.voucherLogs : [];
+  let voucherId = nextCollectionId(state.voucherLogs);
+  while (state.voucherLogs.length < targetCount) {
+    const index = state.voucherLogs.length + 1;
+    const role = state.voucherRoles[index % Math.max(state.voucherRoles.length, 1)] || {};
+    state.voucherLogs.push({
+      id: voucherId++,
+      date: demoDate(index % 60),
+      time: `${String(9 + (index % 11)).padStart(2, "0")}:${index % 2 ? "15" : "45"}`,
+      customer: `Demo хэрэглэгч ${String(index).padStart(3, "0")}`,
+      phone: String(70000000 + index),
+      roleName: role.name || "Менежер",
+      rolePosition: role.position || "Салбарын эрхлэгч",
+      amount: 20000 + (index % 10) * 10000,
+      note: index % 2 ? "Урамшууллын эрх" : "Хэрэглэгчийн ваучер"
+    });
+  }
+
+  state.giftCards = Array.isArray(state.giftCards) ? state.giftCards : [];
+  let giftCardId = nextCollectionId(state.giftCards);
+  while (state.giftCards.length < targetCount) {
+    const index = state.giftCards.length + 1;
+    const amount = [50000, 75000, 100000, 150000][index % 4];
+    state.giftCards.push({
+      id: giftCardId,
+      cardNumber: `GC-${String(1000000 + giftCardId)}`,
+      status: index % 10 === 0 ? "inactive" : "new",
+      amount,
+      remainingAmount: amount,
+      createdAt: demoDate(index % 70),
+      expiryDate: "2026-12-31",
+      usage: []
+    });
+    giftCardId += 1;
+  }
+
+  state.audit = Array.isArray(state.audit) ? state.audit : [];
+  const auditTypes = ["booking_created", "customer_updated", "payment_created", "service_created", "staff_assigned", "kass_schedule_saved"];
+  while (state.audit.length < targetCount) {
+    const index = state.audit.length + 1;
+    state.audit.push({
+      title: auditTypes[index % auditTypes.length],
+      meta: `Менежер • Demo бүртгэл ${String(index).padStart(3, "0")} • ${demoDate(index % 45)}`
+    });
+  }
+
+  state.paginationDemoSeedV1 = true;
+  saveState();
 }
 
 function scheduleDefaults() {
@@ -584,20 +898,22 @@ function saveScheduleSettings() {
 }
 
 const titles = {
-  dashboard: ["Хяналт", "Бүх салбарын өдөр тутмын ажиллагааны товч хяналт"],
+  groups: ["Групп", "Бүртгэлтэй групп, гишүүд, хэрэглээ болон бонусын мэдээлэл"],
   customers: ["Хэрэглэгчид", "Нэгдсэн хэрэглэгчийн сан, курсийн явц, төлбөрийн тэмдэглэгээ"],
   kass: ["Касс хуваарь", "Өдрийн касс, ээлж, хаалтын хяналт"],
+  kassRevenue: ["Касс орлого", "Салбарын орлого, төлбөрийн хэлбэр болон гүйлгээний жагсаалт"],
   services: ["Үйлчилгээ", "Үйлчилгээний бүртгэл, нэмэгдэл үнэ, төлбөрийн урсгал"],
   payments: ["Касс орлого", "Төлбөр, bonus, voucher орлогын бүртгэл"],
-  performance: ["Гүйцэтгэл", "Ажилтны борлуулалт ба урамшууллын хяналт"],
+  performance: ["Гүйцэтгэл", "Ажилтны үйлчилгээ, салбар дамжсан ажил ба урамшууллын тооцоо"],
   reports: ["Тайлан", "Салбар, хэрэглэгч, ажилтны Excel тайлан"],
   bookings: ["Цаг захиалга", "Хэрэглэгчийн хүсэлт болон ресепшний хяналт"],
   staff: ["Ажилтан", "Үндсэн салбар, Вип ажилтан, томилгоо"],
   catalog: ["Бараа, үйлчилгээ", "Админаас удирдах үйлчилгээ, бүтээгдэхүүний сан"],
   loyalty: ["Бонус / Ваучер", "Бонус хувь, ваучер, ажилтны хөнгөлөлт"],
+  dashboard: ["Хяналтын самбар", "Орлого, үйлчилгээ, хэрэглэгч болон салбарын нэгдсэн үзүүлэлт"],
   settings: ["Тохиргоо", "Зургийн тоо, нэмэгдэл үнэ, цаг захиалгын ерөнхий тохиргоо"],
   settingsServices: ["Үйлчилгээ", "Нэг удаа, курс, кассын үйлчилгээний master тохиргоо"],
-  audit: ["Үйлдлийн түүх", "Sensitive action бүрийн мөр"],
+  audit: ["Үйлдлийн түүх", "Системд хийсэн өөрчлөлт бүрийн бүртгэл"],
   profile: ["Хэрэглэгчийн профайл", "Бүх салбарын үйлчилгээний түүх"]
 };
 
@@ -701,6 +1017,15 @@ function ensureHumanResourcesData() {
   saveState();
 }
 
+function assignmentTimeOptions(selected = "09:00") {
+  const options = [];
+  for (let minutes = 9 * 60; minutes <= 20 * 60; minutes += 30) {
+    const value = `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    options.push(`<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`);
+  }
+  return options.join("");
+}
+
 function ensureHumanResourceShell() {
   const submenu = document.getElementById("settingsSubmenu");
   if (submenu && !submenu.querySelector('[data-view="settingsHumanResources"]')) {
@@ -718,6 +1043,11 @@ function ensureHumanResourceShell() {
   section.className = "view";
   section.id = "settingsHumanResourcesView";
   section.innerHTML = `
+    <div class="hr-section-tabs service-settings-tabs" role="tablist" aria-label="Хүний нөөцийн хэсэг">
+      <button class="hr-section-tab service-main-tab active" type="button" role="tab" data-hr-tab="assignment" aria-selected="true">Томилгоо</button>
+      <button class="hr-section-tab service-main-tab" type="button" role="tab" data-hr-tab="staff" aria-selected="false">Ажилтны бүртгэл</button>
+    </div>
+    <div class="hr-tab-panel hidden" id="hrStaffTab" role="tabpanel">
     <section class="branch-add-shell human-resource-shell">
       <div class="branch-add-title"><span id="hrFormTitle">Ажилтан нэмэх</span></div>
       <form id="hrStaffForm" class="clean-form human-resource-form">
@@ -737,7 +1067,7 @@ function ensureHumanResourceShell() {
             <option>Касс</option>
           </select>
         </label>
-        <label>Массажист %
+        <label>Үйлчилгээ %
           <input id="hrStaffBonus" class="input" type="number" min="0" max="100" step="0.01" value="10" required>
         </label>
         <label>Касс %
@@ -764,7 +1094,7 @@ function ensureHumanResourceShell() {
               <th>Утас</th>
               <th>Салбар</th>
               <th>Албан тушаал</th>
-              <th>Урамшуулал</th>
+              <th>Үйлчилгээ %</th>
               <th>Касс %</th>
               <th>Статус</th>
               <th>Үйлдэл</th>
@@ -774,9 +1104,101 @@ function ensureHumanResourceShell() {
         </table>
       </div>
     </section>
+    </div>
+    <div class="hr-tab-panel active" id="hrAssignmentTab" role="tabpanel">
+    <section class="assignment-shell">
+      <form id="hrAssignmentForm" class="clean-form assignment-form">
+        <label>Ажилтан
+          <select id="hrAssignmentStaff" class="input" required></select>
+        </label>
+        <label>Очих салбар
+          <select id="hrAssignmentSalon" class="input" required></select>
+        </label>
+        <label>Эхлэх өдөр
+          <input id="hrAssignmentStartDate" class="input" type="date" required>
+        </label>
+        <label>Дуусах өдөр
+          <input id="hrAssignmentEndDate" class="input" type="date" required>
+        </label>
+        <label>Эхлэх цаг
+          <select id="hrAssignmentStartTime" class="input" required>${assignmentTimeOptions("09:00")}</select>
+        </label>
+        <label>Дуусах цаг
+          <select id="hrAssignmentEndTime" class="input" required>${assignmentTimeOptions("20:00")}</select>
+        </label>
+        <label class="assignment-reason-field">Шалтгаан
+          <input id="hrAssignmentReason" class="input" placeholder="Ж: Хүн хүч дутсан">
+        </label>
+        <div class="assignment-form-actions">
+          <button class="secondary-btn icon-action hidden" id="hrAssignmentCancel" type="button" aria-label="Засахаа болих">×</button>
+          <button class="primary-btn" id="hrAssignmentSubmit" type="submit">Томилох</button>
+        </div>
+      </form>
+    </section>
+    <section class="panel assignment-list-card">
+      <div class="assignment-list-toolbar">
+        <label>Ажилтны нэр
+          <input class="input" id="hrAssignmentNameSearch" type="search" placeholder="Нэрээр хайх">
+        </label>
+        <label>Эхлэх огноо
+          <input class="input" id="hrAssignmentFromSearch" type="date">
+        </label>
+        <label>Дуусах огноо
+          <input class="input" id="hrAssignmentToSearch" type="date">
+        </label>
+        <button class="secondary-btn clear-icon-btn" id="hrAssignmentSearchClear" type="button" aria-label="Хайлт цэвэрлэх">×</button>
+      </div>
+      <div class="table-wrap assignment-table-wrap">
+        <table class="booking-table assignment-table">
+          <thead>
+            <tr>
+              <th>Ажилтан</th>
+              <th>Үндсэн салбар</th>
+              <th>Очих салбар</th>
+              <th>Хугацаа</th>
+              <th>Шалтгаан</th>
+              <th>Үйлдэл</th>
+            </tr>
+          </thead>
+          <tbody id="hrAssignmentRows"></tbody>
+        </table>
+      </div>
+      <div class="pagination-row assignment-pagination" id="hrAssignmentPagination"></div>
+    </section>
+    </div>
   `;
-  const anchor = document.getElementById("settingsBonusView") || document.getElementById("staffView");
+  const anchor = document.getElementById("settingsServicesView") || document.getElementById("settingsGeneralView");
   anchor?.parentNode?.insertBefore(section, anchor.nextSibling);
+}
+
+function setHumanResourceTab(name = "assignment") {
+  document.querySelectorAll(".hr-section-tab").forEach(button => {
+    const active = button.dataset.hrTab === name;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.getElementById("hrAssignmentTab")?.classList.toggle("hidden", name !== "assignment");
+  document.getElementById("hrAssignmentTab")?.classList.toggle("active", name === "assignment");
+  document.getElementById("hrStaffTab")?.classList.toggle("hidden", name !== "staff");
+  document.getElementById("hrStaffTab")?.classList.toggle("active", name === "staff");
+}
+
+function setPerformanceTab(name = "revenue") {
+  activePerformanceTab = name === "staff" ? "staff" : "revenue";
+  document.querySelectorAll(".performance-section-tab").forEach(button => {
+    const active = button.dataset.performanceTab === activePerformanceTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.getElementById("performanceRevenueTab")?.classList.toggle("hidden", activePerformanceTab !== "revenue");
+  document.getElementById("performanceStaffTab")?.classList.toggle("hidden", activePerformanceTab !== "staff");
+  if (activePerformanceTab === "revenue") {
+    renderKassRevenue();
+    renderInfoHeader("kassRevenue");
+  } else {
+    renderPerformance();
+    renderInfoHeader("performance");
+  }
 }
 
 function formatPercent(value) {
@@ -827,17 +1249,24 @@ function customerDefaultWorkflow(customer) {
 
 function ensureCustomerWorkflowData() {
   const fallbackCustomers = new Map(defaultState.customers.map(customer => [Number(customer.id), customer]));
-  defaultState.customers.forEach(customer => {
-    if (!state.customers.some(item => Number(item.id) === Number(customer.id))) {
-      state.customers.push(structuredClone(customer));
-    }
-  });
+  const permanentlyDeletedIds = new Set((state.permanentlyDeletedCustomerIds || []).map(Number));
+  state.customers = state.customers.filter(customer => !permanentlyDeletedIds.has(Number(customer.id)));
+  if (!state.databaseOperationalDataCleared) {
+    defaultState.customers.forEach(customer => {
+      if (permanentlyDeletedIds.has(Number(customer.id))) return;
+      if (!state.customers.some(item => Number(item.id) === Number(customer.id))) {
+        state.customers.push(structuredClone(customer));
+      }
+    });
+  }
   const defaultGroups = structuredClone(defaultState.customerGroups);
-  defaultGroups.forEach(group => {
-    if (!state.customerGroups.some(item => Number(item.id) === Number(group.id))) {
-      state.customerGroups.push(group);
-    }
-  });
+  if (!state.databaseOperationalDataCleared) {
+    defaultGroups.forEach(group => {
+      if (!state.customerGroups.some(item => Number(item.id) === Number(group.id))) {
+        state.customerGroups.push(group);
+      }
+    });
+  }
   state.customers = state.customers.map(customer => {
     const defaults = customerDefaultWorkflow(customer);
     const fallback = fallbackCustomers.get(Number(customer.id)) || {};
@@ -863,7 +1292,8 @@ function ensureCustomerWorkflowData() {
       gender: customer.gender || fallback.gender || "",
       district: customer.district || fallback.district || "",
       khoroo: customer.khoroo || fallback.khoroo || "",
-      registeredAt: customer.registeredAt || customer.last || todayText()
+      registeredAt: customer.registeredAt || customer.last || todayText(),
+      deleted: Boolean(customer.deleted || customer.deletedAt)
     };
   });
 }
@@ -929,13 +1359,14 @@ function groupBonusInfo(group) {
   };
 }
 
-function applyGroupPayment(group, paidAmount, bonusAmount, paidDate) {
+function applyGroupPayment(group, paidAmount, bonusAmount, paidDate, options = {}) {
   if (!group) return null;
   const spentAmount = Math.max(0, Number(paidAmount || 0));
   const usedAmount = Math.max(0, Number(bonusAmount || 0));
   const nextSpent = Math.max(0, Number(group.spent2y || 0) + spentAmount);
   const bonusPercent = bonusPercentForSpent(nextSpent);
-  const bonusEarned = Math.round(spentAmount * bonusPercent / 100);
+  const bonusEligibleAmount = options.bonusEligible === false ? 0 : spentAmount;
+  const bonusEarned = Math.round(bonusEligibleAmount * bonusPercent / 100);
 
   group.spent2y = nextSpent;
   group.bonusPool = Math.max(0, Number(group.bonusPool || 0) + bonusEarned);
@@ -944,6 +1375,7 @@ function applyGroupPayment(group, paidAmount, bonusAmount, paidDate) {
   return {
     groupId: group.id,
     groupSpentAmount: spentAmount,
+    groupBonusEligibleAmount: bonusEligibleAmount,
     groupBonusEarned: bonusEarned,
     groupBonusPercent: bonusPercent,
     groupBonusUsed: usedAmount,
@@ -962,6 +1394,29 @@ function reverseGroupPayment(payment, fallbackGroup = null) {
   group.spent2y = Math.max(0, Number(group.spent2y || 0) - spentAmount);
   group.bonusPool = Math.max(0, Number(group.bonusPool || 0) - bonusEarned);
   group.usedBonus = Math.max(0, Number(group.usedBonus || 0) - bonusUsed);
+}
+
+function reverseGiftCardPayment(payment, customer = null, historyItem = null) {
+  if (payment?.method !== "gift_card") return;
+  const card = findGiftCard(payment.referenceLabel || payment.giftCardNumber || "");
+  if (!card) return;
+  const restoredAmount = Math.max(0, Number(payment.paidAmount || payment.amount || 0));
+  card.remainingAmount = Math.min(Number(card.amount || 0), Number(card.remainingAmount || 0) + restoredAmount);
+  if (card.status !== "inactive") card.status = card.remainingAmount <= 0 ? "used" : "new";
+
+  card.usage = Array.isArray(card.usage) ? card.usage : [];
+  const usageId = payment.giftCardUsageId;
+  let usageIndex = usageId ? card.usage.findIndex(item => item.id === usageId) : -1;
+  if (usageIndex < 0) {
+    const serviceName = historyItem?.service || historyItem?.title || "";
+    usageIndex = card.usage.findIndex(item =>
+      Number(item.amount || 0) === restoredAmount &&
+      (!customer || !item.phone || String(item.phone) === String(customer.phone || "")) &&
+      (!serviceName || !item.service || item.service === serviceName) &&
+      (!payment.date || !item.date || item.date === payment.date)
+    );
+  }
+  if (usageIndex >= 0) card.usage.splice(usageIndex, 1);
 }
 
 function treatmentStageClass(treatment) {
@@ -1216,27 +1671,44 @@ function generalSettings() {
   if (Number(state.generalSettings.kassEditDays) <= 0) {
     state.generalSettings.kassEditDays = defaultState.generalSettings.kassEditDays;
   }
+  if (Number(state.generalSettings.serviceEditDays) <= 0) {
+    state.generalSettings.serviceEditDays = defaultState.generalSettings.serviceEditDays;
+  }
   return state.generalSettings;
 }
 
 function renderGeneralSettings() {
   const settings = generalSettings();
-  const photoLimit = document.getElementById("diagnosisPhotoLimit");
   const deleteCode = document.getElementById("deleteActionCode");
   const kassDays = document.getElementById("kassEditDays");
-  if (photoLimit) photoLimit.value = settings.diagnosisPhotoLimit;
+  const serviceDays = document.getElementById("serviceEditDays");
+  const captureMode = document.getElementById("diagnosisCaptureMode");
+  const captureSize = document.getElementById("diagnosisCaptureSize");
   if (deleteCode) deleteCode.value = settings.deleteCode;
   if (kassDays) kassDays.value = settings.kassEditDays;
+  if (serviceDays) serviceDays.value = settings.serviceEditDays;
+  if (captureMode) captureMode.value = settings.diagnosisCaptureMode || "fixed";
+  if (captureSize) captureSize.value = settings.diagnosisCaptureSize || "1280x960";
+  toggleDiagnosisCaptureSizeSetting();
+  enhanceNativeSelects(["diagnosisCaptureMode", "diagnosisCaptureSize"]);
   renderDiagnosisTypes();
+}
+
+function toggleDiagnosisCaptureSizeSetting() {
+  const fixed = formValue("diagnosisCaptureMode") !== "native";
+  document.getElementById("diagnosisCaptureSizeField")?.classList.toggle("hidden", !fixed);
 }
 
 function saveGeneralSettings(event) {
   event.preventDefault();
   state.generalSettings = {
     ...generalSettings(),
-    diagnosisPhotoLimit: Number(formValue("diagnosisPhotoLimit")) || 1,
     deleteCode: formValue("deleteActionCode") || "1989",
-    kassEditDays: Number(formValue("kassEditDays")) || generalSettings().kassEditDays
+    kassEditDays: Number(formValue("kassEditDays")) || generalSettings().kassEditDays,
+    serviceEditDays: Number(formValue("serviceEditDays")) || generalSettings().serviceEditDays,
+    diagnosisCaptureMode: formValue("diagnosisCaptureMode") === "native" ? "native" : "fixed",
+    diagnosisCaptureSize: formValue("diagnosisCaptureSize") || "1280x960",
+    diagnosisJpegQuality: 0.92
   };
   saveState();
   renderInfoHeader(activeView);
@@ -1313,6 +1785,7 @@ function populateKassSelects() {
   const salon = document.getElementById("kassSalon");
   const staff = document.getElementById("kassStaff");
   const filter = document.getElementById("kassSalonFilter");
+  const staffFilter = document.getElementById("kassStaffFilter");
   const currentSalonValue = isSalonAccount() ? activeAccount.salon : (salon?.value || salons[0]?.name || "");
   const staffList = isSalonAccount()
     ? state.staff.filter(staffItem => staffItem.salon === activeAccount.salon)
@@ -1323,6 +1796,8 @@ function populateKassSelects() {
   const salonValue = currentSalonValue;
   const staffValue = staff?.value || staffList[0]?.name || "";
   const filterValue = isSalonAccount() ? activeAccount.salon : (filter?.value || "");
+  const staffFilterValue = staffFilter?.value || "";
+  const filterStaffList = state.staff.filter(item => !filterValue || item.salon === filterValue);
   if (salon) {
     salon.innerHTML = formSalonOptions;
     salon.value = salons.some(item => item.name === salonValue) ? salonValue : salons[0]?.name || "";
@@ -1337,7 +1812,11 @@ function populateKassSelects() {
     filter.value = salons.some(item => item.name === filterValue) ? filterValue : "";
     filter.disabled = isSalonAccount();
   }
-  enhanceNativeSelects(["kassSalon", "kassStaff", "kassSalonFilter"]);
+  if (staffFilter) {
+    staffFilter.innerHTML = `<option value="">Бүх ажилтан</option>${filterStaffList.map(item => `<option value="${htmlSafe(item.name)}">${htmlSafe(item.name)}</option>`).join("")}`;
+    staffFilter.value = filterStaffList.some(item => item.name === staffFilterValue) ? staffFilterValue : "";
+  }
+  enhanceNativeSelects(["kassSalon", "kassStaff", "kassStaffFilter", "kassSalonFilter"]);
 }
 
 function resetKassForm() {
@@ -1349,6 +1828,148 @@ function resetKassForm() {
   document.getElementById("kassEndDate").value = todayText();
   document.getElementById("kassSubmit").textContent = "Нэмэх";
   populateKassSelects();
+}
+
+function kassRevenueServiceName(item = {}) {
+  if (Array.isArray(item.products) && item.products.length) {
+    return item.products.map(product => product.name || product.product || "Бүтээгдэхүүн").join(", ");
+  }
+  return item.service || item.title || "Үйлчилгээ";
+}
+
+function kassRevenueSourceRows() {
+  const rows = [];
+  state.customers.forEach(customer => {
+    (customer.serviceHistory || []).forEach((item, historyIndex) => {
+      const payments = Array.isArray(item.payments) ? item.payments : [];
+      const salon = item.salon || item.branch || customer.salon || "—";
+      const service = kassRevenueServiceName(item);
+      if (payments.length) {
+        payments.forEach((payment, paymentIndex) => {
+          const amount = Number(payment.paidAmount || payment.amount || 0);
+          if (amount <= 0) return;
+          const createdAt = String(payment.createdAt || "");
+          rows.push({
+            id: `${customer.id}-${historyIndex}-${paymentIndex}`,
+            date: payment.date || createdAt.slice(0, 10) || item.date || customer.last || todayText(),
+            time: /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(createdAt) ? createdAt.slice(11, 16) : payment.time || "",
+            customer: customer.name || "—",
+            phone: customer.phone || "—",
+            service,
+            salon,
+            method: payment.method || "card",
+            amount
+          });
+        });
+        return;
+      }
+      const paid = servicePaidAmount(item);
+      if (paid <= 0) return;
+      rows.push({
+        id: `${customer.id}-${historyIndex}-legacy`,
+        date: item.date || customer.last || todayText(),
+        time: item.time || "",
+        customer: customer.name || "—",
+        phone: customer.phone || "—",
+        service,
+        salon,
+        method: item.paymentMethod || "card",
+        amount: paid
+      });
+    });
+  });
+  if (rows.length) return rows;
+
+  const demoCustomers = state.customers.filter(customer => !customer.deleted && !customer.deletedAt).slice(0, 8);
+  const demoSalons = state.salons.map(salon => salon.name).filter(Boolean);
+  const services = ["Үс ургуулах курс эмчилгээ", "Гүн цэвэрлэгээ", "Халгай Nano шампунь", "Толгойн бариа", "Хуйхны оношилгоо", "Бүтээгдэхүүний багц"];
+  const methods = ["card", "cash", "qpay", "transfer"];
+  const amounts = [72000, 58500, 13500, 45000, 96000, 132000, 28000, 64000, 85000, 39500, 118000, 52000];
+  return amounts.map((amount, index) => {
+    const customer = demoCustomers[index % Math.max(demoCustomers.length, 1)] || {};
+    const date = new Date(`${todayText()}T00:00:00`);
+    date.setDate(date.getDate() - (index % 12));
+    return {
+      id: `demo-revenue-${index}`,
+      date: localDateText(date),
+      time: `${String(19 - (index % 9)).padStart(2, "0")}:${index % 2 ? "18" : "50"}`,
+      customer: customer.name || `Хэрэглэгч ${index + 1}`,
+      phone: customer.phone || `9900${String(index + 1).padStart(4, "0")}`,
+      service: services[index % services.length],
+      salon: demoSalons[index % Math.max(demoSalons.length, 1)] || "Хан-Уул салбар",
+      method: methods[index % methods.length],
+      amount
+    };
+  });
+}
+
+function initializeKassRevenueFilters() {
+  const from = document.getElementById("kassRevenueFrom");
+  const to = document.getElementById("kassRevenueTo");
+  const salon = document.getElementById("kassRevenueSalon");
+  if (!from || !to || !salon) return;
+  if (!from.value) from.value = todayText();
+  if (!to.value) to.value = todayText();
+  if (!salon.dataset.ready) {
+    const availableSalons = isSalonAccount() ? state.salons.filter(item => item.name === activeAccount.salon) : state.salons;
+    salon.innerHTML = `${isSalonAccount() ? "" : `<option value="">Бүх салбар</option>`}${availableSalons.map(item => `<option value="${htmlSafe(item.name)}">${htmlSafe(item.name)}</option>`).join("")}`;
+    salon.value = isSalonAccount() ? activeAccount.salon : "";
+    salon.disabled = isSalonAccount();
+    salon.dataset.ready = "true";
+    enhanceNativeSelects(["kassRevenueSalon"]);
+  }
+}
+
+function renderKassRevenue() {
+  const rowsBox = document.getElementById("kassRevenueRows");
+  if (!rowsBox) return;
+  initializeKassRevenueFilters();
+  const from = document.getElementById("kassRevenueFrom")?.value || "";
+  const to = document.getElementById("kassRevenueTo")?.value || "";
+  const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("kassRevenueSalon")?.value || "");
+  const filtered = kassRevenueSourceRows()
+    .filter(row => !from || row.date >= from)
+    .filter(row => !to || row.date <= to)
+    .filter(row => !salon || row.salon === salon)
+    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+  const total = filtered.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const methodTotals = filtered.reduce((totals, row) => {
+    totals[row.method] = Number(totals[row.method] || 0) + Number(row.amount || 0);
+    return totals;
+  }, {});
+  document.getElementById("kassRevenueTotal").textContent = money(total);
+  document.getElementById("kassRevenueCount").textContent = `${filtered.length} төлбөр`;
+  document.getElementById("kassRevenueMethods").innerHTML = Object.entries(methodTotals).map(([method, amount]) => `
+    <div class="kass-revenue-method"><span>${htmlSafe(paymentMethodOptionsLabel(method) || method)}</span><strong>${money(amount)}</strong></div>
+  `).join("") || `<span class="muted">Төлбөрийн мэдээлэл алга</span>`;
+
+  const pageSize = 100;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  kassRevenuePage = Math.min(Math.max(kassRevenuePage, 1), pageCount);
+  const pageRows = filtered.slice((kassRevenuePage - 1) * pageSize, kassRevenuePage * pageSize);
+  rowsBox.innerHTML = pageRows.map(row => `
+    <tr>
+      <td>${htmlSafe(row.date)}</td>
+      <td class="kass-revenue-time">${htmlSafe(row.time || "—")}</td>
+      <td>${htmlSafe(row.customer)}</td>
+      <td>${htmlSafe(row.phone)}</td>
+      <td class="kass-revenue-service-cell">${htmlSafe(row.service)}</td>
+      <td>${htmlSafe(row.salon)}</td>
+      <td class="kass-revenue-payment-method">${htmlSafe(paymentMethodOptionsLabel(row.method) || row.method)}</td>
+      <td><strong class="kass-revenue-amount">${money(row.amount)}</strong></td>
+    </tr>
+  `).join("") || `<tr><td colspan="8" class="empty-state">Сонгосон хугацаанд орлого бүртгэгдээгүй</td></tr>`;
+
+  const pagination = document.getElementById("kassRevenuePagination");
+  if (pagination) {
+    pagination.innerHTML = filtered.length > pageSize ? `
+      <button class="secondary-btn" type="button" id="kassRevenuePrev" ${kassRevenuePage <= 1 ? "disabled" : ""}>Өмнөх</button>
+      <span>${kassRevenuePage} / ${pageCount}</span>
+      <button class="secondary-btn" type="button" id="kassRevenueNext" ${kassRevenuePage >= pageCount ? "disabled" : ""}>Дараах</button>
+    ` : "";
+    document.getElementById("kassRevenuePrev")?.addEventListener("click", () => { kassRevenuePage -= 1; renderKassRevenue(); });
+    document.getElementById("kassRevenueNext")?.addEventListener("click", () => { kassRevenuePage += 1; renderKassRevenue(); });
+  }
 }
 
 function renderKassSchedule() {
@@ -1949,6 +2570,7 @@ function infoForView(name) {
   const staff = state.staff;
   const catalog = state.catalog;
   const today = todayText();
+  const performanceReport = buildPerformanceReport();
   const currentMonthKass = state.kassSchedules
     .filter(item => monthText(item.date) === monthText(today))
     .filter(item => !isSalonAccount() || item.salon === activeAccount.salon)
@@ -1978,6 +2600,14 @@ function infoForView(name) {
       ["Их дүүрэг", topCustomerDistrict(customers)]
     ]],
     kass: ["ЭНЭ САРЫН КАСС", currentMonthKassStats.length ? currentMonthKassStats : [["Бүртгэл", "алга"]]],
+    kassRevenue: (() => {
+      const rows = kassRevenueSourceRows().filter(row => !isSalonAccount() || row.salon === activeAccount.salon);
+      return ["КАСС ОРЛОГО", [
+        ["Нийт орлого", money(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0))],
+        ["Төлбөр", rows.length],
+        ["Салбар", isSalonAccount() ? activeAccount.salon : new Set(rows.map(row => row.salon)).size]
+      ]];
+    })(),
     services: ["ҮЙЛЧИЛГЭЭНИЙ БҮРТГЭЛ", [
       ["Нийт", services.length],
       ["Идэвхтэй курс", customers.filter(item => item.activeCourse).length],
@@ -1990,11 +2620,26 @@ function infoForView(name) {
       ["Дутуу", 1],
       ["Бонус ашиглалт", "180,000₮"]
     ]],
-    performance: ["АЖИЛТНЫ ГҮЙЦЭТГЭЛ", [
-      ["Ажилтан", staff.length],
-      ["Вип ажилтан", staff.filter(item => item.vip).length],
-      ["Томилгоо", state.assignments.length],
-      ["Нийт хувь", "171,200₮"]
+    dashboard: (() => {
+      const month = dashboardSelectedMonth();
+      const salon = dashboardSelectedSalon();
+      const snapshot = dashboardSnapshot(month, salon);
+      const mode = dashboardSelectedViewMode();
+      const modeTitles = { overview: "ЕРӨНХИЙ ТОЙМ", operations: "ӨДРИЙН АЖИЛЛАГАА", cashflow: "МӨНГӨН УРСГАЛ", system: "СИСТЕМИЙН ХЯНАЛТ" };
+      const modeStats = {
+        overview: [["Хугацаа", month.label], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Орлого", money(snapshot.revenue)], ["Үйлчилгээ", formatNumber(snapshot.visits)]],
+        operations: [["Өдөр", today], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Захиалга", Math.max(12, Math.round(96 * (salon ? dashboardBranch(salon).share : 1)))], ["Дүүргэлт", `${snapshot.occupancy}%`]],
+        cashflow: [["Хугацаа", month.label], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Орлого", money(snapshot.revenue)], ["Авлага", money(snapshot.outstanding)]],
+        system: [["Хамрах хүрээ", salon || "Нийт систем"], ["Өнөөдрийн үйлдэл", Math.round(512 * (salon ? dashboardBranch(salon).share : 1))], ["Сүүлийн backup", "03:10"], ["Анхааруулга", 28]]
+      };
+      return [modeTitles[mode] || modeTitles.overview, modeStats[mode] || modeStats.overview];
+    })(),
+    performance: ["ГҮЙЦЭТГЭЛ", [
+      ["Хугацаа", performanceReport.periodLabel],
+      ["Ажилтан", performanceReport.rows.length],
+      ["Үйлчилгээ", performanceReport.singleCount + performanceReport.courseCount],
+      ["Орлого", money(performanceReport.revenue)],
+      ["Урамшуулал", money(performanceReport.commission)]
     ]],
     reports: ["ТАЙЛАН", [
       ["Сарын орлого", "128,400,000₮"],
@@ -2060,9 +2705,16 @@ function infoForView(name) {
       ["Салбар", new Set(state.holidays.map(item => item.salon)).size]
     ]],
     settingsGeneral: ["ЕРӨНХИЙ ТОХИРГОО", [
-      ["Зургийн тоо", generalSettings().diagnosisPhotoLimit],
-      ["Касс хоног", generalSettings().kassEditDays],
+      ["Үйлчилгээ засах/устгах хоног", generalSettings().serviceEditDays],
+      ["Касс, томилгоо", generalSettings().kassEditDays],
+      ["Зургийн хэмжээ", generalSettings().diagnosisCaptureMode === "native" ? "Камерын үндсэн" : generalSettings().diagnosisCaptureSize],
       ["Оношилгоо", state.diagnosisTypes.length]
+    ]],
+    settingsDatabase: ["ӨГӨГДЛИЙН САН", [
+      ["Хэрэглэгч", state.customers.filter(item => !item.deleted).length],
+      ["Цаг захиалга", state.bookings.length],
+      ["Төлбөр", kassRevenueSourceRows().length],
+      ["Backup", databaseBackups().length]
     ]],
     settingsPricing: ["ҮНИЙН БОДЛОГО", [
       ["Вип өрөө", money(pricePolicy().vipRoomFee)],
@@ -2086,6 +2738,7 @@ function infoForView(name) {
       ["Нийт", staff.length],
       ["Идэвхтэй", staff.filter(item => item.status !== "inactive").length],
       ["Идэвхгүй", staff.filter(item => item.status === "inactive").length],
+      ["Түр томилгоо", state.assignments.length],
       ["Дундаж хувь", `${Math.round(staff.reduce((sum, item) => sum + Number(item.bonusCommission ?? parseFloat(item.commission) ?? 0), 0) / Math.max(staff.length, 1))}%`]
     ]],
     audit: ["ҮЙЛДЛИЙН ТҮҮХ", [
@@ -2094,11 +2747,11 @@ function infoForView(name) {
       ["Чухал үйлдэл", 4],
       ["Excel таталт", 1]
     ]],
-    dashboard: ["ХЯНАЛТ", [
-      ["Салбар", state.salons.length],
-      ["Өнөөдрийн захиалга", bookings.filter(item => item.date === today).length],
-      ["Идэвхтэй курс", customers.filter(item => item.activeCourse).length],
-      ["QR хүлээгдэж буй", 9]
+    groups: ["ГРУПП", [
+      ["Нийт групп", state.customerGroups.length],
+      ["Нийт гишүүн", state.customerGroups.reduce((sum, group) => sum + (group.members || []).length, 0)],
+      ["Нийт хэрэглээ", money(state.customerGroups.reduce((sum, group) => sum + Number(group.spent2y || 0), 0))],
+      ["Бонус үлдэгдэл", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.balance || 0), 0))]
     ]],
     profile: (() => {
       const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId)) || customers[0];
@@ -2125,8 +2778,590 @@ function renderInfoHeader(name = activeView) {
   const [title, stats] = infoForView(name);
   document.getElementById("infoTitle").textContent = title;
   document.getElementById("infoStats").innerHTML = makeStats(stats);
-  document.getElementById("infoExcelBtn")?.classList.toggle("hidden", !["vouchers", "giftCards"].includes(name));
+  document.getElementById("infoExcelBtn")?.classList.toggle("hidden", !["vouchers", "giftCards", "performance"].includes(name));
 }
+
+function dashboardSelectedMonth() {
+  const key = document.getElementById("dashboardMonth")?.value;
+  return dashboardDemoData.months.find(item => item.key === key) || dashboardDemoData.months.at(-1);
+}
+
+function dashboardSelectedSalon() {
+  if (isSalonAccount()) return activeAccount.salon;
+  return document.getElementById("dashboardSalon")?.value || "";
+}
+
+function dashboardBranch(name) {
+  const exact = dashboardDemoData.branches.find(item => item.name === name);
+  if (exact) return exact;
+  const normalized = String(name || "").toLowerCase();
+  const alias = normalized.includes("чингэлтэй")
+    ? dashboardDemoData.branches.find(item => item.name === "Төв салбар")
+    : normalized.includes("хан-уул") || normalized.includes("хан уул")
+      ? dashboardDemoData.branches.find(item => item.name === "Хан-Уул салбар")
+      : normalized.includes("вип")
+        ? dashboardDemoData.branches.find(item => item.name === "Вип салбар")
+        : null;
+  if (alias) return { ...alias, name };
+  const salonIndex = Math.max(0, state.salons.findIndex(item => item.name === name));
+  const template = dashboardDemoData.branches[salonIndex % dashboardDemoData.branches.length];
+  return { ...template, name: name || template.name };
+}
+
+function dashboardSnapshot(month, salon = "") {
+  const branch = salon ? dashboardBranch(salon) : null;
+  const share = branch?.share || 1;
+  return {
+    revenue: Math.round(month.revenue * share),
+    payments: Math.round(month.payments * share),
+    visits: Math.round(month.visits * share),
+    products: Math.round(month.products * share),
+    newCustomers: month.newCustomers,
+    outstanding: Math.round(month.outstanding * share),
+    completion: Math.max(0, Math.min(100, month.completion + (branch?.completionDelta || 0))),
+    occupancy: Math.max(0, Math.min(100, month.occupancy + (branch?.occupancyDelta || 0)))
+  };
+}
+
+function dashboardCompactMoney(value) {
+  const amount = Number(value || 0);
+  if (amount >= 1000000) return `${(amount / 1000000).toLocaleString("mn-MN", { maximumFractionDigits: 1 })} сая ₮`;
+  if (amount >= 1000) return `${Math.round(amount / 1000).toLocaleString("en-US")} мян ₮`;
+  return money(amount);
+}
+
+function dashboardTrendSvg(monthKey, salon) {
+  const endIndex = Math.max(0, dashboardDemoData.months.findIndex(item => item.key === monthKey));
+  const months = dashboardDemoData.months.slice(Math.max(0, endIndex - 5), endIndex + 1);
+  const values = months.map(month => dashboardSnapshot(month, salon).revenue);
+  const max = Math.max(...values, 1) * 1.08;
+  const min = Math.min(...values) * .9;
+  const chartHeight = 154;
+  const bottom = 190;
+  const x = index => 54 + (months.length === 1 ? 0 : index * (596 / (months.length - 1)));
+  const y = value => 24 + ((max - value) / Math.max(max - min, 1)) * chartHeight;
+  const points = values.map((value, index) => `${x(index)},${y(value)}`).join(" ");
+  const area = `M ${x(0)} ${bottom} L ${values.map((value, index) => `${x(index)} ${y(value)}`).join(" L ")} L ${x(values.length - 1)} ${bottom} Z`;
+  const guides = [0, 1, 2, 3].map(index => {
+    const guideY = 24 + index * (chartHeight / 3);
+    const value = max - index * ((max - min) / 3);
+    return `<line x1="54" y1="${guideY}" x2="650" y2="${guideY}" class="dashboard-chart-grid"/><text x="46" y="${guideY + 4}" text-anchor="end" class="dashboard-chart-axis">${Math.round(value / 1000000)}с</text>`;
+  }).join("");
+  const labels = months.map((month, index) => `<text x="${x(index)}" y="215" text-anchor="middle" class="dashboard-chart-axis">${month.short}</text>`).join("");
+  const dots = values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="4" class="dashboard-chart-dot"><title>${monthLabelForDashboard(months[index])}: ${money(value)}</title></circle>`).join("");
+  return `<svg class="dashboard-line-chart" viewBox="0 0 680 224" role="img" aria-label="Сарын орлогын өөрчлөлт">${guides}<path d="${area}" class="dashboard-chart-area"/><polyline points="${points}" class="dashboard-chart-line"/>${dots}${labels}</svg>`;
+}
+
+function monthLabelForDashboard(month) {
+  return month?.label || "";
+}
+
+function dashboardAllowedBranches() {
+  if (isSalonAccount()) return [dashboardBranch(activeAccount.salon)];
+  const selected = dashboardSelectedSalon();
+  const names = selected ? [selected] : state.salons.map(item => item.name);
+  return names.map(dashboardBranch);
+}
+
+function dashboardRowsForBranches(month) {
+  return dashboardAllowedBranches().map(branch => ({
+    ...branch,
+    ...dashboardSnapshot(month, branch.name)
+  }));
+}
+
+function dashboardProgressRows(items, valueKey, formatter = value => value) {
+  const max = Math.max(...items.map(item => Number(item[valueKey] || 0)), 1);
+  return items.map(item => `
+    <div class="dashboard-progress-row">
+      <div class="dashboard-progress-meta"><strong>${htmlSafe(item.name)}</strong><span>${formatter(item[valueKey])}</span></div>
+      <div class="dashboard-progress-track"><span style="width:${Math.max(5, Number(item[valueKey] || 0) / max * 100)}%"></span></div>
+    </div>
+  `).join("");
+}
+
+const DASHBOARD_CHART_MODE_KEY = "khalgai_dashboard_chart_modes_v1";
+let dashboardChartModes = (() => {
+  try {
+    return { revenue: "line", branch: "bar", services: "donut", payments: "bar", staff: "bar", ...JSON.parse(localStorage.getItem(DASHBOARD_CHART_MODE_KEY) || "{}") };
+  } catch (error) {
+    return { revenue: "line", branch: "bar", services: "donut", payments: "bar", staff: "bar" };
+  }
+})();
+
+function dashboardChartIcon(mode) {
+  const paths = {
+    line: `<polyline points="3,16 8,10 13,13 21,5"></polyline>`,
+    bar: `<rect x="3" y="11" width="4" height="9"></rect><rect x="10" y="6" width="4" height="14"></rect><rect x="17" y="3" width="4" height="17"></rect>`,
+    donut: `<circle cx="12" cy="12" r="8"></circle><path d="M12 4v8h8"></path>`,
+    table: `<path d="M3 5h18v14H3zM3 10h18M3 15h18M9 5v14"></path>`
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[mode] || paths.bar}</svg>`;
+}
+
+function dashboardChartControls(key, modes) {
+  const labels = { line: "Шугаман", bar: "Багана", donut: "Дугуй", table: "Хүснэгт" };
+  return `<div class="dashboard-chart-controls" aria-label="Chart төрөл">${modes.map(mode => `<button class="dashboard-chart-mode ${dashboardChartModes[key] === mode ? "active" : ""}" type="button" data-dashboard-chart="${key}" data-dashboard-mode="${mode}" title="${labels[mode]}">${dashboardChartIcon(mode)}</button>`).join("")}</div>`;
+}
+
+function dashboardSimpleTable(headers, rows) {
+  return `<div class="table-wrap dashboard-mini-table-wrap"><table class="dashboard-mini-table"><thead><tr>${headers.map(item => `<th>${item}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map((item, index) => `<td class="${index ? "amount-cell" : ""}">${item}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+function dashboardVerticalBars(items, valueKey, formatter = value => value) {
+  const max = Math.max(...items.map(item => Number(item[valueKey] || 0)), 1);
+  return `<div class="dashboard-vertical-bars">${items.map(item => `<div class="dashboard-vertical-bar"><div class="dashboard-vertical-bar-value">${formatter(item[valueKey])}</div><div class="dashboard-vertical-bar-track"><span style="height:${Math.max(7, Number(item[valueKey] || 0) / max * 100)}%"></span></div><small>${htmlSafe(item.short || item.name)}</small></div>`).join("")}</div>`;
+}
+
+function dashboardDonutMarkup(items, total, valueKey = "share") {
+  const sum = items.reduce((result, item) => result + Number(item[valueKey] || 0), 0) || 1;
+  let offset = 0;
+  const gradient = items.map(item => {
+    const size = Number(item[valueKey] || 0) / sum * 100;
+    const part = `${item.color} ${offset}% ${offset + size}%`;
+    offset += size;
+    return part;
+  }).join(",");
+  const totalText = Number(total) >= 1000000 ? `${(Number(total) / 1000000).toFixed(1)}сая` : formatNumber(total);
+  return `<div class="dashboard-donut-layout"><div class="dashboard-donut" style="background:conic-gradient(${gradient})"><span><strong>${totalText}</strong><small>нийт</small></span></div><div class="dashboard-legend">${items.map(item => `<div><i style="background:${item.color}"></i><span>${htmlSafe(item.name)}</span><strong>${item.share}%</strong></div>`).join("")}</div></div>`;
+}
+
+function dashboardCustomerDemographics() {
+  return {
+    genders: [
+      { name: "Эмэгтэй", value: 1512, share: 82, color: "#60bf63" },
+      { name: "Эрэгтэй", value: 276, share: 15, color: "#9bcf91" },
+      { name: "Мэдээлэлгүй", value: 54, share: 3, color: "#dfe9d7" }
+    ],
+    ages: [
+      { name: "18–24", value: 148 }, { name: "25–34", value: 492 }, { name: "35–44", value: 618 }, { name: "45–54", value: 394 }, { name: "55+", value: 190 }
+    ],
+    districts: [
+      { name: "Хан-Уул", value: 612 }, { name: "Баянгол", value: 388 }, { name: "Чингэлтэй", value: 326 }, { name: "Баянзүрх", value: 284 }, { name: "Сүхбаатар", value: 162 }, { name: "Бусад", value: 70 }
+    ]
+  };
+}
+
+function dashboardStaffRows(month, salon) {
+  const available = state.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon));
+  const fallback = ["Ариундулам", "Номинзул", "Мөнхзул", "Урантогоос", "Уранцэцэг", "Энхзул", "Оюундарь", "Бадамханд"];
+  const source = available.length ? available.slice(0, 8) : fallback.map((name, index) => ({ name, salon: salon || state.salons[index % Math.max(state.salons.length, 1)]?.name || "Хан-Уул салбар" }));
+  const snapshot = dashboardSnapshot(month, salon);
+  return source.map((item, index) => {
+    const rate = Math.max(.035, .105 - index * .009);
+    const revenue = Math.round(snapshot.revenue * rate);
+    const visits = Math.max(12, Math.round(snapshot.visits * rate * 1.55));
+    const serviceReward = Math.round(revenue * .1);
+    const kassReward = index % 3 === 0 ? Math.round(snapshot.products * rate * .02) : 0;
+    return { name: item.name, homeSalon: item.salon || salon || "Үндсэн салбар", workedSalon: salon || item.salon || "Олон салбар", revenue, visits, serviceReward, kassReward, totalReward: serviceReward + kassReward };
+  }).sort((a, b) => b.revenue - a.revenue);
+}
+
+const dashboardViewModes = [
+  { value: "overview", label: "Ерөнхий тойм" },
+  { value: "operations", label: "Өдрийн ажиллагаа" },
+  { value: "cashflow", label: "Мөнгөн урсгал" },
+  { value: "system", label: "Системийн хяналт" }
+];
+
+function dashboardAllowedViewModes() {
+  const permissions = {
+    admin: ["overview", "operations", "cashflow", "system"],
+    manager: ["overview", "operations"],
+    salon: ["operations"],
+    finance: ["overview", "cashflow"],
+    director: ["overview", "cashflow"]
+  };
+  const allowed = permissions[activeAccount.role] || ["overview"];
+  return dashboardViewModes.filter(item => allowed.includes(item.value));
+}
+
+function dashboardSelectedViewMode() {
+  const value = document.getElementById("dashboardViewMode")?.value;
+  const allowed = dashboardAllowedViewModes();
+  return allowed.some(item => item.value === value) ? value : allowed[0]?.value || "overview";
+}
+
+function dashboardOperationsHtml(month, salon, snapshot) {
+  const scope = salon || "Нийт салбар";
+  const factor = salon ? dashboardBranch(salon).share : 1;
+  const bookings = Math.max(12, Math.round(96 * factor));
+  const bookingStatus = [
+    { name: "Баталгаажсан", value: Math.round(bookings * .66), share: 66, color: "#60bf63" },
+    { name: "Хүлээгдэж буй", value: Math.round(bookings * .17), share: 17, color: "#9bcf91" },
+    { name: "Ирсэнгүй", value: Math.round(bookings * .08), share: 8, color: "#e5b65d" },
+    { name: "Цуцалсан", value: Math.round(bookings * .09), share: 9, color: "#e38a8a" }
+  ];
+  const slots = [
+    { name: "09:00", value: 42 }, { name: "11:00", value: 68 }, { name: "13:00", value: 54 },
+    { name: "15:00", value: 91 }, { name: "17:00", value: 84 }, { name: "19:00", value: 63 }
+  ];
+  const staff = dashboardStaffRows(month, salon).slice(0, 6).map(item => ({ ...item, load: Math.min(98, Math.round(item.visits / Math.max(snapshot.visits, 1) * 720)) }));
+  return `
+    <div class="dashboard-kpi-grid dashboard-purpose-kpis">
+      <article class="dashboard-kpi"><span>Өнөөдрийн захиалга</span><strong>${bookings}</strong><small>${bookingStatus[1].value} хүлээгдэж буй</small></article>
+      <article class="dashboard-kpi"><span>Одоо үйлчлүүлж байгаа</span><strong>${Math.max(4, Math.round(18 * factor))}</strong><small>Нийт салон, өрөөнд</small></article>
+      <article class="dashboard-kpi"><span>Ажиллаж байгаа ажилтан</span><strong>${Math.max(5, Math.round(24 * factor))}</strong><small>${Math.max(1, Math.round(3 * factor))} түр томилгоотой</small></article>
+      <article class="dashboard-kpi"><span>Өнөөдрийн орлого</span><strong>${money(Math.round(snapshot.revenue / 26))}</strong><small>${scope}</small></article>
+      <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(Math.round(snapshot.outstanding / 5))}</strong><small>Өнөөдөр үүссэн</small></article>
+      <article class="dashboard-kpi"><span>Цагийн дүүргэлт</span><strong>${snapshot.occupancy}%</strong><small>Оргил цаг 15:00–18:00</small></article>
+    </div>
+    <div class="dashboard-grid dashboard-purpose-grid">
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Захиалгын төлөв</h3><p>Өнөөдөр • ${scope}</p></div><strong>${bookings} захиалга</strong></div>
+        ${dashboardDonutMarkup(bookingStatus, bookings, "value")}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Цагийн ачаалал</h3><p>Суудал, өрөөний дүүргэлт</p></div></div>
+        ${dashboardVerticalBars(slots, "value", value => `${value}%`)}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Анхаарах ажил</h3><p>Өнөөдөр шийдвэрлэх зүйлс</p></div></div>
+        <div class="dashboard-action-list">
+          <div><i class="warning"></i><span>Баталгаажаагүй үйлчилгээ</span><strong>${Math.max(2, Math.round(7 * factor))}</strong></div>
+          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${Math.max(3, Math.round(11 * factor))}</strong></div>
+          <div><i></i><span>Дуусах дөхсөн курс</span><strong>${Math.max(4, Math.round(16 * factor))}</strong></div>
+          <div><i class="warning"></i><span>Барааны үлдэгдэл бага</span><strong>${Math.max(2, Math.round(6 * factor))}</strong></div>
+          <div><i></i><span>Кассын хаалт хүлээгдэж буй</span><strong>${Math.max(1, Math.round(2 * factor))}</strong></div>
+        </div>
+      </section>
+    </div>
+    <section class="panel dashboard-card dashboard-table-card">
+      <div class="dashboard-card-head"><div><h3>Ажилтны өнөөдрийн ачаалал</h3><p>Үйлчилгээ хийсэн салбараар тооцсон</p></div></div>
+      <div class="dashboard-progress-list dashboard-staff-load-list">${dashboardProgressRows(staff.map(item => ({ name: `${item.name} • ${item.visits} оролт`, value: item.load })), "value", value => `${value}%`)}</div>
+    </section>`;
+}
+
+function dashboardCashflowHtml(month, salon, snapshot) {
+  const scope = salon || "Нийт салбар";
+  const payments = dashboardDemoData.payments.map(item => ({ ...item, amount: Math.round(snapshot.revenue * item.share / 100) }));
+  const sources = [
+    { name: "Үйлчилгээ", amount: Math.round(snapshot.revenue * .57), share: 57, color: "#60bf63" },
+    { name: "Курс", amount: Math.round(snapshot.revenue * .24), share: 24, color: "#91cf86" },
+    { name: "Бараа", amount: Math.round(snapshot.revenue * .19), share: 19, color: "#c9dfbd" }
+  ];
+  const receivables = [
+    { name: "0–7 хоног", amount: Math.round(snapshot.outstanding * .54) },
+    { name: "8–30 хоног", amount: Math.round(snapshot.outstanding * .29) },
+    { name: "31–60 хоног", amount: Math.round(snapshot.outstanding * .12) },
+    { name: "60+ хоног", amount: Math.round(snapshot.outstanding * .05) }
+  ];
+  return `
+    <div class="dashboard-kpi-grid dashboard-purpose-kpis">
+      <article class="dashboard-kpi"><span>Нийт орлого</span><strong>${money(snapshot.revenue)}</strong><small>${month.label}</small></article>
+      <article class="dashboard-kpi"><span>Үйлчилгээний орлого</span><strong>${money(sources[0].amount + sources[1].amount)}</strong><small>Нэг удаа болон курс</small></article>
+      <article class="dashboard-kpi"><span>Барааны борлуулалт</span><strong>${money(snapshot.products)}</strong><small>${sources[2].share}% нийт орлогод</small></article>
+      <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(snapshot.outstanding)}</strong><small>${receivables[3].amount ? money(receivables[3].amount) : "0₮"} хугацаа хэтэрсэн</small></article>
+      <article class="dashboard-kpi"><span>Бонус ашиглалт</span><strong>${money(Math.round(snapshot.revenue * .064))}</strong><small>Бонус бодогдохгүй төлбөр</small></article>
+      <article class="dashboard-kpi"><span>Ваучер / бэлгийн карт</span><strong>${money(Math.round(snapshot.revenue * .08))}</strong><small>${formatNumber(Math.round(snapshot.payments * .08))} гүйлгээ</small></article>
+    </div>
+    <div class="dashboard-grid dashboard-purpose-grid">
+      <section class="panel dashboard-card dashboard-card-wide">
+        <div class="dashboard-card-head"><div><h3>Орлогын өөрчлөлт</h3><p>${scope} • сүүлийн 6 сар</p></div><strong>${dashboardCompactMoney(snapshot.revenue)}</strong></div>
+        ${dashboardTrendSvg(month.key, salon)}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Орлогын эх үүсвэр</h3><p>${month.label}</p></div></div>
+        ${dashboardDonutMarkup(sources, snapshot.revenue, "amount")}
+      </section>
+    </div>
+    <div class="dashboard-grid">
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Төлбөрийн хэлбэр</h3><p>${formatNumber(snapshot.payments)} гүйлгээ</p></div></div>
+        <div class="dashboard-payment-bar">${payments.map(item => `<span style="width:${item.share}%;background:${item.color}"></span>`).join("")}</div>
+        <div class="dashboard-payment-list">${payments.map(item => `<div><span><i style="background:${item.color}"></i>${item.name}</span><strong>${money(item.amount)} <small>${item.share}%</small></strong></div>`).join("")}</div>
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Авлагын насжилт</h3><p>${money(snapshot.outstanding)} нийт</p></div></div>
+        <div class="dashboard-progress-list">${dashboardProgressRows(receivables.map(item => ({ name: item.name, value: item.amount })), "value", dashboardCompactMoney)}</div>
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Сарын тулгалт</h3><p>Орлого ба кассын хаалт</p></div></div>
+        <div class="dashboard-action-list">
+          <div><i></i><span>Хаалт хийгдсэн өдөр</span><strong>16/18</strong></div>
+          <div><i class="warning"></i><span>Тулгалтын зөрүүтэй</span><strong>2 өдөр</strong></div>
+          <div><i></i><span>Буцаалт, цуцлалт</span><strong>${money(Math.round(snapshot.revenue * .009))}</strong></div>
+          <div><i></i><span>Ажилтны урамшуулал</span><strong>${money(Math.round(snapshot.revenue * .087))}</strong></div>
+        </div>
+      </section>
+    </div>`;
+}
+
+function dashboardSystemHtml(month, salon) {
+  const scope = salon || "Нийт систем";
+  const factor = salon ? dashboardBranch(salon).share : 1;
+  const actions = [
+    { name: "Даваа", value: Math.round(324 * factor) }, { name: "Мягмар", value: Math.round(398 * factor) },
+    { name: "Лхагва", value: Math.round(442 * factor) }, { name: "Пүрэв", value: Math.round(376 * factor) },
+    { name: "Баасан", value: Math.round(468 * factor) }, { name: "Бямба", value: Math.round(512 * factor) }, { name: "Ням", value: Math.round(284 * factor) }
+  ];
+  const dataSizes = [
+    { name: "Оношилгооны зураг", value: 6840 }, { name: "Үйлчилгээний түүх", value: 3280 },
+    { name: "Хэрэглэгч ба групп", value: 1842 }, { name: "Төлбөр, касс", value: 1260 }, { name: "Цаг захиалга", value: 940 }
+  ];
+  return `
+    <div class="dashboard-kpi-grid dashboard-purpose-kpis">
+      <article class="dashboard-kpi"><span>Өнөөдрийн үйлдэл</span><strong>${formatNumber(Math.round(512 * factor))}</strong><small>${scope}</small></article>
+      <article class="dashboard-kpi"><span>Зассан бүртгэл</span><strong>${Math.max(4, Math.round(23 * factor))}</strong><small>Сүүлийн 24 цаг</small></article>
+      <article class="dashboard-kpi"><span>Устгасан бүртгэл</span><strong>${Math.max(1, Math.round(6 * factor))}</strong><small>Бүр мөсөн устгасан 0</small></article>
+      <article class="dashboard-kpi"><span>Давхардсан хэрэглэгч</span><strong class="dashboard-kpi-alert">9</strong><small>Нэгтгэх шаардлагатай</small></article>
+      <article class="dashboard-kpi"><span>Сүүлийн backup</span><strong class="dashboard-kpi-text">Өнөөдөр 03:10</strong><small>Автомат backup амжилттай</small></article>
+      <article class="dashboard-kpi"><span>Хадгалалтын хэмжээ</span><strong>14.2 GB</strong><small>Зураг 9.8 GB</small></article>
+    </div>
+    <div class="dashboard-grid dashboard-purpose-grid">
+      <section class="panel dashboard-card dashboard-card-wide">
+        <div class="dashboard-card-head"><div><h3>Системийн үйлдэл</h3><p>Сүүлийн 7 хоног • ${scope}</p></div></div>
+        ${dashboardVerticalBars(actions, "value", formatNumber)}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Өгөгдлийн хэмжээ</h3><p>Ангилал тус бүрийн бүртгэл</p></div></div>
+        <div class="dashboard-progress-list">${dashboardProgressRows(dataSizes, "value", formatNumber)}</div>
+      </section>
+    </div>
+    <div class="dashboard-grid">
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Анхааруулга</h3><p>Шалгах шаардлагатай мэдээлэл</p></div></div>
+        <div class="dashboard-action-list">
+          <div><i class="danger"></i><span>Давхардсан утас</span><strong>9</strong></div>
+          <div><i class="warning"></i><span>Зураггүй оношилгоо</span><strong>14</strong></div>
+          <div><i class="warning"></i><span>Ажилтангүй үйлчилгээ</span><strong>3</strong></div>
+          <div><i></i><span>Тохиргоогүй тусгай үнэ</span><strong>2</strong></div>
+        </div>
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Backup төлөв</h3><p>Өгөгдлийн аюулгүй байдал</p></div></div>
+        <div class="dashboard-action-list">
+          <div><i></i><span>Өдөр тутмын backup</span><strong>Амжилттай</strong></div>
+          <div><i></i><span>Сүүлийн бүрэн backup</span><strong>03:10</strong></div>
+          <div><i></i><span>Хадгалж буй хувилбар</span><strong>14</strong></div>
+          <div><i></i><span>Дараагийн backup</span><strong>03:00</strong></div>
+        </div>
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Системийн төлөв</h3><p>Үндсэн үйлчилгээ</p></div></div>
+        <div class="dashboard-action-list">
+          <div><i></i><span>Өгөгдлийн сан</span><strong>Хэвийн</strong></div>
+          <div><i></i><span>Зураг хадгалалт</span><strong>69%</strong></div>
+          <div><i></i><span>Камерын бүртгэл</span><strong>Хэвийн</strong></div>
+          <div><i class="warning"></i><span>Сүүлийн алдаа</span><strong>2</strong></div>
+        </div>
+      </section>
+    </div>`;
+}
+
+function renderDashboard() {
+  const content = document.getElementById("dashboardContent");
+  const modeSelect = document.getElementById("dashboardViewMode");
+  const monthSelect = document.getElementById("dashboardMonth");
+  const salonSelect = document.getElementById("dashboardSalon");
+  if (!content || !modeSelect || !monthSelect || !salonSelect) return;
+
+  const previousMode = modeSelect.value;
+  const allowedModes = dashboardAllowedViewModes();
+  modeSelect.innerHTML = allowedModes.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
+  modeSelect.value = allowedModes.some(item => item.value === previousMode) ? previousMode : allowedModes[0]?.value || "overview";
+
+  const previousMonth = monthSelect.value || dashboardDemoData.months.at(-1).key;
+  monthSelect.innerHTML = dashboardDemoData.months.slice().reverse().map(month => `<option value="${month.key}">${month.label}</option>`).join("");
+  monthSelect.value = dashboardDemoData.months.some(month => month.key === previousMonth) ? previousMonth : dashboardDemoData.months.at(-1).key;
+
+  const previousSalon = dashboardSelectedSalon();
+  const allowedSalons = isSalonAccount() ? state.salons.filter(item => item.name === activeAccount.salon) : state.salons;
+  salonSelect.innerHTML = `${isSalonAccount() ? "" : `<option value="">Нийт салбар</option>`}${allowedSalons.map(salon => `<option value="${htmlSafe(salon.name)}">${htmlSafe(salon.name)}</option>`).join("")}`;
+  salonSelect.value = isSalonAccount() ? activeAccount.salon : (allowedSalons.some(item => item.name === previousSalon) ? previousSalon : "");
+  salonSelect.disabled = isSalonAccount();
+  syncNativeSelectProxy(modeSelect);
+  syncNativeSelectProxy(monthSelect);
+  syncNativeSelectProxy(salonSelect);
+
+  const month = dashboardSelectedMonth();
+  const salon = dashboardSelectedSalon();
+  const snapshot = dashboardSnapshot(month, salon);
+  const previousIndex = dashboardDemoData.months.findIndex(item => item.key === month.key) - 1;
+  const previous = previousIndex >= 0 ? dashboardSnapshot(dashboardDemoData.months[previousIndex], salon) : snapshot;
+  const growth = previous.revenue ? ((snapshot.revenue - previous.revenue) / previous.revenue * 100) : 0;
+  const scopeText = salon || "Нийт салбар";
+  document.getElementById("dashboardScopeNote").textContent = isSalonAccount() ? `${activeAccount.salon} • зөвхөн таны салбарын мэдээлэл` : `${scopeText} • зохиомол тайлангийн өгөгдөл`;
+
+  const viewMode = dashboardSelectedViewMode();
+  if (viewMode === "operations") {
+    content.innerHTML = dashboardOperationsHtml(month, salon, snapshot);
+    return;
+  }
+  if (viewMode === "cashflow") {
+    content.innerHTML = dashboardCashflowHtml(month, salon, snapshot);
+    return;
+  }
+  if (viewMode === "system") {
+    content.innerHTML = dashboardSystemHtml(month, salon);
+    return;
+  }
+
+  const branchRows = dashboardRowsForBranches(month);
+  const serviceRows = dashboardDemoData.services.map(item => ({ ...item, count: Math.round(snapshot.visits * item.share / 100) }));
+  const paymentRows = dashboardDemoData.payments.map(item => ({ ...item, amount: Math.round(snapshot.revenue * item.share / 100) }));
+  const monthIndex = dashboardDemoData.months.findIndex(item => item.key === month.key);
+  const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
+  const demographics = dashboardCustomerDemographics();
+  const staffRows = dashboardStaffRows(month, salon);
+  const topScale = salon ? dashboardBranch(salon).share : 1;
+  const topServices = dashboardDemoData.topServices.map(([name, count, revenue]) => ({ name, count: Math.round(count * topScale), revenue: Math.round(revenue * topScale) }));
+
+  const revenueVisual = dashboardChartModes.revenue === "bar"
+    ? dashboardVerticalBars(trendMonths, "value", dashboardCompactMoney)
+    : dashboardChartModes.revenue === "table"
+      ? dashboardSimpleTable(["Сар", "Орлого"], trendMonths.map(item => [item.label, `<strong>${money(item.value)}</strong>`]))
+      : dashboardTrendSvg(month.key, salon);
+  const branchVisual = dashboardChartModes.branch === "table"
+    ? dashboardSimpleTable(["Салбар", "Орлого", "Дүүргэлт"], branchRows.map(item => [htmlSafe(item.name), `<strong>${money(item.revenue)}</strong>`, `${item.occupancy}%`]))
+    : `<div class="dashboard-progress-list">${dashboardProgressRows(branchRows, "revenue", dashboardCompactMoney)}</div><div class="dashboard-mini-stats"><span>Дүүргэлт <strong>${snapshot.occupancy}%</strong></span><span>Дуусгалт <strong>${snapshot.completion}%</strong></span></div>`;
+  const serviceVisual = dashboardChartModes.services === "bar"
+    ? `<div class="dashboard-progress-list">${dashboardProgressRows(serviceRows, "count", formatNumber)}</div>`
+    : dashboardChartModes.services === "table"
+      ? dashboardSimpleTable(["Төрөл", "Оролт", "Хувь"], serviceRows.map(item => [htmlSafe(item.name), formatNumber(item.count), `${item.share}%`]))
+      : dashboardDonutMarkup(serviceRows, snapshot.visits, "share");
+  const paymentVisual = dashboardChartModes.payments === "donut"
+    ? dashboardDonutMarkup(paymentRows, snapshot.payments, "amount")
+    : dashboardChartModes.payments === "table"
+      ? dashboardSimpleTable(["Төлбөр", "Дүн", "Хувь"], paymentRows.map(item => [item.name, `<strong>${money(item.amount)}</strong>`, `${item.share}%`]))
+      : `<div class="dashboard-payment-bar">${paymentRows.map(item => `<span style="width:${item.share}%;background:${item.color}" title="${item.name}: ${money(item.amount)}"></span>`).join("")}</div><div class="dashboard-payment-list">${paymentRows.map(item => `<div><span><i style="background:${item.color}"></i>${item.name}</span><strong>${money(item.amount)} <small>${item.share}%</small></strong></div>`).join("")}</div>`;
+  const staffVisual = dashboardChartModes.staff === "table"
+    ? dashboardSimpleTable(["Ажилтан", "Үндсэн салбар", "Оролт", "Орлого", "Нийт урамшуулал"], staffRows.map(item => [htmlSafe(item.name), htmlSafe(item.homeSalon), formatNumber(item.visits), `<strong>${money(item.revenue)}</strong>`, money(item.totalReward)]))
+    : dashboardVerticalBars(staffRows, "revenue", dashboardCompactMoney);
+
+  content.innerHTML = `
+    <div class="dashboard-kpi-grid">
+      <article class="dashboard-kpi"><span>Нийт орлого</span><strong>${money(snapshot.revenue)}</strong><small class="${growth >= 0 ? "positive" : "negative"}">${growth >= 0 ? "↑" : "↓"} ${Math.abs(growth).toFixed(1)}% өмнөх сараас</small></article>
+      <article class="dashboard-kpi"><span>Төлбөрийн тоо</span><strong>${formatNumber(snapshot.payments)}</strong><small>Дундаж ${money(Math.round(snapshot.revenue / Math.max(snapshot.payments, 1)))}</small></article>
+      <article class="dashboard-kpi"><span>Үйлчилгээний оролт</span><strong>${formatNumber(snapshot.visits)}</strong><small>${snapshot.completion}% амжилттай дууссан</small></article>
+      <article class="dashboard-kpi"><span>Барааны борлуулалт</span><strong>${money(snapshot.products)}</strong><small>Нийт орлогын ${Math.round(snapshot.products / snapshot.revenue * 100)}%</small></article>
+      <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(snapshot.outstanding)}</strong><small>Нэхэмжлэх шаардлагатай</small></article>
+      <article class="dashboard-kpi customer-kpi"><span>Нийт хэрэглэгч</span><strong>1,842</strong><small>+${month.newCustomers} шинэ • бүх салбар</small></article>
+    </div>
+
+    <div class="dashboard-grid dashboard-grid-top">
+      <section class="panel dashboard-card dashboard-card-wide">
+        <div class="dashboard-card-head"><div><h3>Орлогын өөрчлөлт</h3><p>${htmlSafe(scopeText)} • сүүлийн 6 сар</p></div><div class="dashboard-card-head-tools"><strong>${dashboardCompactMoney(snapshot.revenue)}</strong>${dashboardChartControls("revenue", ["line", "bar", "table"])}</div></div>
+        ${revenueVisual}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>${branchRows.length > 1 ? "Салбарын орлого" : "Салбарын үзүүлэлт"}</h3><p>${month.label}</p></div>${dashboardChartControls("branch", ["bar", "table"])}</div>
+        ${branchVisual}
+      </section>
+    </div>
+
+    <div class="dashboard-grid">
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Үйлчилгээний бүтэц</h3><p>${formatNumber(snapshot.visits)} нийт оролт</p></div>${dashboardChartControls("services", ["donut", "bar", "table"])}</div>
+        ${serviceVisual}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Төлбөрийн төрөл</h3><p>${money(snapshot.revenue)} нийт</p></div>${dashboardChartControls("payments", ["bar", "donut", "table"])}</div>
+        ${paymentVisual}
+      </section>
+      <section class="panel dashboard-card">
+        <div class="dashboard-card-head"><div><h3>Хэрэглэгч ба бонус</h3><p>Нэгдсэн хэрэглэгчийн мэдээлэл</p></div></div>
+        <div class="dashboard-customer-list">
+          <div><span>Нийт хэрэглэгч</span><strong>1,842</strong></div>
+          <div><span>Идэвхтэй групп</span><strong>318</strong></div>
+          <div><span>Идэвхтэй курс</span><strong>426</strong></div>
+          <div><span>Бонус үлдэгдэл</span><strong>28,460,000₮</strong></div>
+          <div><span>2 жил дуусах дөхсөн</span><strong>74</strong></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel dashboard-card dashboard-demographic-card">
+      <div class="dashboard-card-head"><div><h3>Хэрэглэгчийн бүтэц</h3><p>Бүх салбарын нэгдсэн хэрэглэгчийн мэдээлэл • салбараар шүүгдэхгүй</p></div><strong>1,842 хэрэглэгч</strong></div>
+      <div class="dashboard-demographic-grid">
+        <article class="dashboard-demographic-block">
+          <h4>Хүйс</h4>
+          ${dashboardDonutMarkup(demographics.genders, 1842, "value")}
+        </article>
+        <article class="dashboard-demographic-block">
+          <h4>Насны бүлэг</h4>
+          ${dashboardVerticalBars(demographics.ages, "value", formatNumber)}
+        </article>
+        <article class="dashboard-demographic-block">
+          <h4>Амьдардаг дүүрэг</h4>
+          <div class="dashboard-progress-list">${dashboardProgressRows(demographics.districts, "value", formatNumber)}</div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel dashboard-card dashboard-staff-card">
+      <div class="dashboard-card-head"><div><h3>Ажилтны гүйцэтгэл</h3><p>${month.label} • ${htmlSafe(scopeText)} • түр томилгооны ажил үйлчилгээ хийсэн салбарт тооцогдоно</p></div>${dashboardChartControls("staff", ["bar", "table"])}</div>
+      ${staffVisual}
+    </section>
+
+    <section class="panel dashboard-card dashboard-table-card">
+      <div class="dashboard-card-head"><div><h3>Эрэлттэй үйлчилгээ, бүтээгдэхүүн</h3><p>${month.label} • ${htmlSafe(scopeText)}</p></div></div>
+      <div class="table-wrap dashboard-table-wrap">
+        <table class="dashboard-table">
+          <thead><tr><th>№</th><th>Үйлчилгээ / бүтээгдэхүүн</th><th class="amount-cell">Тоо</th><th class="amount-cell">Орлого</th><th class="amount-cell">Нийтэд эзлэх</th></tr></thead>
+          <tbody>${topServices.map((item, index) => `<tr><td>${index + 1}</td><td><strong>${htmlSafe(item.name)}</strong></td><td class="amount-cell">${formatNumber(item.count)}</td><td class="amount-cell"><strong>${money(item.revenue)}</strong></td><td class="amount-cell">${Math.round(item.revenue / snapshot.revenue * 100)}%</td></tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function dashboardXmlSafe(value = "") {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function dashboardWorksheet(name, rows) {
+  const xmlRows = rows.map(row => `<Row>${row.map(value => {
+    const numeric = typeof value === "number";
+    return `<Cell><Data ss:Type="${numeric ? "Number" : "String"}">${dashboardXmlSafe(value)}</Data></Cell>`;
+  }).join("")}</Row>`).join("");
+  return `<Worksheet ss:Name="${dashboardXmlSafe(name)}"><Table>${xmlRows}</Table></Worksheet>`;
+}
+
+function exportDashboardExcel() {
+  const month = dashboardSelectedMonth();
+  const salon = dashboardSelectedSalon();
+  const scope = salon || "Нийт салбар";
+  const viewMode = dashboardAllowedViewModes().find(item => item.value === dashboardSelectedViewMode())?.label || "Ерөнхий тойм";
+  const snapshot = dashboardSnapshot(month, salon);
+  const branchRows = dashboardRowsForBranches(month);
+  const trendRows = dashboardDemoData.months.map(item => {
+    const row = dashboardSnapshot(item, salon);
+    return [item.label, row.revenue, row.payments, row.visits, row.products, row.outstanding, row.completion, row.occupancy];
+  });
+  const serviceRows = dashboardDemoData.services.map(item => [item.name, item.share, Math.round(snapshot.visits * item.share / 100)]);
+  const paymentRows = dashboardDemoData.payments.map(item => [item.name, item.share, Math.round(snapshot.revenue * item.share / 100)]);
+  const demographics = dashboardCustomerDemographics();
+  const staffRows = dashboardStaffRows(month, salon);
+  const workbook = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
+    <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+      ${dashboardWorksheet("Нэгдсэн үзүүлэлт", [
+        ["Харагдац", viewMode], ["Хугацаа", month.label], ["Хамрах хүрээ", scope], ["Нийт орлого", snapshot.revenue], ["Төлбөрийн тоо", snapshot.payments], ["Үйлчилгээний оролт", snapshot.visits], ["Барааны борлуулалт", snapshot.products], ["Дутуу төлбөр", snapshot.outstanding], ["Дуусгалт %", snapshot.completion], ["Дүүргэлт %", snapshot.occupancy], ["Нийт хэрэглэгч", 1842], ["Шинэ хэрэглэгч", month.newCustomers]
+      ])}
+      ${dashboardWorksheet("Сарын өөрчлөлт", [["Сар", "Орлого", "Төлбөр", "Оролт", "Бараа", "Дутуу төлбөр", "Дуусгалт %", "Дүүргэлт %"], ...trendRows])}
+      ${dashboardWorksheet("Салбар", [["Салбар", "Орлого", "Төлбөр", "Оролт", "Дутуу төлбөр", "Дуусгалт %", "Дүүргэлт %"], ...branchRows.map(item => [item.name, item.revenue, item.payments, item.visits, item.outstanding, item.completion, item.occupancy])])}
+      ${dashboardWorksheet("Үйлчилгээ", [["Төрөл", "Хувь %", "Оролтын тоо"], ...serviceRows])}
+      ${dashboardWorksheet("Төлбөр", [["Төрөл", "Хувь %", "Дүн"], ...paymentRows])}
+      ${dashboardWorksheet("Хэрэглэгчийн бүтэц", [
+        ["Ангилал", "Нэр", "Хэрэглэгчийн тоо", "Хувь %"],
+        ...demographics.genders.map(item => ["Хүйс", item.name, item.value, item.share]),
+        ...demographics.ages.map(item => ["Нас", item.name, item.value, Math.round(item.value / 1842 * 100)]),
+        ...demographics.districts.map(item => ["Дүүрэг", item.name, item.value, Math.round(item.value / 1842 * 100)])
+      ])}
+      ${dashboardWorksheet("Ажилтны гүйцэтгэл", [["Ажилтан", "Үндсэн салбар", "Ажилласан салбар", "Оролт", "Орлого", "Үйлчилгээний урамшуулал", "Кассын урамшуулал", "Нийт урамшуулал"], ...staffRows.map(item => [item.name, item.homeSalon, item.workedSalon, item.visits, item.revenue, item.serviceReward, item.kassReward, item.totalReward])])}
+    </Workbook>`;
+  const blob = new Blob(["\ufeff", workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `khalgai-dashboard-${month.key}-${salon ? salon.replace(/\s+/g, "-") : "all"}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  showToast("Хяналтын самбарын Excel файл бэлтгэгдлээ");
+}
+
 function showToast(text = "Амжилттай хадгаллаа") {
   const toast = document.getElementById("toast");
   toast.textContent = text;
@@ -2146,6 +3381,7 @@ function openModal(title, subtitle, bodyHtml, afterRender) {
 function closeModal() {
   document.getElementById("modalBackdrop").classList.remove("open");
   document.getElementById("modalBackdrop").setAttribute("aria-hidden", "true");
+  document.querySelector("#modalBackdrop .modal")?.classList.remove("diagnosis-image-modal");
 }
 
 function formValue(id) {
@@ -2176,10 +3412,13 @@ function rerenderAll() {
   renderServices();
   renderVouchers();
   renderGiftCards();
+  renderGroupDirectory();
+  renderPerformance();
   renderAudit();
 }
 
 function setView(name) {
+  releaseDiagnosisCameraSession();
   if (retiredViews.has(name)) name = "bookings";
   const previousView = activeView;
   if (previousView === "profile" && name !== "profile") {
@@ -2192,7 +3431,7 @@ function setView(name) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
   document.querySelectorAll(".nav-subitem").forEach(item => item.classList.toggle("active", item.dataset.view === name));
-  const isSettingsView = name.startsWith("settings") || name === "branches";
+  const isSettingsView = name.startsWith("settings") || name === "branches" || name === "audit" || name === "groups";
   document.getElementById("settingsToggle")?.classList.toggle("active", isSettingsView);
   document.getElementById("settingsSubmenu")?.classList.toggle("open", isSettingsView);
   document.getElementById("settingsToggle")?.setAttribute("aria-expanded", String(isSettingsView));
@@ -2205,11 +3444,16 @@ function setView(name) {
   if (name === "settingsPricing") renderPricePolicySettings();
   if (name === "settingsDiscounts") renderDiscountSettings();
   if (name === "settingsGeneral") renderGeneralSettings();
+  if (name === "settingsDatabase") renderDatabaseSettings();
+  if (name === "dashboard") renderDashboard();
   if (name === "kass") renderKassSchedule();
   if (name === "vouchers") renderVouchers();
   if (name === "giftCards") renderGiftCards();
+  if (name === "performance") setPerformanceTab("revenue");
+  if (name === "groups") renderGroupDirectory();
+  if (name === "audit") renderAudit();
   if (name === "profile") renderProfile();
-  renderInfoHeader(name);
+  if (name !== "performance") renderInfoHeader(name);
   document.getElementById("sidebar").classList.remove("open");
 }
 
@@ -3001,7 +4245,7 @@ function clearCustomerFilters() {
 
 function customerSingleServiceIsActive(customer = {}, item = {}) {
   const title = String(item.title || item.service || "").toLowerCase();
-  if (item.deleted || item.kind === "course" || title.includes("курс")) return false;
+  if (item.deleted || item.kind === "course" || item.kind === "kass" || item.kind === "product" || title.includes("курс")) return false;
   if (Number(item.balance || 0) > 0) return true;
 
   const unfinishedText = `${item.status || ""} ${item.stage || ""} ${item.qr || ""} ${item.qrStatus || ""}`.toLowerCase();
@@ -3065,7 +4309,7 @@ function renderCustomers() {
     if (icon) icon.textContent = active ? "↓" : "↕";
   });
   const activeTreatments = state.customers
-    .filter(customer => !customer.deleted)
+    .filter(customer => !customer.deleted && !customer.deletedAt)
     .map(customer => ({ customer, treatment: todaySalonTreatment(customer, activeAccount.salon) }))
     .filter(item => item.treatment);
   const activeStrip = document.getElementById("activeTreatmentStrip");
@@ -3132,7 +4376,7 @@ function renderCustomers() {
         <td><span class="plain-cell-text">${customer.type}</span></td>
         <td>${customer.registeredAt || customer.last || "-"}</td>
         <td>${customerCourseEntryHtml(customer)}</td>
-        <td>${customerBalance(customer) ? money(customerBalance(customer)) : "—"}</td>
+        <td>${customerBalance(customer) ? `<span class="customer-balance-due">${money(customerBalance(customer))}</span>` : "—"}</td>
         <td>${customerBonusPercent(customer)}</td>
         <td><button class="secondary-btn compact-action customer-detail-open" data-id="${customer.id}" type="button">Дэлгэрэнгүй</button></td>
       </tr>
@@ -3221,16 +4465,25 @@ function renderCustomerSideProfile() {
       <div class="customer-service-history">${renderCustomerServiceHistory(customer)}</div>
     </section>
   `;
+  bindDiagnosisPhotoPreview(panel);
   document.getElementById("profileCreateGroupBtn")?.addEventListener("click", () => createCustomerGroup(customer.id));
   document.getElementById("profileJoinGroupBtn")?.addEventListener("click", () => {
     customer.profileJoinGroupOpen = !customer.profileJoinGroupOpen;
     renderProfile();
   });
   bindInlineJoinGroup(customer);
-  panel.querySelectorAll(".course-slot-btn").forEach(button => {
-    button.addEventListener("click", () => {
+  panel.querySelectorAll(".course-slot-card").forEach(card => {
+    card.addEventListener("click", event => {
+      if (event.target.closest(".course-slot-edit")) return;
+      const button = card.querySelector(".course-slot-btn");
+      if (!button) return;
       if (button.dataset.filled === "true") {
-        showToast("Бүртгэлтэй оролтыг засах товчоор засна");
+        const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
+        if (!item) return;
+        const visitNumber = Number(button.dataset.visit);
+        item.diagnosisViewVisit = Number(item.diagnosisViewVisit) === visitNumber ? null : visitNumber;
+        item.expandedVisit = null;
+        renderCustomerSideProfile();
         return;
       }
       openCourseVisitModal(customer.id, Number(button.dataset.historyIndex), Number(button.dataset.visit));
@@ -3249,11 +4502,29 @@ function renderCustomerSideProfile() {
   });
 }
 
+function renderKassProductsSummary(item = {}) {
+  const products = Array.isArray(item.products) ? item.products : [];
+  if (!products.length) return "";
+  return `
+    <div class="profile-kass-history">
+      <div class="profile-kass-history-title">Барааны жагсаалт</div>
+      ${products.map(product => `
+        <div class="profile-kass-history-row">
+          <span>${product.name}${product.specialPriceApplied ? ` <em>Тусгай үнэ</em>` : ""}</span>
+          <small>${money(product.unitPrice || product.price)} ×${product.qty || 1}</small>
+          <strong>${money(product.lineTotal || Number(product.unitPrice || product.price || 0) * Number(product.qty || 1))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderCustomerServiceHistory(customer) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   if (!history.length) return `<div class="empty-state">Үйлчилгээний түүх алга</div>`;
   return history.map((item, index) => {
     const isCourse = item.kind === "course";
+    const isKass = item.kind === "kass" || item.kind === "product";
     const diagnosis = item.diagnosis || null;
     const title = item.title || item.service || "Үйлчилгээ";
     const date = item.date || item.createdAt || customer.last || "-";
@@ -3283,7 +4554,14 @@ function renderCustomerServiceHistory(customer) {
             ${renderProfileServiceInlineForm(customer)}
           </div>
         ` : ""}
+        ${isKass ? renderKassProductsSummary(item) : ""}
         ${isCourse ? renderCourseSlots(item, index) : ""}
+        ${!isCourse && !isKass && diagnosis ? `
+          <div class="profile-diagnosis-history">
+            <button class="secondary-btn history-diagnosis-toggle" type="button" data-history-index="${index}">Оношилгоо <span>${item.diagnosisOpen ? "↑" : "↓"}</span></button>
+            ${item.diagnosisOpen ? renderDiagnosisSummary(diagnosis) : ""}
+          </div>
+        ` : ""}
         ${customer.profileServiceEditingIndex === index ? "" : `
           <div class="profile-service-footer">
             ${renderServicePaymentSummary(item, paid, index)}
@@ -3317,6 +4595,331 @@ function servicePaidAmount(item = {}) {
     return payments.reduce((sum, payment) => sum + Number(payment.amount || payment.paidAmount || 0), 0);
   }
   return Math.max(0, serviceTotalAmount(item) - Number(item.balance || 0));
+}
+
+function localDateText(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function performanceMonthRange(offset = 0) {
+  const base = new Date(`${todayText()}T00:00:00`);
+  const first = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+  const last = new Date(base.getFullYear(), base.getMonth() + offset + 1, 0);
+  return { from: localDateText(first), to: localDateText(last) };
+}
+
+function performanceFilters() {
+  const fromValue = document.getElementById("performanceFrom")?.value || "";
+  const toValue = document.getElementById("performanceTo")?.value || "";
+  return {
+    from: fromValue || "0000-01-01",
+    to: toValue || "9999-12-31",
+    fromValue,
+    toValue,
+    salon: document.getElementById("performanceSalon")?.value || "all"
+  };
+}
+
+function performanceAssignment(staff, date, salon) {
+  return state.assignments.find(item =>
+    item.status !== "cancelled" &&
+    (Number(item.staffId) === Number(staff?.id) || item.staff === staff?.name) &&
+    date >= item.startDate && date <= item.endDate &&
+    salon === item.to
+  ) || null;
+}
+
+function performanceDemoData() {
+  const months = ["2026-05", "2026-06", "2026-07"];
+  const serviceNames = ["Гүн тэжээлийн эмчилгээ", "Үүргийн эмчилгээ", "Халгайн хандны эмчилгээ", "Эмзэг хуйхны эмчилгээ", "Гүн цэвэрлэгээ"];
+  const courseNames = ["Үс ургуулах курс", "Буурал үсний эсрэг курс", "Тослог үсний курс", "Хагны эсрэг курс"];
+  const customerNames = ["Б.Хулан", "Н.Энх", "Ц.Мөнхзул", "Г.Сарангэрэл", "О.Номин", "Б.Ариунаа"];
+  const activeStaff = state.staff.filter(item => item.status !== "inactive").slice(0, 11);
+  const demo = [];
+  activeStaff.forEach((staff, staffIndex) => {
+    months.forEach((month, monthIndex) => {
+      const singleCount = 4 + ((staffIndex + monthIndex) % 6);
+      const courseCount = 3 + ((staffIndex * 2 + monthIndex) % 5);
+      for (let index = 0; index < singleCount; index += 1) {
+        const day = String(2 + ((staffIndex * 3 + index * 4 + monthIndex) % 25)).padStart(2, "0");
+        const temporarySalon = month === "2026-07" && staff.name === "Хулан" && index === 0 ? "Төв салбар" : staff.salon;
+        demo.push({
+          staffId: staff.id,
+          staff: staff.name,
+          date: `${month}-${temporarySalon !== staff.salon ? "11" : day}`,
+          salon: temporarySalon || state.salons[staffIndex % state.salons.length]?.name || activeAccount.salon,
+          type: "single",
+          title: serviceNames[(staffIndex + index) % serviceNames.length],
+          customer: customerNames[(staffIndex + index + monthIndex) % customerNames.length],
+          revenue: 45000 + ((staffIndex + index) % 5) * 10000,
+          demo: true
+        });
+      }
+      for (let index = 0; index < courseCount; index += 1) {
+        const day = String(3 + ((staffIndex * 2 + index * 5 + monthIndex) % 24)).padStart(2, "0");
+        const temporarySalon = month === "2026-07" && staff.name === "Номин" && index === 0 ? "Төв салбар" : staff.salon;
+        demo.push({
+          staffId: staff.id,
+          staff: staff.name,
+          date: `${month}-${temporarySalon !== staff.salon ? "12" : day}`,
+          salon: temporarySalon || state.salons[staffIndex % state.salons.length]?.name || activeAccount.salon,
+          type: "course",
+          title: `${courseNames[(staffIndex + index) % courseNames.length]} · ${index + 1}-р оролт`,
+          customer: customerNames[(staffIndex + index + 2) % customerNames.length],
+          revenue: 65000 + ((staffIndex + index) % 4) * 7500,
+          demo: true
+        });
+      }
+      if ((staff.position || "").includes("Касс") || staffIndex % 4 === monthIndex % 3) {
+        [8, 18].forEach((day, index) => demo.push({
+          staffId: staff.id,
+          staff: staff.name,
+          date: `${month}-${String(day + (staffIndex % 3)).padStart(2, "0")}`,
+          salon: staff.salon || activeAccount.salon,
+          type: "kass",
+          title: `Кассын борлуулалт · ${index + 1}`,
+          customer: "",
+          revenue: 380000 + staffIndex * 25000 + monthIndex * 40000,
+          demo: true
+        }));
+      }
+    });
+  });
+  return demo;
+}
+
+function performanceTransactions() {
+  const transactions = [];
+  const add = payload => {
+    const staff = state.staff.find(item => Number(item.id) === Number(payload.staffId) || item.name === payload.staff);
+    if (!staff || !payload.date || !payload.salon) return;
+    const revenue = Math.max(0, Number(payload.revenue || 0));
+    const rate = payload.type === "kass"
+      ? Number(staff.kassCommission ?? 0)
+      : Number(staff.bonusCommission ?? parseFloat(staff.commission) ?? 0);
+    transactions.push({
+      ...payload,
+      staffId: staff.id,
+      staff: staff.name,
+      homeSalon: staff.salon || "",
+      revenue,
+      rate,
+      commission: Math.round(revenue * rate / 100),
+      temporary: Boolean(payload.temporary || performanceAssignment(staff, payload.date, payload.salon))
+    });
+  };
+
+  state.customers.forEach(customer => {
+    (customer.serviceHistory || []).forEach(item => {
+      if (!item || item.deleted) return;
+      const salon = item.salon || customer.salon || activeAccount.salon;
+      const date = item.date || item.createdAt || customer.last || todayText();
+      const title = item.title || item.service || "Үйлчилгээ";
+      if (item.kind === "kass" || item.kind === "product") {
+        const schedule = state.kassSchedules.find(entry => entry.date === date && entry.salon === salon);
+        const kassStaff = schedule?.staff || (item.staff !== "Касс" ? item.staff : "");
+        if (kassStaff) add({ staff: kassStaff, date, salon, type: "kass", title, customer: customer.name, revenue: serviceTotalAmount(item) });
+        return;
+      }
+      if (item.kind === "course") {
+        const visits = Array.isArray(item.visits) ? item.visits.filter(visit => !visit.deleted) : [];
+        const visitTotal = Math.max(1, Number(item.visitsTotal || visits.length || 1));
+        const basePerVisit = Number(item.basePrice || item.price || item.total || 0) / visitTotal;
+        visits.forEach((visit, index) => {
+          add({
+            staff: visit.staff || item.staff,
+            date: visit.date || date,
+            salon: visit.salon || salon,
+            type: "course",
+            title: `${title} · ${index + 1}-р оролт`,
+            customer: customer.name,
+            revenue: basePerVisit + Number(visit.vipRoomFee || 0) + Number(visit.masterStaffFee || 0)
+          });
+        });
+        return;
+      }
+      if (item.kind === "single" && item.staff) {
+        add({ staff: item.staff, date, salon, type: "single", title, customer: customer.name, revenue: serviceTotalAmount(item) });
+      }
+    });
+  });
+
+  state.services.forEach((item, index) => {
+    if (!item || item.deleted || !item.staff) return;
+    add({
+      staff: item.staff,
+      date: item.date || item.createdAt || todayText(),
+      salon: item.salon || activeAccount.salon,
+      type: item.kind === "course" ? "course" : "single",
+      title: item.service || item.title || `Үйлчилгээ ${index + 1}`,
+      customer: item.customer || "",
+      revenue: Number(item.total || item.price || 0)
+    });
+  });
+  performanceDemoData().forEach(add);
+  return transactions;
+}
+
+function performanceDataMonths() {
+  return [...new Set(performanceTransactions().map(item => String(item.date || "").slice(0, 7)).filter(value => /^\d{4}-\d{2}$/.test(value)))]
+    .sort((a, b) => b.localeCompare(a));
+}
+
+function performanceMonthLabel(value) {
+  if (!/^\d{4}-\d{2}$/.test(value)) return value;
+  const [year, month] = value.split("-");
+  return `${year} оны ${Number(month)} сар`;
+}
+
+function performanceRangeForMonth(value) {
+  if (!/^\d{4}-\d{2}$/.test(value)) return { from: "", to: "" };
+  const [year, month] = value.split("-").map(Number);
+  return {
+    from: `${value}-01`,
+    to: localDateText(new Date(year, month, 0))
+  };
+}
+
+function buildPerformanceReport() {
+  const { from, to, fromValue, toValue, salon } = performanceFilters();
+  const allTransactions = performanceTransactions();
+  const allDates = allTransactions.map(item => item.date).filter(Boolean).sort();
+  const transactions = allTransactions.filter(item =>
+    item.date >= from && item.date <= to && (salon === "all" || item.salon === salon)
+  );
+  const schedules = state.kassSchedules.filter(item =>
+    item.date >= from && item.date <= to && (salon === "all" || item.salon === salon)
+  );
+  const rows = state.staff
+    .filter(staff => staff.status !== "inactive")
+    .filter(staff => salon === "all" || staff.salon === salon || transactions.some(item => Number(item.staffId) === Number(staff.id)) || state.assignments.some(item => Number(item.staffId) === Number(staff.id) && item.to === salon && item.startDate <= to && item.endDate >= from))
+    .map(staff => {
+      const staffTransactions = transactions.filter(item => Number(item.staffId) === Number(staff.id));
+      const kassDays = new Set([
+        ...schedules.filter(item => item.staff === staff.name).map(item => item.date),
+        ...staffTransactions.filter(item => item.type === "kass").map(item => item.date)
+      ]).size;
+      const serviceCommission = staffTransactions.filter(item => item.type !== "kass").reduce((sum, item) => sum + item.commission, 0);
+      const kassCommission = staffTransactions.filter(item => item.type === "kass").reduce((sum, item) => sum + item.commission, 0);
+      return {
+        staff,
+        transactions: staffTransactions,
+        singleCount: staffTransactions.filter(item => item.type === "single").length,
+        courseCount: staffTransactions.filter(item => item.type === "course").length,
+        kassDays,
+        revenue: Math.round(staffTransactions.reduce((sum, item) => sum + item.revenue, 0)),
+        serviceCommission,
+        kassCommission,
+        commission: serviceCommission + kassCommission,
+        temporaryCount: staffTransactions.filter(item => item.temporary).length
+      };
+    });
+  return {
+    from: fromValue || allDates[0] || "-",
+    to: toValue || allDates[allDates.length - 1] || "-",
+    periodLabel: fromValue || toValue ? `${fromValue || allDates[0] || "-"} — ${toValue || allDates[allDates.length - 1] || "-"}` : "Бүх хугацаа",
+    salon,
+    rows,
+    singleCount: rows.reduce((sum, row) => sum + row.singleCount, 0),
+    courseCount: rows.reduce((sum, row) => sum + row.courseCount, 0),
+    revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
+    commission: rows.reduce((sum, row) => sum + row.commission, 0)
+  };
+}
+
+function renderPerformance() {
+  const month = document.getElementById("performanceMonth");
+  const from = document.getElementById("performanceFrom");
+  const to = document.getElementById("performanceTo");
+  const salon = document.getElementById("performanceSalon");
+  const rows = document.getElementById("performanceRows");
+  if (!month || !from || !to || !salon || !rows) return;
+  const months = performanceDataMonths();
+  let selectedMonth = month.value || months[0] || "";
+  month.innerHTML = months.length
+    ? months.map(value => `<option value="${value}" ${value === selectedMonth ? "selected" : ""}>${performanceMonthLabel(value)}</option>`).join("")
+    : `<option value="">Өгөгдөл алга</option>`;
+  if (!month.dataset.ready || !months.includes(selectedMonth)) {
+    selectedMonth = months[0] || "";
+    month.value = selectedMonth;
+    if (selectedMonth) {
+      const range = performanceRangeForMonth(selectedMonth);
+      from.value = range.from;
+      to.value = range.to;
+    }
+    month.dataset.ready = "1";
+  }
+  const selectedSalon = salon.value || "all";
+  salon.innerHTML = `<option value="all">Бүх салбар</option>${state.salons.map(item => `<option value="${item.name}" ${item.name === selectedSalon ? "selected" : ""}>${item.name}</option>`).join("")}`;
+  const report = buildPerformanceReport();
+  rows.innerHTML = report.rows.map(row => `
+    <tr>
+      <td>
+        <strong>${row.staff.name}</strong>
+        <span class="performance-staff-meta">${row.staff.salon || "Салбаргүй"}${row.temporaryCount ? ` · <b>${row.temporaryCount} түр ажил</b>` : ""}</span>
+      </td>
+      <td><span class="performance-service-counts">1 удаа: ${row.singleCount} <i>|</i> Курс: ${row.courseCount} оролт <i>|</i> Касс: ${row.kassDays} өдөр</span></td>
+      <td class="amount-cell">${money(row.revenue)}</td>
+      <td class="amount-cell">${row.serviceCommission ? money(row.serviceCommission) : "—"}</td>
+      <td class="amount-cell">${row.kassCommission ? money(row.kassCommission) : "—"}</td>
+      <td class="amount-cell performance-total">${money(row.commission)}</td>
+      <td><button class="secondary-btn performance-detail-btn" type="button" data-id="${row.staff.id}">Дэлгэрэнгүй</button></td>
+    </tr>
+  `).join("") || `<tr><td colspan="7"><div class="empty-state">Сонгосон хугацаанд ажилтан олдсонгүй</div></td></tr>`;
+  rows.querySelectorAll(".performance-detail-btn").forEach(button => {
+    button.addEventListener("click", () => openStaffPerformanceDetail(Number(button.dataset.id)));
+  });
+  enhanceNativeSelects(["performanceMonth", "performanceSalon"]);
+}
+
+function htmlSafe(value = "") {
+  return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+function openStaffPerformanceDetail(staffId) {
+  const report = buildPerformanceReport();
+  const row = report.rows.find(item => Number(item.staff.id) === Number(staffId));
+  if (!row) return showToast("Ажилтны мэдээлэл олдсонгүй");
+  const branchTotals = row.transactions.reduce((acc, item) => {
+    acc[item.salon] = acc[item.salon] || { revenue: 0, commission: 0, count: 0 };
+    acc[item.salon].revenue += item.revenue;
+    acc[item.salon].commission += item.commission;
+    acc[item.salon].count += 1;
+    return acc;
+  }, {});
+  const assignments = state.assignments.filter(item =>
+    (Number(item.staffId) === Number(staffId) || item.staff === row.staff.name) && item.startDate <= report.to && item.endDate >= report.from
+  );
+  const detailWindow = window.open("", "_blank");
+  if (!detailWindow) return showToast("Шинэ цонх нээх зөвшөөрөл өгнө үү");
+  detailWindow.opener = null;
+  detailWindow.document.write(`<!doctype html><html lang="mn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${htmlSafe(row.staff.name)} · Гүйцэтгэл</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&subset=cyrillic&display=swap" rel="stylesheet"><style>
+    :root{--accent:#68bd63;--soft:rgba(104,189,99,.12);--text:#1f241f;--muted:#717771;--line:#dde3dd;--bg:#f6f7f6}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px Montserrat,Arial,sans-serif}.page{max-width:1320px;margin:0 auto;padding:22px}.head,.panel,.metric{background:#fff;border:1px solid var(--line);border-radius:8px}.head{padding:20px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-top:4px solid var(--accent)}h1{font-size:22px;margin:0 0 7px}.muted{color:var(--muted)}.actions{display:flex;gap:8px}button{height:38px;border-radius:8px;padding:0 14px;font:600 12px Montserrat;border:1px solid var(--line);background:#fff;cursor:pointer}.primary{background:var(--accent);border-color:var(--accent);color:#fff}.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0}.metric{padding:14px}.metric span{display:block;color:var(--muted);font-size:11px;margin-bottom:8px}.metric strong{font-size:17px}.panel{margin-top:12px;padding:16px}h2{font-size:14px;color:var(--accent);margin:0 0 12px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line)}th{font-size:11px;text-transform:uppercase;color:var(--muted)}td.amount,th.amount{text-align:right}.badge{display:inline-flex;border-radius:999px;padding:4px 8px;background:var(--soft);color:var(--accent);font-size:10px;font-weight:700}.assignment{display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}.empty{padding:16px;color:var(--muted);text-align:center}@media(max-width:800px){.metrics{grid-template-columns:1fr 1fr}.page{padding:10px}.head{display:block}.actions{margin-top:12px;overflow:auto}.panel{overflow:auto}}@media print{.actions{display:none}.page{max-width:none;padding:0}body{background:#fff}}
+  </style></head><body><main class="page"><section class="head"><div><h1>${htmlSafe(row.staff.name)}</h1><div class="muted">${htmlSafe(row.staff.position || "Ажилтан")} · Үндсэн салбар: ${htmlSafe(row.staff.salon || "-")}</div><div class="muted" style="margin-top:6px">${report.from} — ${report.to} · ${report.salon === "all" ? "Бүх салбар" : htmlSafe(report.salon)}</div></div><div class="actions"><button onclick="window.close()">Хаах</button><button class="primary" onclick="window.print()">Хэвлэх</button></div></section>
+  <section class="metrics"><article class="metric"><span>Нэг удаа</span><strong>${row.singleCount}</strong></article><article class="metric"><span>Курсийн оролт</span><strong>${row.courseCount}</strong></article><article class="metric"><span>Касс</span><strong>${row.kassDays} өдөр</strong></article><article class="metric"><span>Нийт төлбөр</span><strong>${money(row.revenue)}</strong></article><article class="metric"><span>Нийт урамшуулал</span><strong>${money(row.commission)}</strong></article></section>
+  <section class="panel"><h2>Салбараар</h2><table><thead><tr><th>Салбар</th><th>Ажил</th><th class="amount">Орлого</th><th class="amount">Урамшуулал</th></tr></thead><tbody>${Object.entries(branchTotals).map(([branch, value]) => `<tr><td>${htmlSafe(branch)} ${branch !== row.staff.salon ? '<span class="badge">Түр ажилласан</span>' : ""}</td><td>${value.count}</td><td class="amount">${money(value.revenue)}</td><td class="amount"><strong>${money(value.commission)}</strong></td></tr>`).join("") || '<tr><td colspan="4" class="empty">Гүйцэтгэл бүртгэгдээгүй</td></tr>'}</tbody></table></section>
+  <section class="panel"><h2>Гүйцэтгэлийн дэлгэрэнгүй</h2><table><thead><tr><th>Огноо</th><th>Салбар</th><th>Төрөл</th><th>Үйлчилгээ / хэрэглэгч</th><th class="amount">Төлбөр</th><th class="amount">Хувь</th><th class="amount">Урамшуулал</th></tr></thead><tbody>${row.transactions.map(item => `<tr><td>${item.date}</td><td>${htmlSafe(item.salon)} ${item.temporary ? '<span class="badge">Түр томилгоо</span>' : ""}</td><td>${item.type === "course" ? "Курсийн оролт" : item.type === "kass" ? "Касс" : "Нэг удаа"}</td><td>${htmlSafe(item.title)}${item.customer ? `<div class="muted">${htmlSafe(item.customer)}</div>` : ""}</td><td class="amount">${money(item.revenue)}</td><td class="amount">${item.rate}%</td><td class="amount"><strong>${money(item.commission)}</strong></td></tr>`).join("") || '<tr><td colspan="7" class="empty">Сонгосон хугацаанд гүйцэтгэл алга</td></tr>'}</tbody></table></section>
+  <section class="panel"><h2>Түр томилгооны түүх</h2>${assignments.map(item => `<div class="assignment"><strong>${htmlSafe(item.from)} → ${htmlSafe(item.to)}</strong><span>${assignmentPeriodText(item)}</span><span class="muted">${htmlSafe(item.reason || "")}</span></div>`).join("") || '<div class="empty">Энэ хугацаанд түр томилгоо байхгүй</div>'}</section></main></body></html>`);
+  detailWindow.document.close();
+}
+
+function exportPerformanceCsv() {
+  const report = buildPerformanceReport();
+  const lines = [
+    ["Ажилтан", "Үндсэн салбар", "Нэг удаа", "Курсийн оролт", "Касс өдөр", "Нийт төлбөр", "Үйлчилгээний урамшуулал", "Кассын урамшуулал", "Нийт урамшуулал"],
+    ...report.rows.map(row => [row.staff.name, row.staff.salon || "", row.singleCount, row.courseCount, row.kassDays, row.revenue, row.serviceCommission, row.kassCommission, row.commission])
+  ];
+  const csv = `\uFEFF${lines.map(line => line.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `guitsetgel-${report.from}-${report.to}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+  showToast("Гүйцэтгэлийн Excel файл бэлтгэгдлээ");
 }
 
 function renderServicePaymentSummary(item, paid, historyIndex) {
@@ -3407,7 +5010,7 @@ function giftCardPaymentMessage(number = "") {
   if (!card) return `<span class="danger">Карт олдсонгүй</span>`;
   if (giftCardStatus(card) === "inactive") return `<span class="danger">Идэвхгүй карт</span>`;
   if (giftCardStatus(card) === "used" || Number(card.remainingAmount || 0) <= 0) return `<span class="danger">Үлдэгдэлгүй карт</span>`;
-  return `<span>Үлдэгдэл: <strong>${money(card.remainingAmount)}</strong></span>`;
+  return `<span>Үлдэгдэл: <strong>${money(card.remainingAmount)}</strong> · Хэрэглээнд тооцогдоно, бонус бодогдохгүй.</span>`;
 }
 
 function renderPaymentMethodExtra(method = "card", item = {}) {
@@ -3425,7 +5028,7 @@ function renderPaymentMethodExtra(method = "card", item = {}) {
       <label class="inline-gift-card-field ${method === "gift_card" ? "" : "hidden"}">Картын дугаар
         <input class="input inline-payment-gift-card" type="text" value="${giftCardNumber}" placeholder="Картын дугаар">
       </label>
-      <div class="inline-payment-extra-note">${method === "gift_card" ? giftCardPaymentMessage(giftCardNumber) : ""}</div>
+      <div class="inline-payment-extra-note">${method === "gift_card" ? giftCardPaymentMessage(giftCardNumber) : method === "voucher" ? "Ваучерийн дүн хэрэглээнд тооцогдоно, бонус бодогдохгүй." : ""}</div>
     </div>
   `;
 }
@@ -3531,6 +5134,356 @@ function orderedGroupMembers(group) {
   ];
 }
 
+function deletedCustomers() {
+  return state.customers
+    .filter(customer => customer.deleted || customer.deletedAt)
+    .sort((a, b) => String(b.deletedAt || "").localeCompare(String(a.deletedAt || "")) || String(a.name || "").localeCompare(String(b.name || "")));
+}
+
+function renderDeletedCustomerDirectory() {
+  const rows = document.getElementById("groupDeletedCustomerRows");
+  if (!rows) return;
+  const customers = deletedCustomers();
+  const count = document.getElementById("groupDeletedTabCount");
+  if (count) count.textContent = customers.length;
+  rows.innerHTML = customers.map(customer => `
+    <tr>
+      <td><strong>${htmlSafe(customer.name || "—")}</strong></td>
+      <td>${htmlSafe(customer.phone || "—")}</td>
+      <td>${htmlSafe(customer.salon || "—")}</td>
+      <td>${htmlSafe(customer.deletedAt || "—")}</td>
+      <td>${htmlSafe(customer.deletedBy || "Менежер")}</td>
+      <td>
+        <div class="table-actions deleted-customer-actions">
+          <button class="danger-btn icon-danger deleted-customer-permanent-delete" type="button" data-customer-id="${customer.id}" aria-label="Бүр мөсөн устгах" title="Бүр мөсөн устгах">${trashIcon()}</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") || `<tr><td colspan="6" class="empty-state">Устгасан хэрэглэгч байхгүй</td></tr>`;
+  rows.querySelectorAll(".deleted-customer-permanent-delete").forEach(button => {
+    button.addEventListener("click", () => permanentlyDeleteCustomer(Number(button.dataset.customerId)));
+  });
+}
+
+function permanentlyDeleteCustomer(customerId) {
+  const customer = state.customers.find(item => Number(item.id) === Number(customerId) && (item.deleted || item.deletedAt));
+  if (!customer) return;
+  if (!requireDeleteCode()) return;
+  state.customerGroups.forEach(group => {
+    group.members = (group.members || []).filter(id => Number(id) !== Number(customer.id));
+    if (Number(group.adminCustomerId) === Number(customer.id)) group.adminCustomerId = null;
+  });
+  state.permanentlyDeletedCustomerIds = Array.from(new Set([...(state.permanentlyDeletedCustomerIds || []).map(Number), Number(customer.id)]));
+  state.customers = state.customers.filter(item => Number(item.id) !== Number(customer.id));
+  if (Number(state.selectedCustomerId) === Number(customer.id)) {
+    state.selectedCustomerId = state.customers.find(item => !item.deleted && !item.deletedAt)?.id || null;
+  }
+  state.audit.unshift({ title: "customer_permanently_deleted", meta: `Менежер • ${customer.name || "—"} • ${customer.phone || ""}` });
+  saveState();
+  renderCustomers();
+  renderCustomerSideProfile();
+  renderProfile();
+  renderGroupDirectory();
+  renderAudit();
+  renderInfoHeader(activeView);
+  showToast("Хэрэглэгч бүр мөсөн устлаа");
+}
+
+function renderGroupDirectory() {
+  const view = document.getElementById("groupsView");
+  if (!view) return;
+  if (!document.getElementById("groupDirectoryList")) {
+    view.innerHTML = `
+      <div class="group-section-tabs service-settings-tabs" role="tablist" aria-label="Группийн хэсэг">
+        <button class="group-section-tab service-main-tab active" type="button" role="tab" data-group-tab="directory" aria-selected="true">Группүүд <span id="groupDirectoryTabCount">0</span></button>
+        <button class="group-section-tab service-main-tab" type="button" role="tab" data-group-tab="deleted" aria-selected="false">Устгасан хэрэглэгч <span id="groupDeletedTabCount">0</span></button>
+      </div>
+      <section class="panel group-tab-panel group-directory-panel" id="groupDirectoryTabPanel" role="tabpanel">
+        <div class="group-directory-toolbar">
+          <div class="group-directory-search-row">
+            <input class="input" id="groupDirectorySearch" placeholder="8 оронтой дугаар" inputmode="numeric" maxlength="8" aria-label="Групп эсвэл гишүүний утсаар хайх">
+            <select class="input" id="groupDirectoryStatusFilter" aria-label="Группийн төлөв">
+              <option value="all">Бүх төлөв</option>
+              <option value="with_members">Гишүүнтэй</option>
+              <option value="without_members">Гишүүнгүй</option>
+            </select>
+            <button class="secondary-btn group-directory-search-clear" id="groupDirectorySearchClear" type="button" aria-label="Хайлтыг цэвэрлэх">×</button>
+          </div>
+        </div>
+        <div class="group-directory-list" id="groupDirectoryList"></div>
+      </section>
+      <section class="panel group-tab-panel group-deleted-panel hidden" id="groupDeletedTabPanel" role="tabpanel">
+        <div class="table-wrap group-deleted-table-wrap">
+          <table class="booking-table group-deleted-table">
+            <thead>
+              <tr><th>Нэр</th><th>Утас</th><th>Салбар</th><th>Устгасан огноо</th><th>Устгасан</th><th>Үйлдэл</th></tr>
+            </thead>
+            <tbody id="groupDeletedCustomerRows"></tbody>
+          </table>
+        </div>
+      </section>
+    `;
+    view.querySelectorAll(".group-section-tab").forEach(button => {
+      button.addEventListener("click", () => {
+        const tab = button.dataset.groupTab;
+        view.querySelectorAll(".group-section-tab").forEach(item => {
+          const active = item === button;
+          item.classList.toggle("active", active);
+          item.setAttribute("aria-selected", String(active));
+        });
+        document.getElementById("groupDirectoryTabPanel")?.classList.toggle("hidden", tab !== "directory");
+        document.getElementById("groupDeletedTabPanel")?.classList.toggle("hidden", tab !== "deleted");
+        if (tab === "deleted") renderDeletedCustomerDirectory();
+      });
+    });
+    document.getElementById("groupDirectorySearch")?.addEventListener("input", event => {
+      event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+      renderGroupDirectory();
+    });
+    document.getElementById("groupDirectoryStatusFilter")?.addEventListener("change", () => renderGroupDirectory());
+    document.getElementById("groupDirectorySearchClear")?.addEventListener("click", () => {
+      const input = document.getElementById("groupDirectorySearch");
+      const status = document.getElementById("groupDirectoryStatusFilter");
+      if (input) input.value = "";
+      if (status) {
+        status.value = "all";
+        syncNativeSelectProxy(status);
+      }
+      renderGroupDirectory();
+      input?.focus();
+    });
+    enhanceNativeSelects(["groupDirectoryStatusFilter"]);
+  }
+
+  const list = document.getElementById("groupDirectoryList");
+  const search = String(document.getElementById("groupDirectorySearch")?.value || "").trim().toLowerCase();
+  const memberStatus = document.getElementById("groupDirectoryStatusFilter")?.value || "all";
+  const groups = state.customerGroups
+    .map(group => ({ group, members: orderedGroupMembers(group) }))
+    .filter(({ group, members }) => {
+      if (memberStatus === "all") return true;
+      const hasActiveMember = members.some(member => !member.deleted && Number(member.id) !== Number(group.adminCustomerId));
+      return memberStatus === "with_members" ? hasActiveMember : !hasActiveMember;
+    })
+    .filter(({ group, members }) => !search || [
+      group.name,
+      ...members.filter(member => !member.deleted).flatMap(member => [member.name, member.phone])
+    ].some(value => String(value || "").toLowerCase().includes(search)))
+    .sort((a, b) => Number(b.group.spent2y || 0) - Number(a.group.spent2y || 0));
+  const groupCount = document.getElementById("groupDirectoryTabCount");
+  if (groupCount) groupCount.textContent = state.customerGroups.length;
+  renderDeletedCustomerDirectory();
+
+  list.innerHTML = groups.length ? `
+    <div class="table-wrap group-list-table-wrap">
+      <table class="group-list-table">
+        <thead>
+          <tr>
+            <th>Групп нэр</th>
+            <th>Админ нэр</th>
+            <th>Гишүүн</th>
+            <th>2 жилийн хэрэглээ</th>
+            <th>Бонус %</th>
+            <th>Нийт бонус</th>
+            <th>Ашигласан</th>
+            <th>Үлдэгдэл</th>
+            <th aria-label="Дэлгэрүүлэх"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${groups.map(({ group, members }) => {
+            const bonus = groupBonusInfo(group);
+            const admin = state.customers.find(customer => Number(customer.id) === Number(group.adminCustomerId));
+            const regularMembers = members.filter(member => !member.deleted && Number(member.id) !== Number(group.adminCustomerId));
+            const activeMemberCount = regularMembers.length;
+            const editingName = Boolean(group.directoryEditingName && group.directoryExpanded);
+            const expanded = Boolean(group.directoryExpanded);
+            return `
+              <tr class="group-list-row ${expanded ? "expanded" : ""}">
+                <td>
+                  ${editingName ? `
+                    <form class="group-directory-name-form group-list-name-form" data-group-id="${group.id}">
+                      <input class="input group-directory-name-input" value="${htmlSafe(group.name || "")}" inputmode="numeric" maxlength="8" aria-label="Группийн нэр">
+                      <button class="primary-btn group-list-save" type="submit">Хадгалах</button>
+                      <button class="secondary-btn icon-action group-list-cancel group-directory-name-cancel" type="button" data-group-id="${group.id}" aria-label="Болих">×</button>
+                    </form>
+                  ` : `
+                    <div class="group-list-name">
+                      <strong>${htmlSafe(group.name || "Нэргүй")}</strong>
+                      ${expanded ? `<button class="secondary-btn icon-action group-list-edit group-directory-edit" type="button" data-group-id="${group.id}" aria-label="Групп засах" title="Групп засах">${editIcon()}</button>` : ""}
+                    </div>
+                  `}
+                </td>
+                <td><span class="group-list-admin">${htmlSafe(admin?.name || "—")}</span></td>
+                <td>${activeMemberCount}</td>
+                <td>${money(bonus?.spent || 0)}</td>
+                <td>${bonus?.percent || 0}%</td>
+                <td>${money(bonus?.pool || 0)}</td>
+                <td>${money(bonus?.used || 0)}</td>
+                <td><strong class="group-list-balance">${money(bonus?.balance || 0)}</strong></td>
+                <td>
+                  <button class="group-list-expand" type="button" data-group-id="${group.id}" aria-expanded="${expanded}" aria-label="Гишүүдийг ${expanded ? "хураах" : "дэлгэх"}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+                  </button>
+                </td>
+              </tr>
+              ${expanded ? `
+                <tr class="group-list-detail-row">
+                  <td colspan="9">
+                    <div class="group-list-detail">
+                      <div class="group-list-members">
+                        ${regularMembers.map(member => `
+                          <div class="group-list-member">
+                            <div class="group-list-member-info">
+                              <strong>${htmlSafe(member.name)}</strong>
+                              <span>${htmlSafe(member.phone || "—")}</span>
+                            </div>
+                            <button class="secondary-btn icon-action group-list-member-remove group-member-directory-remove" type="button" data-member-id="${member.id}" aria-label="Гишүүн хасах">×</button>
+                          </div>
+                        `).join("") || `<span class="group-list-empty">Одоогоор өөр гишүүнгүй</span>`}
+                      </div>
+                      <form class="group-directory-add-form group-list-add-form" data-admin-id="${admin?.id || ""}" data-group-id="${group.id}">
+                        <input class="input group-directory-add-input" placeholder="Гишүүний утас" inputmode="numeric" maxlength="8" aria-label="Гишүүний утасны дугаар">
+                        <button class="secondary-btn" type="submit">Нэмэх</button>
+                        <div class="group-list-suggestions hidden"></div>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              ` : ""}
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  ` : `<div class="empty-state">Хайлтад тохирох групп олдсонгүй</div>`;
+
+  list.querySelectorAll(".group-member-open").forEach(button => {
+    button.addEventListener("click", () => {
+      if (!button.dataset.customerId) return;
+      state.selectedCustomerId = Number(button.dataset.customerId);
+      setView("profile");
+    });
+  });
+  list.querySelectorAll(".group-list-expand").forEach(button => {
+    button.addEventListener("click", () => {
+      const group = state.customerGroups.find(item => Number(item.id) === Number(button.dataset.groupId));
+      if (!group) return;
+      const shouldExpand = !group.directoryExpanded;
+      state.customerGroups.forEach(item => {
+        item.directoryExpanded = false;
+        delete item.directoryEditingName;
+      });
+      group.directoryExpanded = shouldExpand;
+      renderGroupDirectory();
+    });
+  });
+  list.querySelectorAll(".group-directory-edit").forEach(button => {
+    button.addEventListener("click", () => {
+      const group = state.customerGroups.find(item => Number(item.id) === Number(button.dataset.groupId));
+      if (!group) return;
+      state.customerGroups.forEach(item => delete item.directoryEditingName);
+      group.directoryEditingName = true;
+      renderGroupDirectory();
+      document.querySelector(`.group-directory-name-form[data-group-id="${group.id}"] .group-directory-name-input`)?.focus();
+    });
+  });
+  list.querySelectorAll(".group-directory-name-cancel").forEach(button => {
+    button.addEventListener("click", () => {
+      const group = state.customerGroups.find(item => Number(item.id) === Number(button.dataset.groupId));
+      if (group) delete group.directoryEditingName;
+      renderGroupDirectory();
+    });
+  });
+  list.querySelectorAll(".group-directory-name-form").forEach(form => {
+    const input = form.querySelector(".group-directory-name-input");
+    input?.addEventListener("input", () => { input.value = input.value.replace(/\D/g, "").slice(0, 8); });
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const group = state.customerGroups.find(item => Number(item.id) === Number(form.dataset.groupId));
+      const name = String(input?.value || "").trim();
+      if (!group) return;
+      if (!/^\d{8}$/.test(name)) {
+        showToast("Группийн нэр 8 оронтой дугаар байна");
+        return;
+      }
+      if (!requireEditCode()) return;
+      group.name = name;
+      delete group.directoryEditingName;
+      state.audit.unshift({ title: "group_updated", meta: `Менежер • Групп ${name}` });
+      saveState();
+      renderGroupDirectory();
+      renderAudit();
+      showToast("Группийн мэдээлэл хадгалагдлаа");
+    });
+  });
+  list.querySelectorAll(".group-directory-add-form").forEach(form => {
+    const input = form.querySelector(".group-directory-add-input");
+    const suggestions = form.querySelector(".group-list-suggestions");
+    const renderSuggestions = () => {
+      if (!input || !suggestions) return;
+      const phone = input.value.trim();
+      const candidates = state.customers
+        .filter(item => !item.deleted && !item.deletedAt)
+        .filter(item => Number(item.id) !== Number(form.dataset.adminId))
+        .filter(item => !item.groupId && !isCustomerInAnyGroup(item.id))
+        .filter(item => !phone || String(item.phone || "").includes(phone))
+        .slice(0, 8);
+      suggestions.innerHTML = candidates.length ? candidates.map(item => `
+        <button class="group-list-suggestion" type="button" data-member-id="${item.id}">
+          <strong>${htmlSafe(item.name)}</strong>
+          <span>${htmlSafe(item.phone || "—")}</span>
+        </button>
+      `).join("") : `<span class="group-list-suggestion-empty">Группгүй хэрэглэгч олдсонгүй</span>`;
+      suggestions.classList.remove("hidden");
+      suggestions.querySelectorAll(".group-list-suggestion").forEach(button => {
+        button.addEventListener("click", () => {
+          const admin = state.customers.find(item => Number(item.id) === Number(form.dataset.adminId));
+          if (!admin) return;
+          addCustomerToCurrentGroup(admin.id, Number(button.dataset.memberId));
+          renderGroupDirectory();
+        });
+      });
+    };
+    input?.addEventListener("focus", renderSuggestions);
+    input?.addEventListener("click", renderSuggestions);
+    input?.addEventListener("input", () => {
+      input.value = input.value.replace(/\D/g, "").slice(0, 8);
+      renderSuggestions();
+    });
+    input?.addEventListener("blur", () => {
+      setTimeout(() => suggestions?.classList.add("hidden"), 150);
+    });
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const phone = String(input?.value || "").trim();
+      const admin = state.customers.find(item => Number(item.id) === Number(form.dataset.adminId));
+      const member = state.customers.find(item => !item.deleted && !item.deletedAt && String(item.phone || "") === phone);
+      if (!/^\d{8}$/.test(phone)) {
+        showToast("8 оронтой утасны дугаар оруулна уу");
+        return;
+      }
+      if (!member) {
+        showToast("Ийм утасны дугаартай хэрэглэгч олдсонгүй");
+        return;
+      }
+      if (member.groupId || isCustomerInAnyGroup(member.id)) {
+        showToast("Энэ хэрэглэгч аль хэдийн группт байна");
+        return;
+      }
+      if (!admin) return;
+      addCustomerToCurrentGroup(admin.id, member.id);
+      renderGroupDirectory();
+    });
+  });
+  list.querySelectorAll(".group-member-directory-remove").forEach(button => {
+    button.addEventListener("click", () => {
+      leaveCustomerGroup(Number(button.dataset.memberId));
+      renderGroupDirectory();
+    });
+  });
+}
+
 function collapseCustomerServicePanels(customer) {
   if (!customer) return;
   customer.profileServiceOpen = false;
@@ -3538,6 +5491,7 @@ function collapseCustomerServicePanels(customer) {
   delete customer.profileServiceEditMode;
   (customer.serviceHistory || []).forEach(item => {
     item.expandedVisit = null;
+    item.diagnosisViewVisit = null;
     item.paymentFormOpen = false;
     item.diagnosisOpen = false;
   });
@@ -3691,11 +5645,139 @@ function renderProfileInfoPanel(customer) {
       ` : ""}
     </section>
   `;
-}function renderProfileServiceInlineForm(customer) {
+}
+
+function kassSaleThreshold(item = {}) {
+  const match = String(item.saleNote || "").match(/\d+/);
+  return match ? Math.max(1, Number(match[0])) : 0;
+}
+
+function kassHasSpecialPrice(item = {}) {
+  return kassSaleThreshold(item) > 0 && Number(item.sale || 0) > 0 && Number(item.sale) < Number(item.price || 0);
+}
+
+function kassLineUnitPrice(item = {}, quantity = 1) {
+  const threshold = kassSaleThreshold(item);
+  return kassHasSpecialPrice(item) && Number(quantity) >= threshold
+    ? Number(item.sale)
+    : Number(item.price || 0);
+}
+
+function kassCartTotal(cart = []) {
+  return cart.reduce((sum, item) => sum + kassLineUnitPrice(item, item.qty) * Math.max(1, Number(item.qty || 1)), 0);
+}
+
+function renderProfileKassCartBox(cart = []) {
+  const total = kassCartTotal(cart);
+  return `
+    ${cart.length ? cart.map((item, index) => {
+      const qty = Math.max(1, Number(item.qty || 1));
+      const threshold = kassSaleThreshold(item);
+      const special = kassHasSpecialPrice(item) && qty >= threshold;
+      const unitPrice = kassLineUnitPrice(item, qty);
+      return `
+        <div class="profile-kass-cart-row">
+          <div class="profile-kass-cart-name">
+            <strong>${item.name}</strong>
+            <span class="${special ? "discounted" : ""}">${special ? `<s>${money(item.price)}</s> ${money(unitPrice)}` : money(unitPrice)}${kassHasSpecialPrice(item) ? ` <small>(${threshold}+-ш: ${money(item.sale)})</small>` : ""}</span>
+          </div>
+          <div class="slot-stepper profile-kass-qty-stepper" aria-label="Тоо ширхэг">
+            <button class="secondary-btn slot-step-btn profile-kass-qty-step" type="button" data-cart-index="${index}" data-delta="-1" aria-label="Тоо хасах">−</button>
+            <input class="input slot-count-input profile-kass-qty" type="text" value="${qty}" readonly aria-label="Тоо ширхэг">
+            <button class="secondary-btn slot-step-btn profile-kass-qty-step" type="button" data-cart-index="${index}" data-delta="1" aria-label="Тоо нэмэх">+</button>
+          </div>
+          <strong class="profile-kass-line-total">${money(unitPrice * qty)}</strong>
+          <button class="profile-kass-remove" type="button" data-cart-index="${index}" aria-label="Бараа хасах">×</button>
+        </div>
+      `;
+    }).join("") : `<div class="profile-kass-empty">Зүүн талаас бараа сонгоно уу</div>`}
+    <div class="profile-kass-total"><span>Нийт</span><strong>${money(total)}</strong></div>
+  `;
+}
+
+function renderProfileKassInlineForm(customer) {
+  const editingIndex = Number.isInteger(customer.profileKassEditingIndex) ? customer.profileKassEditingIndex : null;
+  const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
+  const salonAccount = isSalonAccount();
+  const selectedGroup = customer.profileKassGroup && serviceSettingsData.products[customer.profileKassGroup]
+    ? customer.profileKassGroup
+    : editingItem?.products?.[0]?.group || productGroups[0]?.[0];
+  customer.profileKassGroup = selectedGroup;
+  if (!Array.isArray(customer.profileKassCart) && editingItem) {
+    customer.profileKassCart = (editingItem.products || []).map(product => ({
+      group: product.group || selectedGroup,
+      code: product.code || "",
+      name: product.name,
+      price: Number(product.price || product.unitPrice || 0),
+      sale: Number(product.sale || 0),
+      saleNote: product.saleNote || "",
+      qty: Math.max(1, Number(product.qty || 1))
+    }));
+  }
+  const cart = Array.isArray(customer.profileKassCart) ? customer.profileKassCart : [];
+  const products = serviceSettingsData.products[selectedGroup] || [];
+  const selectedSalon = customer.profileKassDraftSalon ?? editingItem?.salon ?? (salonAccount ? activeAccount.salon : "");
+  const selectedDate = customer.profileKassDraftDate || editingItem?.date || todayText();
+  return `
+    <form id="profileServiceForm" class="profile-inline-service-form profile-kass-form" data-kind="kass" novalidate>
+      <div class="service-modal-tabs">
+        <button class="service-modal-tab" type="button" data-kind="single">Нэг удаа</button>
+        <button class="service-modal-tab" type="button" data-kind="course">Курс</button>
+        <button class="service-modal-tab active" type="button" data-kind="kass">Касс</button>
+      </div>
+      <div class="profile-kass-meta">
+        <label>Огноо
+          <input class="input" id="profileKassDate" type="date" value="${selectedDate}" required>
+        </label>
+        <label>Салбар
+          <select class="input" id="profileKassSalon" required ${salonAccount ? "disabled" : ""}>
+            <option value="">Салбар сонгох</option>
+            ${state.salons.filter(salon => !salonAccount || salon.name === activeAccount.salon).map(salon => `<option value="${salon.name}" ${salon.name === selectedSalon ? "selected" : ""}>${salon.name}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="profile-kass-layout">
+        <section class="profile-kass-catalog">
+          <div class="profile-kass-section-title">Бараа сонгох</div>
+          <div class="profile-kass-groups">
+            ${productGroups.map(([key, label]) => `
+              <button class="profile-kass-group ${key === selectedGroup ? "active" : ""}" type="button" data-group="${key}">${label}</button>
+            `).join("")}
+          </div>
+          <div class="profile-kass-products">
+            ${products.length ? products.map((item, index) => {
+              const threshold = kassSaleThreshold(item);
+              return `
+                <button class="profile-kass-product" type="button" data-product-index="${index}">
+                  <span>${item.name}</span>
+                  <strong>${money(item.price)}</strong>
+                  ${kassHasSpecialPrice(item) ? `<small>${threshold}+-ш: ${money(item.sale)}</small>` : ""}
+                </button>
+              `;
+            }).join("") : `<div class="empty-state">Энэ ангилалд бараа алга</div>`}
+          </div>
+        </section>
+        <section class="profile-kass-cart">
+          <div class="profile-kass-section-title">Сонгосон бараа</div>
+          <div class="profile-kass-cart-box">
+            ${renderProfileKassCartBox(cart)}
+          </div>
+        </section>
+      </div>
+      <div class="profile-kass-submit-row">
+        ${editingItem ? `<button class="secondary-btn profile-kass-cancel-edit" type="button">Болих</button>` : ""}
+        <button class="primary-btn" type="submit" ${cart.length ? "" : "disabled"}>${editingItem ? "Касс шинэчлэх" : "Касс нэмэх"}</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderProfileServiceInlineForm(customer) {
   const showSalon = ["admin", "manager"].includes(activeAccount.role);
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const kind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
+  if (!editingItem && kind === "kass") return renderProfileKassInlineForm(customer);
   const diagnosisOnly = Boolean(editingItem && customer.profileServiceEditMode === "diagnosis");
   if (diagnosisOnly) {
     return `
@@ -3723,7 +5805,7 @@ function renderProfileInfoPanel(customer) {
       ${editingItem ? "" : `<div class="service-modal-tabs">
         <button class="service-modal-tab ${kind === "single" ? "active" : ""}" type="button" data-kind="single">Нэг удаа</button>
         <button class="service-modal-tab ${kind === "course" ? "active" : ""}" type="button" data-kind="course">Курс</button>
-        <button class="service-modal-tab disabled" type="button" disabled>Касс</button>
+        <button class="service-modal-tab" type="button" data-kind="kass">Касс</button>
       </div>`}
       <div class="customer-service-grid profile-service-row">
         <label class="service-select-field">Үйлчилгээ
@@ -3735,7 +5817,7 @@ function renderProfileInfoPanel(customer) {
         ${showSalon ? `<label>Салбар<select class="input" id="profileServiceSalon"><option value="">Салбар сонгох</option>${state.salons.map(s => `<option value="${s.name}" ${s.name === selectedSalon ? "selected" : ""}>${s.name}</option>`).join("")}</select></label>` : ""}
         ${kind === "course" ? "" : `
           <label>Ажилтан
-            <select class="input" id="profileServiceStaff" required>${showSalon ? staffOptionHtmlForSalon(selectedSalon, selectedStaff) : staffOptionHtmlForSalon(activeAccount.salon, selectedStaff)}</select>
+            <select class="input" id="profileServiceStaff" required>${showSalon ? staffOptionHtmlForSalon(selectedSalon, selectedStaff, editingItem?.date || todayText()) : staffOptionHtmlForSalon(activeAccount.salon, selectedStaff, editingItem?.date || todayText())}</select>
           </label>
           <label>Өрөө
             <select class="input" id="profileServiceRoom">
@@ -3769,12 +5851,29 @@ function renderCourseVisitInlineForm(item, historyIndex, visitNumber) {
     <form class="course-visit-inline-form" data-history-index="${historyIndex}" data-visit="${visitNumber}" data-prefix="${prefix}" data-mode="${existing ? "edit" : "create"}">
       <div class="customer-service-grid course-visit-row">
         <label>Огноо<input class="input course-visit-date" type="date" value="${existing?.date || todayText()}" required></label>
-        <label>Ажилтан<select class="input course-visit-staff" id="${prefix}Staff" required>${staffOptionHtmlForSalon(salon, previousStaff)}</select></label>
+        <label>Ажилтан<select class="input course-visit-staff" id="${prefix}Staff" required>${staffOptionHtmlForSalon(salon, previousStaff, existing?.date || todayText())}</select></label>
         <label>Өрөө<select class="input course-visit-room" id="${prefix}Room"><option value="standard" ${room === "standard" ? "selected" : ""}>Энгийн</option><option value="vip" ${room === "vip" ? "selected" : ""}>Вип</option></select></label>
         <button class="primary-btn" type="submit">${existing ? "Оролт шинэчлэх" : "Оролт бүртгэх"}</button>
       </div>
-      <button class="secondary-btn diagnosis-expand-btn" id="${prefix}DiagnosisToggle" type="button"><span>Оношилгоо</span><i></i></button>
+      <div class="course-visit-action-tabs">
+        <button class="secondary-btn diagnosis-expand-btn" id="${prefix}DiagnosisToggle" type="button"><span>Оношилгоо</span><i></i></button>
+        <button class="secondary-btn course-visit-confirm ${existing?.signed ? "confirmed" : ""}" type="button" ${existing?.signed ? "disabled" : ""}>
+          <span>${existing?.signed ? "Үйлчилгээ баталгаажсан" : "Үйлчилгээг батлах"}</span>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 17c3-8 5-11 7-11 2 0-1 8-3 11-1 2 1 2 3 0l2-3c-1 3 0 4 2 3l2-2c-1 2 0 3 2 2h4"/></svg>
+        </button>
+      </div>
       ${diagnosisFormHtml(prefix)}
+      <div class="course-signature-panel hidden">
+        <div class="course-signature-head">
+          <strong>Хэрэглэгчийн гарын үсэг</strong>
+          <span>Доорх талбарт хулгана эсвэл touch-оор зурна</span>
+        </div>
+        <canvas class="course-signature-canvas" width="900" height="300"></canvas>
+        <div class="course-signature-actions">
+          <button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button>
+          <button class="primary-btn course-signature-submit" type="button">Зурж илгээх</button>
+        </div>
+      </div>
     </form>
   `;
 }
@@ -3783,11 +5882,13 @@ function renderCourseSlots(item, historyIndex) {
   const total = Number(item.visitsTotal || parseInt(item.visits, 10) || 4);
   const visits = Array.isArray(item.visits) ? item.visits : [];
   const expandedVisit = Number(item.expandedVisit || 0);
+  const diagnosisViewVisit = Number(item.diagnosisViewVisit || 0);
   const columns = 4;
   const rows = [];
   for (let start = 1; start <= total; start += columns) {
     const numbers = Array.from({ length: Math.min(columns, total - start + 1) }, (_, i) => start + i);
     const expandedInRow = numbers.includes(expandedVisit) ? expandedVisit : 0;
+    const diagnosisInRow = numbers.includes(diagnosisViewVisit) ? diagnosisViewVisit : 0;
     rows.push(`
       <div class="course-slot-row">
         <div class="course-slot-grid">
@@ -3797,7 +5898,7 @@ function renderCourseSlots(item, historyIndex) {
             const locked = visit && !isServiceEditable(visit);
             return `
               <div class="course-slot-card ${visit ? "done" : ""} ${expanded ? "active" : ""} ${locked ? "locked" : ""}">
-                <button class="course-slot-btn" type="button" data-history-index="${historyIndex}" data-visit="${number}" data-filled="${visit ? "true" : "false"}" ${visit ? "aria-disabled=\"true\"" : ""}>
+                <button class="course-slot-btn" type="button" data-history-index="${historyIndex}" data-visit="${number}" data-filled="${visit ? "true" : "false"}">
                   <strong>${number}</strong>
                   <span>${visit ? visit.date : "Оролт нэмэх"}</span>
                   ${visit ? `<small>${visit.staff || "Ажилтан сонгоогүй"}</small>` : ""}
@@ -3809,6 +5910,7 @@ function renderCourseSlots(item, historyIndex) {
           }).join("")}
         </div>
         ${expandedInRow ? `<div class="course-visit-form-wrap" style="--slot-index:${numbers.indexOf(expandedInRow)}">${renderCourseVisitInlineForm(item, historyIndex, expandedInRow)}</div>` : ""}
+        ${diagnosisInRow ? `<div class="course-visit-form-wrap course-diagnosis-view" style="--slot-index:${numbers.indexOf(diagnosisInRow)}">${renderCourseVisitSummary(visits.find(visit => Number(visit.number) === diagnosisInRow) || {})}</div>` : ""}
       </div>
     `);
   }
@@ -3829,6 +5931,13 @@ function bindCourseVisitInlineForms(customer) {
     const course = customer.serviceHistory?.[historyIndex];
     const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
     hydrateDiagnosisForm(prefix, existingVisit?.diagnosis);
+    bindCourseVisitSignature(form, existingVisit);
+    form.querySelector(".course-visit-date")?.addEventListener("change", event => {
+      const staffSelect = form.querySelector(".course-visit-staff");
+      if (!staffSelect) return;
+      staffSelect.innerHTML = staffOptionHtmlForSalon(course?.salon || activeAccount.salon, staffSelect.value, event.target.value || todayText());
+      enhanceNativeSelects([staffSelect.id]);
+    });
     form.addEventListener("submit", event => {
       event.preventDefault();
       const historyIndex = Number(form.dataset.historyIndex);
@@ -3861,7 +5970,10 @@ function bindCourseVisitInlineForms(customer) {
         masterStaffFee,
         extraTotal: newExtra,
         createdAt: existingVisit?.createdAt || todayText(),
-        diagnosis: readDiagnosisPayload(prefix)
+        diagnosis: readDiagnosisPayload(prefix),
+        signed: form.dataset.confirming === "true" ? true : Boolean(existingVisit?.signed),
+        signature: form.dataset.confirming === "true" ? form.dataset.signature : (existingVisit?.signature || null),
+        signedAt: form.dataset.confirming === "true" ? new Date().toISOString() : (existingVisit?.signedAt || null)
       };
       course.price = Math.max(0, Number(course.price || course.basePrice || 0) + newExtra - oldExtra);
       course.balance = Math.max(0, Number(course.balance || 0) + newExtra - oldExtra);
@@ -3875,10 +5987,80 @@ function bindCourseVisitInlineForms(customer) {
       customer.activeCourse = done < Number(course.visitsTotal || 0);
       customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, staff: visit.staff, date: visit.date, diagnosis: visit.diagnosis }, `Курс ${visitNumber}/${course.visitsTotal}`);
       customer.last = visit.date;
-      saveAndRefreshCustomerProfile("Курсийн оролт бүртгэгдлээ");
+      saveAndRefreshCustomerProfile(form.dataset.confirming === "true" ? "Үйлчилгээ гарын үсгээр баталгаажлаа" : "Курсийн оролт бүртгэгдлээ");
     });
   });
-}function renderDiagnosisSummary(diagnosis) {
+}
+
+function bindCourseVisitSignature(form, existingVisit = null) {
+  const openButton = form.querySelector(".course-visit-confirm");
+  const panel = form.querySelector(".course-signature-panel");
+  const canvas = form.querySelector(".course-signature-canvas");
+  if (!openButton || !panel || !canvas || existingVisit?.signed) return;
+  const context = canvas.getContext("2d");
+  context.lineWidth = 5;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#172017";
+  let drawing = false;
+  let hasInk = false;
+  const point = event => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height)
+    };
+  };
+  canvas.addEventListener("pointerdown", event => {
+    drawing = true;
+    hasInk = true;
+    canvas.setPointerCapture?.(event.pointerId);
+    const current = point(event);
+    context.beginPath();
+    context.moveTo(current.x, current.y);
+  });
+  canvas.addEventListener("pointermove", event => {
+    if (!drawing) return;
+    const current = point(event);
+    context.lineTo(current.x, current.y);
+    context.stroke();
+  });
+  const stopDrawing = () => {
+    drawing = false;
+    context.closePath();
+  };
+  canvas.addEventListener("pointerup", stopDrawing);
+  canvas.addEventListener("pointercancel", stopDrawing);
+  canvas.addEventListener("pointerleave", stopDrawing);
+  openButton.addEventListener("click", () => {
+    panel.classList.toggle("hidden");
+    openButton.classList.toggle("active", !panel.classList.contains("hidden"));
+    const diagnosisPanel = form.querySelector(".service-diagnosis-panel");
+    if (diagnosisPanel) {
+      diagnosisPanel.classList.add("hidden");
+    }
+    form.querySelector(".diagnosis-expand-btn")?.classList.remove("active");
+  });
+  form.querySelector(".course-signature-clear")?.addEventListener("click", () => {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    hasInk = false;
+  });
+  form.querySelector(".course-signature-submit")?.addEventListener("click", () => {
+    if (!hasInk) return showToast("Гарын үсгээ зурна уу");
+    form.dataset.signature = canvas.toDataURL("image/png");
+    form.dataset.confirming = "true";
+    form.requestSubmit();
+  });
+}
+
+function renderCourseVisitSummary(visit = {}) {
+  const signature = typeof visit.signature === "string" && visit.signature.startsWith("data:image/")
+    ? `<div class="course-signature-summary"><strong>Хэрэглэгчийн гарын үсэг</strong><button class="diagnosis-photo-thumb" type="button" aria-label="Гарын үсэг томоор харах"><img src="${visit.signature}" alt="Хэрэглэгчийн гарын үсэг"></button><span>${visit.signedAt ? new Date(visit.signedAt).toLocaleString("mn-MN") : "Баталгаажсан"}</span></div>`
+    : (visit.signed ? `<div class="course-signature-summary"><strong>Хэрэглэгчийн гарын үсэг</strong><span>Баталгаажсан</span></div>` : "");
+  return `${renderDiagnosisSummary(visit.diagnosis || {})}${signature}`;
+}
+
+function renderDiagnosisSummary(diagnosis) {
   const types = diagnosis.types || [];
   const note = String(diagnosis.note || "").trim();
   const noteParts = note.split(",").map(item => item.trim()).filter(Boolean);
@@ -3886,6 +6068,12 @@ function bindCourseVisitInlineForms(customer) {
   const chips = types.length
     ? types.map(type => `<span class="payment-history-chip">${type}</span>`).join("")
     : (note ? `<span class="payment-history-chip">${note}</span>` : `<span class="payment-history-chip">Онош сонгоогүй</span>`);
+  const photoThumbs = (photos = [], label = "Оношилгооны зураг") => photos
+    .filter(photo => typeof photo === "string" && photo.startsWith("data:image/"))
+    .map((photo, index) => `<button class="diagnosis-photo-thumb" type="button" aria-label="${label} ${index + 1} томоор харах"><img src="${photo}" alt="${label} ${index + 1}" loading="lazy"></button>`)
+    .join("");
+  const generalThumbs = photoThumbs(diagnosis.generalPhotos || [], "Үсний байрлал");
+  const scopeThumbs = photoThumbs(diagnosis.scopePhotos || [], "Хуйх, уг");
   return `
     <div class="diagnosis-summary-box">
       <div class="diagnosis-summary-title">Онош</div>
@@ -3894,11 +6082,35 @@ function bindCourseVisitInlineForms(customer) {
         ${note && types.length && !noteOnlyRepeatsTypes ? `<span class="payment-history-chip">${note}</span>` : ""}
       </div>
       <div class="photo-summary-grid">
-        <div><strong>Үсний байрлал</strong><span>${(diagnosis.generalPhotos || []).filter(Boolean).length}/5 зураг</span></div>
-        <div><strong>Хуйх, уг</strong><span>${(diagnosis.scopePhotos || []).filter(Boolean).length}/5 зураг</span></div>
+        <div><strong>Үсний байрлал</strong><span>${(diagnosis.generalPhotos || []).filter(Boolean).length}/5 зураг</span>${generalThumbs ? `<div class="diagnosis-photo-thumbs">${generalThumbs}</div>` : ""}</div>
+        <div><strong>Хуйх, уг</strong><span>${(diagnosis.scopePhotos || []).filter(Boolean).length}/5 зураг</span>${scopeThumbs ? `<div class="diagnosis-photo-thumbs">${scopeThumbs}</div>` : ""}</div>
       </div>
     </div>
   `;
+}
+
+function bindDiagnosisPhotoPreview(root = document) {
+  root?.querySelectorAll(".diagnosis-photo-thumb").forEach(button => {
+    button.addEventListener("click", () => {
+      const image = button.querySelector("img");
+      const source = image?.getAttribute("src") || "";
+      const label = image?.getAttribute("alt") || "Оношилгооны зураг";
+      showDiagnosisPhotoPreview(source, label);
+    });
+  });
+}
+
+function showDiagnosisPhotoPreview(source = "", label = "Оношилгооны зураг") {
+  if (!source) return;
+  openModal(
+    "Оношилгооны зураг",
+    label,
+    `<div class="diagnosis-large-image"><img src="${source}" alt="${htmlSafe(label)}"></div><div class="form-actions"><button class="secondary-btn" id="cancelModal" type="button">Хаах</button></div>`,
+    () => {
+      document.querySelector("#modalBackdrop .modal")?.classList.add("diagnosis-image-modal");
+      document.getElementById("cancelModal")?.addEventListener("click", closeModal);
+    }
+  );
 }
 
 function serviceHasPayment(item = {}) {
@@ -3976,9 +6188,17 @@ function renderProfile() {
       </aside>
     </section>
   `;
+  bindDiagnosisPhotoPreview(document.getElementById("historyList"));
   document.getElementById("profileAddServiceTop")?.addEventListener("click", () => {
     const wasOpen = Boolean(customer.profileServiceOpen && !Number.isInteger(customer.profileServiceEditingIndex));
     collapseCustomerServicePanels(customer);
+    if (wasOpen) {
+      delete customer.profileKassEditingIndex;
+      delete customer.profileKassCart;
+      delete customer.profileKassDraftSalon;
+      delete customer.profileKassDraftDate;
+      delete customer.profileKassGroup;
+    }
     customer.profileServiceOpen = !wasOpen;
     customer.profileServiceKind = customer.profileServiceKind || "single";
     renderProfile();
@@ -4029,10 +6249,20 @@ function renderProfile() {
   });
   bindProfileGroupInlineSearch(customer);
   bindCourseVisitInlineForms(customer);
-  document.getElementById("historyList")?.querySelectorAll(".course-slot-btn").forEach(button => {
-    button.addEventListener("click", () => {
+  document.getElementById("historyList")?.querySelectorAll(".course-slot-card").forEach(card => {
+    card.addEventListener("click", event => {
+      if (event.target.closest(".course-slot-edit")) return;
+      const button = card.querySelector(".course-slot-btn");
+      if (!button) return;
       if (button.dataset.filled === "true") {
-        showToast("Бүртгэлтэй оролтыг засах товчоор засна");
+        const historyIndex = Number(button.dataset.historyIndex);
+        const visitNumber = Number(button.dataset.visit);
+        const item = customer.serviceHistory?.[historyIndex];
+        if (!item) return;
+        const wasOpen = Number(item.diagnosisViewVisit) === visitNumber;
+        collapseCustomerServicePanels(customer);
+        if (!wasOpen) item.diagnosisViewVisit = visitNumber;
+        renderProfile();
         return;
       }
       const historyIndex = Number(button.dataset.historyIndex);
@@ -4084,7 +6314,9 @@ function renderProfile() {
       if (!item) return;
       const editMode = profileServiceEditMode(item);
       if (editMode === "locked") {
-        const message = item.kind === "course" && Array.isArray(item.visits) && item.visits.length
+        const message = (item.kind === "kass" || item.kind === "product") && serviceHasPayment(item)
+          ? "Төлбөр орсон кассыг засах боломжгүй"
+          : item.kind === "course" && Array.isArray(item.visits) && item.visits.length
           ? "Эхний оролт бүртгэгдсэн курсийн үндсэн үйлчилгээг засах боломжгүй"
           : serviceHasPayment(item)
             ? "Төлбөр орсон үйлчилгээний зөвхөн оношилгоог засах боломжтой"
@@ -4093,6 +6325,17 @@ function renderProfile() {
         return;
       }
       collapseCustomerServicePanels(customer);
+      if (item.kind === "kass" || item.kind === "product") {
+        customer.profileServiceKind = "kass";
+        customer.profileServiceOpen = true;
+        customer.profileKassEditingIndex = index;
+        delete customer.profileKassCart;
+        delete customer.profileKassDraftSalon;
+        delete customer.profileKassDraftDate;
+        customer.profileKassGroup = item.products?.[0]?.group || productGroups[0]?.[0];
+        renderProfile();
+        return;
+      }
       customer.profileServiceKind = item.kind === "course" ? "course" : "single";
       customer.profileServiceEditMode = editMode;
       customer.profileServiceEditingIndex = index;
@@ -4140,9 +6383,10 @@ function deleteProfileCustomer(customerId) {
   }
   if (!requireDeleteCode()) return;
   customer.deletedAt = todayText();
+  customer.deletedBy = "Менежер";
   customer.deleted = true;
   customer.profileInfoEditing = false;
-  state.selectedCustomerId = state.customers.find(item => !item.deleted)?.id || null;
+  state.selectedCustomerId = state.customers.find(item => !item.deleted && !item.deletedAt)?.id || null;
   state.audit.unshift({ title: "customer_deleted", meta: `Менежер • ${customer.name} • ${customer.phone || ""}` });
   saveState();
   renderCustomers();
@@ -4228,6 +6472,156 @@ function updateProfileServicePrice(customer) {
   if (target) target.innerHTML = profileServicePriceBreakdownHtml(price);
 }
 
+function bindProfileKassCartControls(customer, form) {
+  form.querySelectorAll(".profile-kass-qty-step").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = customer.profileKassCart?.[Number(button.dataset.cartIndex)];
+      if (!item) return;
+      item.qty = Math.max(1, Math.floor(Number(item.qty || 1)) + Number(button.dataset.delta || 0));
+      refreshProfileKassCart(customer, form);
+    });
+  });
+  form.querySelectorAll(".profile-kass-remove").forEach(button => {
+    button.addEventListener("click", () => {
+      customer.profileKassCart?.splice(Number(button.dataset.cartIndex), 1);
+      refreshProfileKassCart(customer, form);
+    });
+  });
+}
+
+function refreshProfileKassCart(customer, form) {
+  const cart = Array.isArray(customer.profileKassCart) ? customer.profileKassCart : [];
+  const cartBox = form.querySelector(".profile-kass-cart-box");
+  if (cartBox) cartBox.innerHTML = renderProfileKassCartBox(cart);
+  const submitButton = form.querySelector('.profile-kass-submit-row button[type="submit"]');
+  if (submitButton) submitButton.disabled = !cart.length;
+  bindProfileKassCartControls(customer, form);
+}
+
+function bindProfileKassInlineForm(customer, form) {
+  enhanceNativeSelects(["profileKassSalon"]);
+  form.querySelectorAll(".service-modal-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      delete customer.profileKassEditingIndex;
+      delete customer.profileKassCart;
+      delete customer.profileKassGroup;
+      delete customer.profileKassDraftSalon;
+      delete customer.profileKassDraftDate;
+      customer.profileServiceKind = tab.dataset.kind || "single";
+      customer.profileServiceOpen = true;
+      renderProfile();
+    });
+  });
+  form.querySelectorAll(".profile-kass-group").forEach(button => {
+    button.addEventListener("click", () => {
+      customer.profileKassDraftSalon = form.querySelector("#profileKassSalon")?.value || "";
+      customer.profileKassDraftDate = form.querySelector("#profileKassDate")?.value || todayText();
+      customer.profileKassGroup = button.dataset.group;
+      renderProfile();
+    });
+  });
+  form.querySelectorAll(".profile-kass-product").forEach(button => {
+    button.addEventListener("click", () => {
+      const group = customer.profileKassGroup || productGroups[0]?.[0];
+      const product = serviceSettingsData.products[group]?.[Number(button.dataset.productIndex)];
+      if (!product) return;
+      customer.profileKassCart = Array.isArray(customer.profileKassCart) ? customer.profileKassCart : [];
+      const existing = customer.profileKassCart.find(item => item.group === group && item.code === product.code && item.name === product.name);
+      if (existing) {
+        existing.qty = Math.max(1, Number(existing.qty || 1)) + 1;
+      } else {
+        customer.profileKassCart.push({
+          group,
+          code: product.code || "",
+          name: product.name,
+          price: Number(product.price || 0),
+          sale: Number(product.sale || 0),
+          saleNote: product.saleNote || "",
+          qty: 1
+        });
+      }
+      refreshProfileKassCart(customer, form);
+    });
+  });
+  bindProfileKassCartControls(customer, form);
+  form.querySelector(".profile-kass-cancel-edit")?.addEventListener("click", () => {
+    delete customer.profileKassEditingIndex;
+    delete customer.profileKassCart;
+    delete customer.profileKassGroup;
+    delete customer.profileKassDraftSalon;
+    delete customer.profileKassDraftDate;
+    customer.profileServiceKind = "single";
+    customer.profileServiceOpen = false;
+    renderProfile();
+  });
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    const cart = Array.isArray(customer.profileKassCart) ? customer.profileKassCart : [];
+    if (!cart.length) {
+      showToast("Бараа сонгоно уу");
+      return;
+    }
+    if (!customer.groupId) {
+      showToast("Эхлээд групп үүсгэх эсвэл группт нэгтгэнэ");
+      return;
+    }
+    const salon = formValue("profileKassSalon");
+    if (!salon) {
+      showToast("Салбар сонгоно уу");
+      return;
+    }
+    const date = formValue("profileKassDate") || todayText();
+    const products = cart.map(item => {
+      const qty = Math.max(1, Math.floor(Number(item.qty || 1)));
+      const unitPrice = kassLineUnitPrice(item, qty);
+      return {
+        group: item.group,
+        code: item.code || "",
+        name: item.name,
+        qty,
+        price: Number(item.price || 0),
+        sale: Number(item.sale || 0),
+        saleNote: item.saleNote || "",
+        unitPrice,
+        lineTotal: unitPrice * qty,
+        specialPriceApplied: unitPrice < Number(item.price || 0)
+      };
+    });
+    const total = products.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+    const editingIndex = Number.isInteger(customer.profileKassEditingIndex) ? customer.profileKassEditingIndex : null;
+    const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
+    const historyItem = {
+      kind: "kass",
+      title: "Касс",
+      service: "Касс",
+      date,
+      createdAt: editingItem?.createdAt || todayText(),
+      staff: "Касс",
+      salon,
+      products,
+      price: total,
+      basePrice: total,
+      balance: total,
+      paymentMethod: "",
+      payments: editingItem?.payments || [],
+      paymentFormOpen: true
+    };
+    collapseCustomerServicePanels(customer);
+    customer.serviceHistory = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
+    if (editingItem) customer.serviceHistory[editingIndex] = historyItem;
+    else customer.serviceHistory.unshift(historyItem);
+    customer.unpaid = customerBalance(customer) > 0;
+    customer.last = date;
+    delete customer.profileKassCart;
+    delete customer.profileKassGroup;
+    delete customer.profileKassEditingIndex;
+    delete customer.profileKassDraftSalon;
+    delete customer.profileKassDraftDate;
+    customer.profileServiceKind = "single";
+    saveAndRefreshCustomerProfile(editingItem ? "Касс шинэчлэгдлээ. Төлбөрийн хэсэг нээгдлээ" : "Касс нэмэгдлээ. Төлбөрийн хэсэг нээгдлээ");
+  });
+}
+
 function bindProfileServiceInlineForm(customer) {
   const form = document.getElementById("profileServiceForm");
   if (!form) return;
@@ -4235,6 +6629,10 @@ function bindProfileServiceInlineForm(customer) {
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const formKind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
+  if (!editingItem && formKind === "kass") {
+    bindProfileKassInlineForm(customer, form);
+    return;
+  }
   form.querySelectorAll(".service-modal-tab:not(.disabled)").forEach(tab => {
     tab.addEventListener("click", () => {
       customer.profileServiceKind = tab.dataset.kind || "single";
@@ -4257,9 +6655,18 @@ function bindProfileServiceInlineForm(customer) {
   document.getElementById("profileServiceSalon")?.addEventListener("change", event => {
     const staffSelect = document.getElementById("profileServiceStaff");
     if (!staffSelect) return;
-    staffSelect.innerHTML = staffOptionHtmlForSalon(event.target.value);
+    staffSelect.innerHTML = staffOptionHtmlForSalon(event.target.value, "", formValue("profileServiceDate") || todayText());
     enhanceNativeSelects(["profileServiceStaff"]);
     staffSelect.addEventListener("change", () => updateProfileServicePrice(customer));
+    updateProfileServicePrice(customer);
+  });
+  document.getElementById("profileServiceDate")?.addEventListener("change", event => {
+    const staffSelect = document.getElementById("profileServiceStaff");
+    if (!staffSelect) return;
+    const selectedStaff = staffSelect.value;
+    const selectedSalon = formValue("profileServiceSalon") || activeAccount.salon;
+    staffSelect.innerHTML = staffOptionHtmlForSalon(selectedSalon, selectedStaff, event.target.value || todayText());
+    enhanceNativeSelects(["profileServiceStaff"]);
     updateProfileServicePrice(customer);
   });
   if ((editingItem ? editingItem.kind : customer.profileServiceKind) !== "course") {
@@ -4357,6 +6764,7 @@ function bindProfileServiceInlineForm(customer) {
 function groupCandidateCustomers(customer, phone = "") {
   const q = String(phone || "").trim();
   return state.customers
+    .filter(item => !item.deleted && !item.deletedAt)
     .filter(item => Number(item.id) !== Number(customer.id))
     .filter(item => !item.groupId)
     .filter(item => !q || String(item.phone || "").includes(q) || item.name.toLowerCase().includes(q.toLowerCase()))
@@ -4436,7 +6844,7 @@ function bindInlinePaymentForms(customer) {
       if (bonusApplyButton) bonusApplyButton.textContent = "БОНУС";
       if (bonusInput) bonusInput.readOnly = bonusApplied;
       if (amountInput) {
-        amountInput.readOnly = bonusApplied;
+        amountInput.readOnly = false;
         amountInput.value = bonusApplied ? moneyInputValue(Math.max(0, balance - bonusAmount)) : moneyInputValue(balance);
       }
     };
@@ -4446,7 +6854,11 @@ function bindInlinePaymentForms(customer) {
         updateBonusLimit();
         return;
       }
-      amountInput.value = moneyInputValue(Math.max(1, Math.min(parseMoneyInput(raw), balance)));
+      const appliedBonusAmount = bonusApplied
+        ? Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus))
+        : 0;
+      const payableBalance = Math.max(0, balance - appliedBonusAmount);
+      amountInput.value = moneyInputValue(Math.max(1, Math.min(parseMoneyInput(raw), payableBalance)));
     });
     bonusInput?.addEventListener("input", () => {
       bonusInput.value = moneyInputValue(Math.max(0, Math.min(parseMoneyInput(bonusInput.value), maxBonus)));
@@ -4460,7 +6872,13 @@ function bindInlinePaymentForms(customer) {
       form.querySelector(".inline-voucher-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-voucher-note-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-gift-card-field")?.classList.toggle("hidden", value !== "gift_card");
-      if (giftCardNote) giftCardNote.innerHTML = value === "gift_card" ? giftCardPaymentMessage(giftCardInput?.value) : "";
+      if (giftCardNote) {
+        giftCardNote.innerHTML = value === "gift_card"
+          ? giftCardPaymentMessage(giftCardInput?.value)
+          : value === "voucher"
+            ? "Ваучерийн дүн хэрэглээнд тооцогдоно, бонус бодогдохгүй."
+            : "";
+      }
     };
     method?.addEventListener("change", updatePaymentExtras);
     giftCardInput?.addEventListener("input", event => {
@@ -4485,6 +6903,7 @@ function bindInlinePaymentForms(customer) {
       const methodSelect = form.querySelector(".inline-payment-method");
       const methodLabel = methodSelect?.selectedOptions?.[0]?.textContent || "";
       let referenceLabel = "";
+      let giftCardUsageId = "";
       if (methodSelect?.value === "voucher") {
         const roleId = form.querySelector(".inline-payment-voucher-role")?.value;
         const role = state.voucherRoles.find(item => String(item.id) === String(roleId));
@@ -4517,10 +6936,12 @@ function bindInlinePaymentForms(customer) {
           return;
         }
         referenceLabel = card.cardNumber;
+        giftCardUsageId = `gcu-${Date.now()}-${historyIndex}-${card.usage?.length || 0}`;
         card.remainingAmount = Math.max(0, Number(card.remainingAmount || 0) - amount);
         card.status = card.remainingAmount <= 0 ? "used" : "new";
         card.usage = Array.isArray(card.usage) ? card.usage : [];
         card.usage.unshift({
+          id: giftCardUsageId,
           date: form.querySelector(".inline-payment-date")?.value || todayText(),
           time: currentTimeText(),
           customer: customer.name,
@@ -4531,7 +6952,9 @@ function bindInlinePaymentForms(customer) {
       }
       const paidDate = form.querySelector(".inline-payment-date")?.value || todayText();
       historyItem.payments = historyItem.payments || [];
-      const groupPayment = applyGroupPayment(group, amount, bonusAmount, paidDate);
+      const groupPayment = applyGroupPayment(group, amount, bonusAmount, paidDate, {
+        bonusEligible: !["voucher", "gift_card"].includes(methodSelect?.value || "")
+      });
       historyItem.payments.unshift({
         amount: appliedAmount,
         bonusAmount,
@@ -4541,6 +6964,7 @@ function bindInlinePaymentForms(customer) {
         method: methodSelect?.value || "",
         methodLabel,
         referenceLabel,
+        giftCardUsageId,
         ...(groupPayment || {})
       });
       historyItem.balance = Math.max(0, currentBalance - appliedAmount);
@@ -4585,7 +7009,10 @@ function deleteCustomerHistoryItem(customerId, historyIndex) {
   }
   if (!requireDeleteCode()) return;
   const group = customerGroup(customer);
-  (historyItem.payments || []).forEach(payment => reverseGroupPayment(payment, group));
+  (historyItem.payments || []).forEach(payment => {
+    reverseGroupPayment(payment, group);
+    reverseGiftCardPayment(payment, customer, historyItem);
+  });
   customer.serviceHistory.splice(historyIndex, 1);
   customer.currentTreatment = customer.serviceHistory[0] ? currentTreatmentFromHistory(customer, customer.serviceHistory[0], customer.serviceHistory[0].kind === "course" ? customer.course || "Курс" : "Нэг удаа") : null;
   customer.activeCourse = customer.serviceHistory.some(item => item.kind === "course");
@@ -4637,11 +7064,26 @@ function staffOptionHtml(selected = "") {
     .join("");
 }
 
-function staffOptionHtmlForSalon(salon = "", selected = "") {
+function staffOptionHtmlForSalon(salon = "", selected = "", date = todayText()) {
   if (!salon) return `<option value="">Эхлээд салбар сонгоно уу</option>`;
-  const staff = state.staff.filter(item => item.status !== "inactive" && item.salon === salon);
+  const staff = state.staff.filter(item => {
+    if (item.status === "inactive") return false;
+    const assigned = state.assignments.some(assignment =>
+      assignment.status !== "cancelled" &&
+      (Number(assignment.staffId) === Number(item.id) || assignment.staff === item.name) &&
+      assignment.to === salon && date >= assignment.startDate && date <= assignment.endDate
+    );
+    return item.salon === salon || assigned || item.name === selected;
+  });
   return staff.length
-    ? staff.map(item => `<option value="${item.name}" ${item.name === selected ? "selected" : ""}>${item.name}</option>`).join("")
+    ? staff.map(item => {
+        const temporary = item.salon !== salon && state.assignments.some(assignment =>
+          assignment.status !== "cancelled" &&
+          (Number(assignment.staffId) === Number(item.id) || assignment.staff === item.name) &&
+          assignment.to === salon && date >= assignment.startDate && date <= assignment.endDate
+        );
+        return `<option value="${item.name}" ${item.name === selected ? "selected" : ""}>${item.name}${temporary ? " · Түр томилгоо" : ""}</option>`;
+      }).join("")
     : `<option value="">Ажилтан алга</option>`;
 }
 
@@ -4660,8 +7102,12 @@ function diagnosisFormHtml(prefix = "service", open = false) {
             ${generalPositions.map((name, index) => `
               <div class="camera-shot-card" data-target="general" data-index="${index}">
                 <span>${name}</span>
-                <div class="camera-preview-mini">Камер нээгдээгүй</div>
-                <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Зураг авах</button>
+                <div class="camera-preview-mini">
+                  <video class="camera-video" autoplay muted playsinline></video>
+                  <canvas class="camera-canvas" width="960" height="720"></canvas>
+                  <em>Камер нээгдээгүй</em>
+                </div>
+                <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Камер нээх</button>
               </div>
             `).join("")}
           </div>
@@ -4672,8 +7118,12 @@ function diagnosisFormHtml(prefix = "service", open = false) {
             ${Array.from({ length: 5 }, (_, index) => `
               <div class="camera-shot-card" data-target="scope" data-index="${index}">
                 <span>Зураг ${index + 1}</span>
-                <div class="camera-preview-mini">Камер нээгдээгүй</div>
-                <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Зураг авах</button>
+                <div class="camera-preview-mini">
+                  <video class="camera-video" autoplay muted playsinline></video>
+                  <canvas class="camera-canvas" width="960" height="720"></canvas>
+                  <em>Камер нээгдээгүй</em>
+                </div>
+                <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Камер нээх</button>
               </div>
             `).join("")}
           </div>
@@ -4684,13 +7134,20 @@ function diagnosisFormHtml(prefix = "service", open = false) {
 }
 function readDiagnosisPayload(prefix = "service") {
   const panel = document.getElementById(`${prefix}DiagnosisPanel`);
-  if (!panel || (panel.classList.contains("hidden") && panel.dataset.open !== "true")) return null;
+  if (!panel || (panel.classList.contains("hidden") && panel.dataset.open !== "true")) {
+    releaseDiagnosisCameraSession();
+    return null;
+  }
   const types = Array.from(panel.querySelectorAll(".diagnosis-pick.active")).map(button => button.dataset.type);
-  const generalPhotos = Array.from(panel.querySelectorAll('.photo-capture[data-target="general"]')).map(button => button.classList.contains("active"));
-  const scopePhotos = Array.from(panel.querySelectorAll('.photo-capture[data-target="scope"]')).map(button => button.classList.contains("active"));
+  const readPhoto = button => button.dataset.photo || button.classList.contains("active");
+  const generalPhotos = Array.from(panel.querySelectorAll('.photo-capture[data-target="general"]')).map(readPhoto);
+  const scopePhotos = Array.from(panel.querySelectorAll('.photo-capture[data-target="scope"]')).map(readPhoto);
   const note = document.getElementById(`${prefix}DiagnosisNote`)?.value.trim() || "";
-  if (!types.length && !note && !generalPhotos.some(Boolean) && !scopePhotos.some(Boolean)) return null;
-  return { types, note, generalPhotos, scopePhotos };
+  const payload = !types.length && !note && !generalPhotos.some(Boolean) && !scopePhotos.some(Boolean)
+    ? null
+    : { types, note, generalPhotos, scopePhotos };
+  releaseDiagnosisCameraSession();
+  return payload;
 }
 
 function hydrateDiagnosisForm(prefix = "service", diagnosis = null, open = true) {
@@ -4714,57 +7171,186 @@ function hydrateDiagnosisForm(prefix = "service", diagnosis = null, open = true)
     panel.querySelectorAll(`.photo-capture[data-target="${target}"]`).forEach(button => {
       const active = Boolean(photos[Number(button.dataset.index)]);
       button.classList.toggle("active", active);
-      button.textContent = active ? "Дахин авах" : "Зураг авах";
+      button.textContent = active ? "Дахин авах" : "Камер нээх";
       const card = button.closest(".camera-shot-card");
       const preview = card?.querySelector(".camera-preview-mini");
+      const canvas = card?.querySelector(".camera-canvas");
+      const label = preview?.querySelector("em");
       if (card) card.classList.toggle("captured", active);
-      if (preview && active) preview.textContent = "Зураг хадгалагдсан";
+      if (card) card.classList.toggle("legacy-photo", active && typeof photos[Number(button.dataset.index)] !== "string");
+      if (typeof photos[Number(button.dataset.index)] === "string") {
+        button.dataset.photo = photos[Number(button.dataset.index)];
+        const image = new Image();
+        image.onload = () => {
+          const context = canvas?.getContext("2d");
+          if (context && canvas) context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        };
+        image.src = photos[Number(button.dataset.index)];
+      }
+      if (label && active) label.textContent = typeof photos[Number(button.dataset.index)] === "string" ? "" : "Зураг хадгалагдсан";
     });
   });
 }
 
-async function startDiagnosisCamera(card) {
+function detachDiagnosisCamera(card) {
   const video = card?.querySelector(".camera-video");
-  const label = card?.querySelector(".camera-preview-mini em");
-  if (!card || !video) return false;
-  if (video.srcObject) return true;
+  if (video) video.srcObject = null;
+  card?.classList.remove("camera-live");
+}
+
+function releaseDiagnosisCameraSession() {
+  closeDiagnosisCameraOverlay();
+  if (diagnosisCameraStream?.getTracks) diagnosisCameraStream.getTracks().forEach(track => track.stop());
+  diagnosisCameraStream = null;
+  document.querySelectorAll(".camera-shot-card").forEach(detachDiagnosisCamera);
+}
+
+function diagnosisCameraSessionActive() {
+  return Boolean(diagnosisCameraStream?.getVideoTracks?.().some(track => track.readyState === "live"));
+}
+
+function closeDiagnosisCameraOverlay() {
+  const overlay = document.querySelector(".diagnosis-camera-overlay");
+  const video = overlay?.querySelector("video");
+  if (video) video.srcObject = null;
+  overlay?.remove();
+  document.body.classList.remove("camera-overlay-open");
+}
+
+function diagnosisCaptureConfig() {
+  const settings = generalSettings();
+  const mode = settings.diagnosisCaptureMode === "native" ? "native" : "fixed";
+  const size = /^\d+x\d+$/.test(settings.diagnosisCaptureSize || "") ? settings.diagnosisCaptureSize : "1280x960";
+  const [width, height] = size.split("x").map(Number);
+  return {
+    mode,
+    width,
+    height,
+    quality: Math.max(0.8, Math.min(0.95, Number(settings.diagnosisJpegQuality || 0.92)))
+  };
+}
+
+function diagnosisCameraVideoConstraints() {
+  const config = diagnosisCaptureConfig();
+  return {
+    facingMode: { ideal: "environment" },
+    width: { ideal: config.mode === "native" ? 4096 : config.width },
+    height: { ideal: config.mode === "native" ? 2160 : config.height }
+  };
+}
+
+async function ensureDiagnosisCameraStream(label) {
   if (!navigator.mediaDevices?.getUserMedia) {
-    if (label) label.textContent = "Камер дэмжихгүй байна";
-    return false;
+    if (label) label.textContent = "Энэ браузер камераар зураг авахыг дэмжихгүй байна";
+    return null;
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    video.srcObject = stream;
-    await video.play();
-    card.classList.add("camera-live");
+    if (label) label.textContent = "Камер нээж байна...";
+    if (!diagnosisCameraSessionActive()) {
+      diagnosisCameraStream = await navigator.mediaDevices.getUserMedia({
+        video: diagnosisCameraVideoConstraints(),
+        audio: false
+      });
+    }
     if (label) label.textContent = "";
-    return true;
+    return diagnosisCameraStream;
   } catch (error) {
-    if (label) label.textContent = "Камер зөвшөөрөл хэрэгтэй";
-    return false;
+    diagnosisCameraStream = null;
+    if (label) label.textContent = error?.name === "NotAllowedError"
+      ? "Камерын зөвшөөрөл өгнө үү"
+      : "Камер нээгдсэнгүй";
+    return null;
   }
 }
 
-function captureDiagnosisCamera(card, button) {
-  const video = card?.querySelector(".camera-video");
+async function openDiagnosisCameraFullscreen(card, button) {
+  const label = card?.querySelector(".camera-preview-mini em");
+  if (!card || !button) return;
+  const stream = await ensureDiagnosisCameraStream(label);
+  if (!stream) return;
+  closeDiagnosisCameraOverlay();
+  const positionName = card.querySelector(":scope > span")?.textContent?.trim() || "Оношилгооны зураг";
+  const overlay = document.createElement("div");
+  overlay.className = "diagnosis-camera-overlay";
+  overlay.innerHTML = `
+    <div class="diagnosis-camera-topbar">
+      <strong>${htmlSafe(positionName)}</strong>
+      <button class="diagnosis-camera-close" type="button" aria-label="Камер хаах">×</button>
+    </div>
+    <video autoplay muted playsinline></video>
+    <div class="diagnosis-camera-actions">
+      <button class="secondary-btn diagnosis-camera-cancel" type="button">Болих</button>
+      <button class="primary-btn diagnosis-camera-shoot" type="button">Зураг авах</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.body.classList.add("camera-overlay-open");
+  const video = overlay.querySelector("video");
+  video.srcObject = stream;
+  await video.play();
+  const close = () => closeDiagnosisCameraOverlay();
+  overlay.querySelector(".diagnosis-camera-close")?.addEventListener("click", close);
+  overlay.querySelector(".diagnosis-camera-cancel")?.addEventListener("click", close);
+  overlay.querySelector(".diagnosis-camera-shoot")?.addEventListener("click", () => {
+    captureDiagnosisCamera(card, button, video);
+    close();
+  });
+}
+
+function captureDiagnosisCamera(card, button, sourceVideo = null) {
+  const video = sourceVideo || card?.querySelector(".camera-video");
   const canvas = card?.querySelector(".camera-canvas");
   const label = card?.querySelector(".camera-preview-mini em");
   if (!card || !video || !canvas || !video.srcObject) return false;
   const context = canvas.getContext("2d");
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const sourceWidth = video.videoWidth || 640;
+  const sourceHeight = video.videoHeight || 480;
+  const config = diagnosisCaptureConfig();
+  if (config.mode === "native") {
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+  } else {
+    canvas.width = config.width;
+    canvas.height = config.height;
+  }
+  const targetRatio = canvas.width / canvas.height;
+  const sourceRatio = sourceWidth / sourceHeight;
+  let sx = 0;
+  let sy = 0;
+  let sw = sourceWidth;
+  let sh = sourceHeight;
+  if (config.mode !== "native" && sourceRatio > targetRatio) {
+    sw = sourceHeight * targetRatio;
+    sx = (sourceWidth - sw) / 2;
+  } else if (config.mode !== "native") {
+    sh = sourceWidth / targetRatio;
+    sy = (sourceHeight - sh) / 2;
+  }
+  if (config.mode !== "native") context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  button.dataset.photo = canvas.toDataURL("image/jpeg", config.quality);
   card.classList.add("captured");
+  card.classList.remove("legacy-photo");
   button.classList.add("active");
   button.textContent = "Дахин авах";
   if (label) label.textContent = "";
+  if (!sourceVideo) detachDiagnosisCamera(card);
   return true;
 }
 function bindDiagnosisControls(prefix = "service") {
-  document.getElementById(`${prefix}DiagnosisToggle`)?.addEventListener("click", () => {
+  const diagnosisToggle = document.getElementById(`${prefix}DiagnosisToggle`);
+  diagnosisToggle?.addEventListener("click", () => {
     const panel = document.getElementById(`${prefix}DiagnosisPanel`);
     panel?.classList.toggle("hidden");
     const open = !panel?.classList.contains("hidden");
     if (panel) panel.dataset.open = open ? "true" : "false";
-    document.getElementById(`${prefix}DiagnosisToggle`)?.classList.toggle("active", open);
+    diagnosisToggle.classList.toggle("active", open);
+    if (open) {
+      const form = diagnosisToggle.closest("form");
+      form?.querySelector(".course-signature-panel")?.classList.add("hidden");
+      form?.querySelector(".course-visit-confirm")?.classList.remove("active");
+    }
+    if (!open) releaseDiagnosisCameraSession();
   });
   document.querySelectorAll(`#${prefix}DiagnosisPanel .diagnosis-pick`).forEach(button => {
     button.addEventListener("click", () => {
@@ -4782,11 +7368,14 @@ function bindDiagnosisControls(prefix = "service") {
   document.querySelectorAll(`#${prefix}DiagnosisPanel .photo-capture`).forEach(button => {
     button.addEventListener("click", () => {
       const card = button.closest(".camera-shot-card");
-      const preview = card?.querySelector(".camera-preview-mini");
-      button.classList.add("active");
-      if (card) card.classList.add("captured");
-      if (preview) preview.textContent = "Зураг хадгалагдсан";
-      button.textContent = "Дахин авах";
+      openDiagnosisCameraFullscreen(card, button);
+    });
+    const card = button.closest(".camera-shot-card");
+    card?.querySelector(".camera-preview-mini")?.addEventListener("click", () => {
+      if (!card.classList.contains("captured") || card.classList.contains("camera-live")) return;
+      const label = card.querySelector(":scope > span")?.textContent?.trim() || "Оношилгооны зураг";
+      if (!button.dataset.photo) return showToast("Хуучин demo зураг тул томруулах файл хадгалагдаагүй байна");
+      showDiagnosisPhotoPreview(button.dataset.photo, label);
     });
   });
 }
@@ -5142,7 +7731,7 @@ function openAddGroupMemberModal(customerId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   const group = customerGroup(customer);
   if (!customer || !group) return;
-  const candidates = state.customers.filter(item => !item.groupId && Number(item.id) !== Number(customer.id));
+  const candidates = state.customers.filter(item => !item.deleted && !item.deletedAt && !item.groupId && Number(item.id) !== Number(customer.id));
   openModal(
     "Группт гишүүн нэмэх",
     `${group.name} групп`,
@@ -5245,7 +7834,203 @@ function renderHumanResources() {
   document.querySelectorAll(".hr-delete").forEach(button => {
     button.addEventListener("click", () => deleteHumanResourceStaff(Number(button.dataset.id)));
   });
+  renderHumanResourceAssignments();
   renderInfoHeader(activeView);
+}
+
+function assignmentPeriodText(assignment = {}) {
+  const dates = assignment.startDate === assignment.endDate
+    ? assignment.startDate
+    : `${assignment.startDate} — ${assignment.endDate}`;
+  return `${dates} · ${assignment.startTime || "09:00"}–${assignment.endTime || "20:00"}`;
+}
+
+function assignmentStaffScope() {
+  return state.staff.filter(item => item.status !== "inactive" && (!isSalonAccount() || item.salon === activeAccount.salon));
+}
+
+function assignmentCanBeManaged(assignment) {
+  return !isSalonAccount() || assignment.from === activeAccount.salon;
+}
+
+function canEditAssignment(assignment) {
+  return assignmentCanBeManaged(assignment) && canEditKassSchedule({ date: assignment.startDate });
+}
+
+function renderHumanResourceAssignments() {
+  const staffSelect = document.getElementById("hrAssignmentStaff");
+  const salonSelect = document.getElementById("hrAssignmentSalon");
+  const rows = document.getElementById("hrAssignmentRows");
+  const pagination = document.getElementById("hrAssignmentPagination");
+  if (!staffSelect || !salonSelect || !rows) return;
+
+  const selectedStaff = staffSelect.value;
+  const selectedSalon = salonSelect.value;
+  staffSelect.innerHTML = `<option value="">— Сонгох —</option>${assignmentStaffScope()
+    .map(item => `<option value="${item.id}" ${String(item.id) === selectedStaff ? "selected" : ""}>${item.name} · ${item.salon || "Салбаргүй"}</option>`)
+    .join("")}`;
+  salonSelect.innerHTML = `<option value="">— Сонгох —</option>${state.salons
+    .filter(item => item.active !== false && (!isSalonAccount() || item.name !== activeAccount.salon))
+    .map(item => `<option value="${item.name}" ${item.name === selectedSalon ? "selected" : ""}>${item.name}</option>`)
+    .join("")}`;
+
+  const startDate = document.getElementById("hrAssignmentStartDate");
+  const endDate = document.getElementById("hrAssignmentEndDate");
+  if (startDate && !startDate.value) startDate.value = todayText();
+  if (endDate && !endDate.value) endDate.value = startDate?.value || todayText();
+
+  const nameSearch = String(document.getElementById("hrAssignmentNameSearch")?.value || "").trim().toLowerCase();
+  const fromSearch = document.getElementById("hrAssignmentFromSearch")?.value || "";
+  const toSearch = document.getElementById("hrAssignmentToSearch")?.value || "";
+  const filteredAssignments = state.assignments
+    .filter(assignmentCanBeManaged)
+    .filter(assignment => !nameSearch || String(assignment.staff || "").toLowerCase().includes(nameSearch))
+    .filter(assignment => !fromSearch || assignment.endDate >= fromSearch)
+    .filter(assignment => !toSearch || assignment.startDate <= toSearch)
+    .slice()
+    .sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+  const pageSize = 100;
+  const pageCount = Math.max(1, Math.ceil(filteredAssignments.length / pageSize));
+  assignmentPage = Math.min(Math.max(1, assignmentPage), pageCount);
+  const pageRows = filteredAssignments.slice((assignmentPage - 1) * pageSize, assignmentPage * pageSize);
+
+  rows.innerHTML = pageRows
+    .map(assignment => {
+      const editable = canEditAssignment(assignment);
+      return `
+        <tr>
+          <td><strong>${assignment.staff}</strong></td>
+          <td>${assignment.from}</td>
+          <td><span class="assignment-route">→ ${assignment.to}</span></td>
+          <td>${assignmentPeriodText(assignment)}</td>
+          <td>${assignment.reason || "—"}</td>
+          <td>
+            <div class="table-actions assignment-actions">
+              <button class="secondary-btn icon-action assignment-edit" type="button" data-id="${assignment.id}" aria-label="Томилгоо засах" ${editable ? "" : "disabled"}>${editIcon()}</button>
+              <button class="danger-btn icon-danger assignment-delete" type="button" data-id="${assignment.id}" aria-label="Томилгоо устгах" ${editable ? "" : "disabled"}>${trashIcon()}</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="6"><div class="empty-state">Түр томилгоо бүртгэгдээгүй байна</div></td></tr>`;
+
+  if (pagination) {
+    pagination.innerHTML = filteredAssignments.length > pageSize ? `
+      <button class="secondary-btn" type="button" id="assignmentPrevPage" ${assignmentPage <= 1 ? "disabled" : ""}>Өмнөх</button>
+      <span>${assignmentPage} / ${pageCount} · ${filteredAssignments.length} бүртгэл</span>
+      <button class="secondary-btn" type="button" id="assignmentNextPage" ${assignmentPage >= pageCount ? "disabled" : ""}>Дараах</button>
+    ` : filteredAssignments.length ? `<span>${filteredAssignments.length} бүртгэл</span>` : "";
+    document.getElementById("assignmentPrevPage")?.addEventListener("click", () => {
+      assignmentPage -= 1;
+      renderHumanResourceAssignments();
+    });
+    document.getElementById("assignmentNextPage")?.addEventListener("click", () => {
+      assignmentPage += 1;
+      renderHumanResourceAssignments();
+    });
+  }
+
+  rows.querySelectorAll(".assignment-edit").forEach(button => {
+    button.addEventListener("click", () => editHumanResourceAssignment(Number(button.dataset.id)));
+  });
+  rows.querySelectorAll(".assignment-delete").forEach(button => {
+    button.addEventListener("click", () => deleteHumanResourceAssignment(Number(button.dataset.id)));
+  });
+  enhanceNativeSelects(["hrAssignmentStaff", "hrAssignmentSalon", "hrAssignmentStartTime", "hrAssignmentEndTime"]);
+}
+
+function saveHumanResourceAssignment(event) {
+  event.preventDefault();
+  const staff = state.staff.find(item => Number(item.id) === Number(formValue("hrAssignmentStaff")));
+  const destination = formValue("hrAssignmentSalon");
+  const startDate = formValue("hrAssignmentStartDate");
+  const endDate = formValue("hrAssignmentEndDate");
+  const startTime = formValue("hrAssignmentStartTime") || "09:00";
+  const endTime = formValue("hrAssignmentEndTime") || "20:00";
+  if (!staff || !destination) return showToast("Ажилтан болон очих салбарыг сонгоно уу");
+  if (isSalonAccount() && staff.salon !== activeAccount.salon) return showToast("Зөвхөн өөрийн салбарын ажилтныг томилно");
+  if (staff.salon === destination) return showToast("Үндсэн салбараас өөр салбар сонгоно уу");
+  const newStart = `${startDate}T${startTime}`;
+  const newEnd = `${endDate}T${endTime}`;
+  if (!startDate || !endDate || newEnd <= newStart) return showToast("Томилгооны хугацааг зөв оруулна уу");
+
+  const overlaps = state.assignments.some(item =>
+    Number(item.staffId) === Number(staff.id) &&
+    Number(item.id) !== Number(assignmentEditingId) &&
+    item.status !== "cancelled" &&
+    newStart < `${item.endDate}T${item.endTime || "20:00"}` &&
+    newEnd > `${item.startDate}T${item.startTime || "09:00"}`
+  );
+  if (overlaps) return showToast("Энэ ажилтны сонгосон хугацаанд өөр томилгоо байна");
+
+  const payload = {
+    staffId: staff.id,
+    staff: staff.name,
+    from: staff.salon || "",
+    to: destination,
+    startDate,
+    endDate,
+    startTime,
+    endTime,
+    reason: formValue("hrAssignmentReason") || "Салбарын ачаалал нөхөх",
+    status: "active"
+  };
+  const editing = state.assignments.find(item => Number(item.id) === Number(assignmentEditingId));
+  if (editing) Object.assign(editing, payload);
+  else state.assignments.unshift({ id: nextId(state.assignments), ...payload });
+  state.audit.unshift({ title: editing ? "staff_assignment_updated" : "staff_assigned", meta: `Менежер • ${staff.name} • ${staff.salon} → ${destination} • ${startDate}` });
+  saveState();
+  resetHumanResourceAssignmentForm();
+  renderHumanResourceAssignments();
+  renderAudit();
+  showToast(editing ? "Томилгоо шинэчлэгдлээ" : "Түр томилгоо бүртгэгдлээ");
+}
+
+function resetHumanResourceAssignmentForm() {
+  assignmentEditingId = null;
+  document.getElementById("hrAssignmentForm")?.reset();
+  const startDate = document.getElementById("hrAssignmentStartDate");
+  const endDate = document.getElementById("hrAssignmentEndDate");
+  if (startDate) startDate.value = todayText();
+  if (endDate) endDate.value = todayText();
+  const startTime = document.getElementById("hrAssignmentStartTime");
+  const endTime = document.getElementById("hrAssignmentEndTime");
+  if (startTime) startTime.value = "09:00";
+  if (endTime) endTime.value = "20:00";
+  const submit = document.getElementById("hrAssignmentSubmit");
+  if (submit) submit.textContent = "Томилох";
+  document.getElementById("hrAssignmentCancel")?.classList.add("hidden");
+}
+
+function editHumanResourceAssignment(id) {
+  const assignment = state.assignments.find(item => Number(item.id) === Number(id));
+  if (!assignment || !canEditAssignment(assignment)) return showToast("Засах хугацаа дууссан байна");
+  if (!requireEditCode()) return;
+  assignmentEditingId = id;
+  document.getElementById("hrAssignmentStaff").value = assignment.staffId || "";
+  document.getElementById("hrAssignmentSalon").value = assignment.to || "";
+  document.getElementById("hrAssignmentStartDate").value = assignment.startDate || todayText();
+  document.getElementById("hrAssignmentEndDate").value = assignment.endDate || todayText();
+  document.getElementById("hrAssignmentStartTime").value = assignment.startTime || "09:00";
+  document.getElementById("hrAssignmentEndTime").value = assignment.endTime || "20:00";
+  document.getElementById("hrAssignmentReason").value = assignment.reason || "";
+  document.getElementById("hrAssignmentSubmit").textContent = "Хадгалах";
+  document.getElementById("hrAssignmentCancel")?.classList.remove("hidden");
+  enhanceNativeSelects(["hrAssignmentStaff", "hrAssignmentSalon", "hrAssignmentStartTime", "hrAssignmentEndTime"]);
+}
+
+function deleteHumanResourceAssignment(id) {
+  const assignment = state.assignments.find(item => Number(item.id) === Number(id));
+  if (!assignment || !assignmentCanBeManaged(assignment)) return showToast("Энэ томилгоог устгах эрхгүй байна");
+  if (!canEditAssignment(assignment)) return showToast("Устгах хугацаа дууссан байна");
+  if (!requireDeleteCode()) return;
+  state.assignments = state.assignments.filter(item => Number(item.id) !== Number(id));
+  if (assignment) state.audit.unshift({ title: "staff_assignment_deleted", meta: `Менежер • ${assignment.staff} • ${assignment.to}` });
+  saveState();
+  if (Number(assignmentEditingId) === Number(id)) resetHumanResourceAssignmentForm();
+  renderHumanResourceAssignments();
+  renderAudit();
+  showToast("Томилгоо устлаа");
 }
 
 function saveHumanResourceStaff(event) {
@@ -5325,15 +8110,18 @@ function deleteHumanResourceStaff(id) {
 }
 
 function renderStaff() {
-  document.getElementById("staffRows").innerHTML = state.staff.map(staff => `
-    <tr>
-      <td><strong>${staff.name}</strong></td>
-      <td>${staff.salon}</td>
-      <td>${staff.vip ? badge("Вип", "green") : badge("Энгийн", "gray")}</td>
-      <td>${staff.commission}</td>
-      <td>${badge(staff.status === "active" ? "Идэвхтэй" : staff.status, "green")}</td>
-    </tr>
-  `).join("");
+  const staffRows = document.getElementById("staffRows");
+  if (staffRows) {
+    staffRows.innerHTML = state.staff.map(staff => `
+      <tr>
+        <td><strong>${staff.name}</strong></td>
+        <td>${staff.salon}</td>
+        <td>${staff.vip ? badge("Вип", "green") : badge("Энгийн", "gray")}</td>
+        <td>${staff.commission}</td>
+        <td>${badge(staff.status === "active" ? "Идэвхтэй" : staff.status, "green")}</td>
+      </tr>
+    `).join("");
+  }
 
   const staffOptions = state.staff.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
   const serviceStaff = document.getElementById("serviceStaff");
@@ -5348,23 +8136,23 @@ function renderBookings() {
   const salon = document.getElementById("bookingSalonFilter")?.value || "all";
   const date = document.getElementById("bookingDateFilter")?.value || "";
   const pagination = document.getElementById("bookingPagination");
-  const bookingNumbers = new Map(
-    [...state.bookings]
-      .sort((a, b) => Number(a.id) - Number(b.id))
-      .map((booking, index) => [Number(booking.id), index + 1])
-  );
   const bookings = state.bookings
     .filter(b => !q || b.phone.includes(q))
     .filter(b => salon === "all" || b.salon === salon)
     .filter(b => !date || b.date === date)
-    .filter(b => status === "all" || b.status === status);
+    .filter(b => status === "all" || b.status === status)
+    .slice()
+    .sort((a, b) => {
+      const dateTimeOrder = `${b.date || ""} ${b.time || ""}`.localeCompare(`${a.date || ""} ${a.time || ""}`);
+      return dateTimeOrder || Number(b.id || 0) - Number(a.id || 0);
+    });
   const pageSize = 100;
   const pageCount = Math.max(1, Math.ceil(bookings.length / pageSize));
   bookingPage = Math.min(Math.max(bookingPage, 1), pageCount);
   const pageRows = bookings.slice((bookingPage - 1) * pageSize, bookingPage * pageSize);
-  document.getElementById("bookingRows").innerHTML = pageRows.map(booking => `
+  document.getElementById("bookingRows").innerHTML = pageRows.map((booking, index) => `
     <tr>
-      <td>${bookingNumbers.get(Number(booking.id)) || ""}</td>
+      <td>${bookings.length - ((bookingPage - 1) * pageSize + index)}</td>
       <td>${booking.salon}</td>
       <td>${dateWithWeekday(booking.date)}</td>
       <td>${booking.time}</td>
@@ -5702,13 +8490,399 @@ function deleteGiftCard(id) {
   showToast("Бэлгийн карт устлаа");
 }
 
+function databaseBackups() {
+  try {
+    const backups = JSON.parse(localStorage.getItem(DATABASE_BACKUP_KEY) || "[]");
+    return Array.isArray(backups) ? backups : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveDatabaseBackups(backups = []) {
+  localStorage.setItem(DATABASE_BACKUP_KEY, JSON.stringify(backups.slice(0, 5)));
+}
+
+function databaseSelectedCategory() {
+  return document.getElementById("databaseCategory")?.value || "all";
+}
+
+function databaseCategoryLabel(category = "all") {
+  return {
+    all: "Бүх өгөгдөл",
+    customers: "Хэрэглэгч ба групп",
+    bookings: "Цаг захиалга",
+    services: "Үйлчилгээ ба оношилгоо",
+    kass: "Касс ба төлбөр",
+    staff: "Ажилтан ба томилгоо",
+    settings: "Салбар ба тохиргоо"
+  }[category] || "Бүх өгөгдөл";
+}
+
+function databaseCategoryStateKeys(category = "all") {
+  const keys = {
+    customers: ["customers", "customerGroups", "customerTypes", "customerTypeRules"],
+    bookings: ["bookings"],
+    services: ["customers", "services", "catalog", "diagnosisTypes"],
+    kass: ["customers", "kassSchedules", "voucherLogs", "giftCards", "voucherRoles"],
+    staff: ["staff", "assignments"],
+    settings: ["salons", "holidays", "scheduleSettings", "generalSettings", "pricePolicy", "discounts"]
+  };
+  return keys[category] || Object.keys(state).filter(key => !key.startsWith("paginationDemo"));
+}
+
+function databaseCategoryData(category = "all", source = state) {
+  const result = {};
+  databaseCategoryStateKeys(category).forEach(key => {
+    if (source[key] !== undefined) result[key] = structuredClone(source[key]);
+  });
+  if (category === "all" || category === "services") {
+    result._serviceSettings = structuredClone(source._serviceSettings || {
+      data: serviceSettingsData,
+      groups: productGroups
+    });
+  }
+  return result;
+}
+
+function databaseCategorySummaryText(category = "all") {
+  const summaries = {
+    all: `${state.customers.length} хэрэглэгч • ${state.bookings.length} цаг • ${state.staff.length} ажилтан`,
+    customers: `${state.customers.length} хэрэглэгч • ${state.customerGroups.length} групп`,
+    bookings: `${state.bookings.length} цаг захиалга`,
+    services: `${state.customers.reduce((sum, customer) => sum + (customer.serviceHistory || []).length, 0)} үйлчилгээний түүх • ${state.diagnosisTypes.length} онош`,
+    kass: `${kassRevenueSourceRows().length} төлбөр • ${state.kassSchedules.length} касс хуваарь`,
+    staff: `${state.staff.length} ажилтан • ${state.assignments.length} томилгоо`,
+    settings: `${state.salons.length} салбар • ${state.discounts.length} хямдрал`
+  };
+  return summaries[category] || summaries.all;
+}
+
+function databaseEnvelope(data = state, reason = "Гараар татсан", category = "all") {
+  return {
+    system: "Khalgai Salon System",
+    version: 1,
+    exportedAt: auditNowText(),
+    reason,
+    category,
+    categoryLabel: databaseCategoryLabel(category),
+    data: clearTransientState(data)
+  };
+}
+
+function createDatabaseBackup(reason = "Гараар үүсгэсэн backup", category = databaseSelectedCategory()) {
+  const backup = {
+    id: Date.now(),
+    createdAt: auditNowText(),
+    reason,
+    category,
+    data: clearTransientState(databaseCategoryData(category))
+  };
+  saveDatabaseBackups([backup, ...databaseBackups()]);
+  return backup;
+}
+
+function downloadDatabaseJson(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function databaseImportedState(payload) {
+  const candidate = payload?.data || payload?.state || payload;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new Error("JSON бүтэц буруу байна");
+  const knownCollections = ["customers", "bookings", "salons", "staff", "catalog", "kassSchedules", "voucherLogs", "giftCards"];
+  if (!knownCollections.some(key => Array.isArray(candidate[key]))) throw new Error("Салоны өгөгдөл олдсонгүй");
+  return candidate;
+}
+
+function databaseRecordKey(collection, item, index) {
+  if (item === null || typeof item !== "object") return `value:${String(item)}`;
+  if (collection === "customers") return `phone:${item.phone || item.id || index}`;
+  if (collection === "salons") return `salon:${item.name || item.id || index}`;
+  if (collection === "staff") return `staff:${item.phone || item.id || item.name || index}`;
+  if (collection === "giftCards") return `card:${item.cardNumber || item.id || index}`;
+  if (collection === "audit") return `audit:${item.createdAt || ""}:${item.title || ""}:${item.meta || ""}`;
+  if (item.id !== undefined && item.id !== null) return `id:${item.id}`;
+  if (item.code) return `code:${item.code}`;
+  return `json:${JSON.stringify(item)}`;
+}
+
+function databaseMergeArrays(collection, current = [], incoming = []) {
+  const merged = new Map();
+  current.forEach((item, index) => merged.set(databaseRecordKey(collection, item, index), structuredClone(item)));
+  incoming.forEach((item, index) => {
+    const key = databaseRecordKey(collection, item, current.length + index);
+    const previous = merged.get(key);
+    merged.set(key, previous && typeof previous === "object" && typeof item === "object" ? { ...previous, ...structuredClone(item) } : structuredClone(item));
+  });
+  return [...merged.values()];
+}
+
+function databaseMergeState(current, incoming) {
+  const merged = structuredClone(current);
+  Object.entries(incoming).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      merged[key] = databaseMergeArrays(key, Array.isArray(merged[key]) ? merged[key] : [], value);
+    } else if (value && typeof value === "object") {
+      merged[key] = { ...(merged[key] || {}), ...structuredClone(value) };
+    } else {
+      merged[key] = value;
+    }
+  });
+  return merged;
+}
+
+function databaseReplaceCategoryState(current, incoming, category = "all") {
+  if (category === "all") return { ...structuredClone(defaultState), ...structuredClone(incoming) };
+  const replaced = structuredClone(current);
+  databaseCategoryStateKeys(category).forEach(key => {
+    if (incoming[key] !== undefined) replaced[key] = structuredClone(incoming[key]);
+  });
+  return replaced;
+}
+
+function persistImportedServiceSettings(incoming = {}) {
+  if (!incoming._serviceSettings) return;
+  localStorage.setItem(SERVICE_SETTINGS_KEY, JSON.stringify(incoming._serviceSettings));
+}
+
+function setDatabaseTab(name = "import") {
+  activeDatabaseTab = ["import", "backup", "cleanup"].includes(name) ? name : "import";
+  document.querySelectorAll(".database-section-tab").forEach(button => {
+    const active = button.dataset.databaseTab === activeDatabaseTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.getElementById("databaseImportTab")?.classList.toggle("hidden", activeDatabaseTab !== "import");
+  document.getElementById("databaseBackupTab")?.classList.toggle("hidden", activeDatabaseTab !== "backup");
+  document.getElementById("databaseCleanupTab")?.classList.toggle("hidden", activeDatabaseTab !== "cleanup");
+  document.getElementById("databaseScopeBar")?.classList.toggle("hidden", activeDatabaseTab === "cleanup");
+  if (activeDatabaseTab === "backup") renderDatabaseBackups();
+}
+
+function renderDatabaseBackups() {
+  const list = document.getElementById("databaseBackupList");
+  if (!list) return;
+  const backups = databaseBackups();
+  list.innerHTML = backups.map(backup => {
+    const size = Math.max(1, Math.ceil(JSON.stringify(backup.data || {}).length / 1024));
+    return `
+      <div class="database-backup-item">
+        <div>
+          <strong>${htmlSafe(backup.createdAt || "—")}</strong>
+          <span>${htmlSafe(databaseCategoryLabel(backup.category || "all"))} • ${htmlSafe(backup.reason || "Backup")} • ${size} KB</span>
+        </div>
+        <div class="table-actions">
+          <button class="secondary-btn database-backup-download" type="button" data-id="${backup.id}">Татах</button>
+          <button class="secondary-btn database-backup-restore" type="button" data-id="${backup.id}">Сэргээх</button>
+          <button class="danger-btn icon-danger database-backup-delete" type="button" data-id="${backup.id}" aria-label="Backup устгах">${trashIcon()}</button>
+        </div>
+      </div>
+    `;
+  }).join("") || `<div class="empty-state">Backup үүсгээгүй байна</div>`;
+
+  list.querySelectorAll(".database-backup-download").forEach(button => {
+    button.addEventListener("click", () => {
+      const backup = databaseBackups().find(item => Number(item.id) === Number(button.dataset.id));
+      if (!backup) return;
+      downloadDatabaseJson(`khalgai-${backup.category || "all"}-backup-${String(backup.createdAt || todayText()).replace(/[: ]/g, "-")}.json`, databaseEnvelope(backup.data, backup.reason, backup.category || "all"));
+    });
+  });
+  list.querySelectorAll(".database-backup-restore").forEach(button => {
+    button.addEventListener("click", () => {
+      if (!requireEditCode()) return;
+      const backup = databaseBackups().find(item => Number(item.id) === Number(button.dataset.id));
+      if (!backup || !window.confirm("Энэ backup-аас мэдээллийг сэргээх үү?")) return;
+      createDatabaseBackup("Backup сэргээхийн өмнөх автомат backup", "all");
+      const backupCategory = backup.category || "all";
+      const backupData = structuredClone(backup.data || {});
+      persistImportedServiceSettings(backupData);
+      delete backupData._serviceSettings;
+      const restoredState = databaseReplaceCategoryState(state, backupData, backupCategory);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(restoredState)));
+      window.location.reload();
+    });
+  });
+  list.querySelectorAll(".database-backup-delete").forEach(button => {
+    button.addEventListener("click", () => {
+      if (!requireDeleteCode()) return;
+      saveDatabaseBackups(databaseBackups().filter(item => Number(item.id) !== Number(button.dataset.id)));
+      renderDatabaseBackups();
+      renderInfoHeader("settingsDatabase");
+    });
+  });
+}
+
+function renderDatabaseSettings() {
+  setDatabaseTab(activeDatabaseTab);
+  const category = databaseSelectedCategory();
+  const summary = document.getElementById("databaseCategorySummary");
+  if (summary) summary.textContent = databaseCategorySummaryText(category);
+  enhanceNativeSelects(["databaseCategory", "databaseImportMode"]);
+  renderDatabaseBackups();
+}
+
+async function importDatabaseFile(event) {
+  event.preventDefault();
+  const file = document.getElementById("databaseImportFile")?.files?.[0];
+  if (!file) return showToast("JSON файл сонгоно уу");
+  try {
+    const payload = JSON.parse(await file.text());
+    const selectedCategory = databaseSelectedCategory();
+    const category = selectedCategory === "all" && payload?.category && payload.category !== "all" ? payload.category : selectedCategory;
+    const imported = databaseImportedState(payload);
+    const incoming = databaseCategoryData(category, imported);
+    const mode = document.getElementById("databaseImportMode")?.value || "merge";
+    if (mode === "replace" && !requireEditCode()) return;
+    if (!window.confirm(mode === "replace" ? "Одоогийн өгөгдлийг бүрэн солих уу?" : "Өгөгдлийг одоогийн сантай нэгтгэх үү?")) return;
+    createDatabaseBackup("Өгөгдөл импортлохын өмнөх автомат backup", "all");
+    const stateIncoming = structuredClone(incoming);
+    delete stateIncoming._serviceSettings;
+    const nextState = mode === "replace"
+      ? databaseReplaceCategoryState(state, stateIncoming, category)
+      : databaseMergeState(state, stateIncoming);
+    persistImportedServiceSettings(incoming);
+    saveDatabaseBackups([{
+      id: Date.now() + 1,
+      createdAt: auditNowText(),
+      reason: "Импортын дараах автомат backup",
+      category: "all",
+      data: clearTransientState({ ...databaseCategoryData("all", nextState), _serviceSettings: incoming._serviceSettings || databaseCategoryData("all")._serviceSettings })
+    }, ...databaseBackups()]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(nextState)));
+    window.location.reload();
+  } catch (error) {
+    showToast(error?.message || "Файл уншихад алдаа гарлаа");
+  }
+}
+
+function clearOperationalDatabase() {
+  if (!requireDeleteCode()) return;
+  if (!window.confirm("Үйл ажиллагааны бүх өгөгдлийг backup аваад цэвэрлэх үү?")) return;
+  createDatabaseBackup("Өгөгдөл цэвэрлэхийн өмнөх автомат backup", "all");
+  const cleaned = structuredClone(state);
+  ["customers", "customerGroups", "bookings", "holidays", "assignments", "kassSchedules", "services", "voucherLogs", "giftCards"].forEach(key => {
+    cleaned[key] = [];
+  });
+  cleaned.audit = [{ title: "database_cleared", meta: "Админ • Үйл ажиллагааны өгөгдөл цэвэрлэсэн", createdAt: auditNowText() }];
+  cleaned.selectedCustomerId = null;
+  cleaned.permanentlyDeletedCustomerIds = defaultState.customers.map(item => Number(item.id));
+  cleaned.databaseOperationalDataCleared = true;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(cleaned)));
+  window.location.reload();
+}
+
+function auditActionText(title = "") {
+  const actionNames = {
+    staff_assigned: "Ажилтан өөр салбарт томилсон",
+    staff_assignment_updated: "Ажилтны томилгоог зассан",
+    staff_assignment_deleted: "Ажилтны томилгоог устгасан",
+    payment_created: "Төлбөр бүртгэсэн",
+    customer_created: "Шинэ хэрэглэгч бүртгэсэн",
+    customer_updated: "Хэрэглэгчийн мэдээллийг зассан",
+    customer_deleted: "Хэрэглэгчийг устгасан",
+    customer_permanently_deleted: "Хэрэглэгчийг бүр мөсөн устгасан",
+    service_created: "Үйлчилгээ бүртгэсэн",
+    service_deleted: "Үйлчилгээ устгасан",
+    booking_created: "Шинэ цаг захиалга бүртгэсэн",
+    booking_updated: "Цаг захиалгыг зассан",
+    booking_status_updated: "Цаг захиалгын төлөв өөрчилсөн",
+    booking_deleted: "Цаг захиалга устгасан",
+    kass_schedule_saved: "Касс хуваарь хадгалсан",
+    staff_created: "Шинэ ажилтан бүртгэсэн",
+    staff_updated: "Ажилтны мэдээллийг зассан",
+    staff_status_updated: "Ажилтны төлөв өөрчилсөн",
+    staff_deleted: "Ажилтан устгасан",
+    branch_created: "Шинэ салбар нэмсэн",
+    branch_updated: "Салбарын мэдээллийг зассан",
+    branch_status_changed: "Салбарын төлөв өөрчилсөн",
+    branch_deleted: "Салбар устгасан",
+    holiday_saved: "Амралтын өдөр хадгалсан",
+    holiday_deleted: "Амралтын өдөр устгасан",
+    group_updated: "Группийн мэдээллийг зассан",
+    catalog_created: "Бараа, үйлчилгээ нэмсэн",
+    excel_exported: "Тайлан татсан",
+    database_cleared: "Үйл ажиллагааны өгөгдөл цэвэрлэсэн"
+  };
+  return actionNames[title] || title || "Үйлдэл бүртгэгдсэн";
+}
+
+function auditMetaText(meta = "") {
+  return String(meta)
+    .replace(/\bReception\b/g, "Бүртгэлийн ажилтан")
+    .replace(/\bSuper Admin\b/g, "Ерөнхий админ")
+    .replace(/Staff performance report татсан/gi, "Ажилтны гүйцэтгэлийн тайлан татсан")
+    .replace(/(\d+) слот\b/g, "$1 цагийн сонголт")
+    .replace(/давхар орохоос хамгаалсан/gi, "давхар бүртгэгдээгүй")
+    .replace(/гүйцэтгэлээс давхар хасна/gi, "ажилтны гүйцэтгэлээс мөн хасагдсан");
+}
+
+function auditMetaParts(meta = "") {
+  const parts = auditMetaText(meta).split(" • ").map(part => part.trim()).filter(Boolean);
+  return {
+    actor: parts.shift() || "Менежер",
+    details: parts.join(" • ") || "Системийн мэдээлэл шинэчилсэн"
+  };
+}
+
+function auditCreatedAtText(value = "", demoIndex = 0) {
+  if (!value) {
+    const demoDate = new Date("2026-07-17T15:30:00");
+    demoDate.setMinutes(demoDate.getMinutes() - demoIndex * 17);
+    return `${demoDate.getFullYear()}-${String(demoDate.getMonth() + 1).padStart(2, "0")}-${String(demoDate.getDate()).padStart(2, "0")} ${String(demoDate.getHours()).padStart(2, "0")}:${String(demoDate.getMinutes()).padStart(2, "0")}`;
+  }
+  return String(value).replace("T", " ").slice(0, 16);
+}
+
 function renderAudit() {
-  document.getElementById("auditList").innerHTML = state.audit.map(item => `
-    <div class="history-item">
-      <strong>${item.title}</strong>
-      <span>${item.meta}</span>
-    </div>
-  `).join("");
+  const list = document.getElementById("auditList");
+  const filter = document.getElementById("auditActionFilter");
+  const pagination = document.getElementById("auditPagination");
+  if (!list || !filter || !pagination) return;
+
+  const selectedType = filter.value;
+  const actionTypes = [...new Set(state.audit.map(item => item.title).filter(Boolean))]
+    .sort((a, b) => auditActionText(a).localeCompare(auditActionText(b), "mn"));
+  filter.innerHTML = `<option value="">Бүх үйлдэл</option>${actionTypes.map(type => `<option value="${htmlSafe(type)}">${htmlSafe(auditActionText(type))}</option>`).join("")}`;
+  filter.value = actionTypes.includes(selectedType) ? selectedType : "";
+  enhanceNativeSelects(["auditActionFilter"]);
+
+  const filtered = state.audit.filter(item => !filter.value || item.title === filter.value);
+  const pageSize = 100;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  auditPage = Math.min(Math.max(auditPage, 1), pageCount);
+  const pageItems = filtered.slice((auditPage - 1) * pageSize, auditPage * pageSize);
+
+  list.innerHTML = pageItems.map((item, index) => {
+    const meta = auditMetaParts(item.meta);
+    return `
+      <div class="history-item">
+        <strong>${htmlSafe(auditActionText(item.title))}</strong>
+        <span class="audit-history-meta">${htmlSafe(auditCreatedAtText(item.createdAt, (auditPage - 1) * pageSize + index))} • ${htmlSafe(meta.actor)} • ${htmlSafe(meta.details)}</span>
+      </div>
+    `;
+  }).join("") || `<div class="empty-state">Сонгосон төрлийн үйлдэл бүртгэгдээгүй байна</div>`;
+
+  pagination.innerHTML = filtered.length > pageSize ? `
+    <button class="secondary-btn" type="button" id="auditPrev" ${auditPage <= 1 ? "disabled" : ""}>Өмнөх</button>
+    <span>${auditPage} / ${pageCount}</span>
+    <button class="secondary-btn" type="button" id="auditNext" ${auditPage >= pageCount ? "disabled" : ""}>Дараах</button>
+  ` : "";
+  document.getElementById("auditPrev")?.addEventListener("click", () => {
+    auditPage -= 1;
+    renderAudit();
+  });
+  document.getElementById("auditNext")?.addEventListener("click", () => {
+    auditPage += 1;
+    renderAudit();
+  });
 }
 
 function updateServiceTotal() {
@@ -6495,6 +9669,7 @@ function bindEvents() {
   });
   document.getElementById("holidayForm")?.addEventListener("submit", saveHoliday);
   document.getElementById("hrStaffForm")?.addEventListener("submit", saveHumanResourceStaff);
+  document.getElementById("hrAssignmentForm")?.addEventListener("submit", saveHumanResourceAssignment);
   document.getElementById("voucherRoleForm")?.addEventListener("submit", event => {
     event.preventDefault();
     const name = formValue("voucherRoleName");
@@ -6555,13 +9730,81 @@ function bindEvents() {
     showToast("Импортын загвар бэлэн");
   });
   document.getElementById("infoExcelBtn")?.addEventListener("click", () => {
+    if (activeView === "performance") return exportPerformanceCsv();
     showToast(activeView === "giftCards" ? "Бэлгийн картын Excel бэлтгэгдлээ" : "Ваучерийн Excel бэлтгэгдлээ");
   });
   document.getElementById("pricePolicyForm")?.addEventListener("submit", savePricePolicy);
   document.getElementById("customerTypeForm")?.addEventListener("submit", saveCustomerType);
   document.getElementById("discountForm")?.addEventListener("submit", saveDiscount);
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);
+  document.getElementById("diagnosisCaptureMode")?.addEventListener("change", toggleDiagnosisCaptureSizeSetting);
   document.getElementById("diagnosisTypeForm")?.addEventListener("submit", saveDiagnosisType);
+  document.querySelectorAll(".database-section-tab").forEach(button => {
+    button.addEventListener("click", () => setDatabaseTab(button.dataset.databaseTab));
+  });
+  document.getElementById("databaseImportForm")?.addEventListener("submit", importDatabaseFile);
+  document.getElementById("databaseImportFile")?.addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    document.getElementById("databaseImportSummary").textContent = file ? `${file.name} • ${Math.max(1, Math.ceil(file.size / 1024))} KB` : "Файл сонгоогүй байна.";
+  });
+  document.getElementById("databaseCategory")?.addEventListener("change", () => {
+    renderDatabaseSettings();
+    renderInfoHeader("settingsDatabase");
+  });
+  document.getElementById("databaseExportCurrent")?.addEventListener("click", () => {
+    const category = databaseSelectedCategory();
+    downloadDatabaseJson(`khalgai-${category}-${todayText()}.json`, databaseEnvelope(databaseCategoryData(category), "Одоогийн өгөгдлийн экспорт", category));
+  });
+  document.getElementById("databaseCreateBackup")?.addEventListener("click", () => {
+    createDatabaseBackup();
+    renderDatabaseBackups();
+    renderInfoHeader("settingsDatabase");
+    showToast("Backup үүслээ");
+  });
+  document.getElementById("databaseClearOperationalData")?.addEventListener("click", clearOperationalDatabase);
+  ["dashboardViewMode", "dashboardMonth", "dashboardSalon"].forEach(id => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      renderDashboard();
+      renderInfoHeader("dashboard");
+    });
+  });
+  document.getElementById("dashboardExportExcel")?.addEventListener("click", exportDashboardExcel);
+  document.getElementById("dashboardContent")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-dashboard-chart]");
+    if (!button) return;
+    dashboardChartModes[button.dataset.dashboardChart] = button.dataset.dashboardMode;
+    localStorage.setItem(DASHBOARD_CHART_MODE_KEY, JSON.stringify(dashboardChartModes));
+    renderDashboard();
+  });
+  document.getElementById("auditActionFilter")?.addEventListener("change", () => {
+    auditPage = 1;
+    renderAudit();
+  });
+  document.getElementById("auditFilterClear")?.addEventListener("click", () => {
+    document.getElementById("auditActionFilter").value = "";
+    auditPage = 1;
+    renderAudit();
+  });
+  ["kassRevenueFrom", "kassRevenueTo", "kassRevenueSalon"].forEach(id => {
+    const rerenderRevenue = () => {
+      const from = document.getElementById("kassRevenueFrom")?.value || "";
+      const to = document.getElementById("kassRevenueTo")?.value || "";
+      if (from && to && to < from) return showToast("Огнооны дарааллыг зөв оруулна уу");
+      kassRevenuePage = 1;
+      renderKassRevenue();
+    };
+    document.getElementById(id)?.addEventListener("input", rerenderRevenue);
+    document.getElementById(id)?.addEventListener("change", rerenderRevenue);
+  });
+  document.getElementById("kassRevenueClear")?.addEventListener("click", () => {
+    document.getElementById("kassRevenueFrom").value = todayText();
+    document.getElementById("kassRevenueTo").value = todayText();
+    const salon = document.getElementById("kassRevenueSalon");
+    if (salon && !isSalonAccount()) salon.value = "";
+    syncNativeSelectProxy(salon);
+    kassRevenuePage = 1;
+    renderKassRevenue();
+  });
   document.getElementById("kassScheduleForm")?.addEventListener("submit", saveKassSchedule);
   document.getElementById("kassSalon")?.addEventListener("change", () => {
     populateKassSelects();
@@ -6583,8 +9826,68 @@ function bindEvents() {
     renderKassSchedule();
   });
   document.getElementById("hrCancelEdit")?.addEventListener("click", resetHumanResourceForm);
+  document.getElementById("hrAssignmentCancel")?.addEventListener("click", () => {
+    resetHumanResourceAssignmentForm();
+    renderHumanResourceAssignments();
+  });
+  ["hrAssignmentNameSearch", "hrAssignmentFromSearch", "hrAssignmentToSearch"].forEach(id => {
+    document.getElementById(id)?.addEventListener("input", () => {
+      const from = document.getElementById("hrAssignmentFromSearch")?.value || "";
+      const to = document.getElementById("hrAssignmentToSearch")?.value || "";
+      if (from && to && to < from) return showToast("Огнооны дарааллыг зөв оруулна уу");
+      assignmentPage = 1;
+      renderHumanResourceAssignments();
+    });
+  });
+  document.getElementById("hrAssignmentSearchClear")?.addEventListener("click", () => {
+    ["hrAssignmentNameSearch", "hrAssignmentFromSearch", "hrAssignmentToSearch"].forEach(id => {
+      const field = document.getElementById(id);
+      if (field) field.value = "";
+    });
+    assignmentPage = 1;
+    renderHumanResourceAssignments();
+  });
+  document.querySelectorAll(".hr-section-tab").forEach(button => {
+    button.addEventListener("click", () => setHumanResourceTab(button.dataset.hrTab));
+  });
+  document.querySelectorAll(".performance-section-tab").forEach(button => {
+    button.addEventListener("click", () => setPerformanceTab(button.dataset.performanceTab));
+  });
   document.getElementById("hrStaffPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
+  document.getElementById("performanceFilterForm")?.addEventListener("submit", event => {
+    event.preventDefault();
+  });
+  document.getElementById("performanceMonth")?.addEventListener("change", event => {
+    const range = performanceRangeForMonth(event.target.value);
+    document.getElementById("performanceFrom").value = range.from;
+    document.getElementById("performanceTo").value = range.to;
+    renderPerformance();
+    renderInfoHeader("performance");
+  });
+  ["performanceFrom", "performanceTo"].forEach(id => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      const from = formValue("performanceFrom");
+      const to = formValue("performanceTo");
+      if (from && to && to < from) return showToast("Огнооны дарааллыг зөв оруулна уу");
+      renderPerformance();
+      renderInfoHeader("performance");
+    });
+  });
+  document.getElementById("performanceSalon")?.addEventListener("change", () => {
+    renderPerformance();
+    renderInfoHeader("performance");
+  });
+  document.getElementById("performanceClear")?.addEventListener("click", () => {
+    const latestMonth = performanceDataMonths()[0] || "";
+    const range = performanceRangeForMonth(latestMonth);
+    document.getElementById("performanceMonth").value = latestMonth;
+    document.getElementById("performanceFrom").value = range.from;
+    document.getElementById("performanceTo").value = range.to;
+    document.getElementById("performanceSalon").value = "all";
+    renderPerformance();
+    renderInfoHeader("performance");
   });
 
   document.getElementById("scheduleSave")?.addEventListener("click", saveScheduleSettings);
@@ -6650,7 +9953,7 @@ function bindEvents() {
     showToast("Үйлчилгээ нэмэгдлээ");
   });
 
-  document.getElementById("assignmentForm").addEventListener("submit", event => {
+  document.getElementById("assignmentForm")?.addEventListener("submit", event => {
     event.preventDefault();
     const staff = state.staff.find(s => s.id === Number(document.getElementById("assignStaff").value));
     state.assignments.unshift({
@@ -6675,7 +9978,7 @@ function bindEvents() {
     syncNativeSelectProxy(event.target);
   });
 
-  document.getElementById("newStaffBtn").addEventListener("click", openStaffModal);
+  document.getElementById("newStaffBtn")?.addEventListener("click", openStaffModal);
   document.getElementById("newCatalogBtn")?.addEventListener("click", openCatalogModal);
   document.getElementById("modalClose").addEventListener("click", closeModal);
   document.getElementById("modalBackdrop").addEventListener("click", event => {
@@ -6703,8 +10006,12 @@ function init() {
   renderDiscountSettings();
   renderGeneralSettings();
   renderKassSchedule();
+  renderKassRevenue();
   renderVouchers();
   renderGiftCards();
+  renderDashboard();
+  renderGroupDirectory();
+  renderPerformance();
   renderBookings();
   renderServices();
   renderAudit();
