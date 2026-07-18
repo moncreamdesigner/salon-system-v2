@@ -232,6 +232,7 @@ let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
 let systemUsers = [];
 let serverDatabaseBackups = [];
+let serverBackupIntervalDays = 14;
 let systemUserEditingId = null;
 let systemUserMigratingLegacy = false;
 let systemUsersLoaded = false;
@@ -9078,6 +9079,7 @@ async function loadDatabaseBackups({ silent = false } = {}) {
   try {
     const result = await serverApi("backups.php");
     serverDatabaseBackups = Array.isArray(result.backups) ? result.backups : [];
+    serverBackupIntervalDays = Number(result.settings?.intervalDays ?? 14);
     localStorage.removeItem(DATABASE_BACKUP_KEY);
     renderDatabaseBackups();
     renderInfoHeader(activeView);
@@ -9189,6 +9191,11 @@ function setDatabaseTab(name = "import") {
 function renderDatabaseBackups() {
   const list = document.getElementById("databaseBackupList");
   if (!list) return;
+  const interval = document.getElementById("databaseBackupInterval");
+  if (interval) {
+    interval.value = String(serverBackupIntervalDays);
+    syncNativeSelectProxy(interval);
+  }
   const backups = databaseBackups();
   list.innerHTML = backups.map(backup => {
     const size = Math.max(1, Math.ceil(Number(backup.sizeBytes || 0) / 1024));
@@ -9266,7 +9273,7 @@ function renderDatabaseSettings() {
   const category = databaseSelectedCategory();
   const summary = document.getElementById("databaseCategorySummary");
   if (summary) summary.textContent = databaseCategorySummaryText(category);
-  enhanceNativeSelects(["databaseCategory", "databaseImportMode"]);
+  enhanceNativeSelects(["databaseCategory", "databaseImportMode", "databaseBackupInterval"]);
   renderDatabaseBackups();
   loadDatabaseBackups({ silent: true });
 }
@@ -10362,6 +10369,26 @@ function bindEvents() {
       showToast(error?.message || "Backup үүсгэж чадсангүй");
     } finally {
       button.disabled = false;
+    }
+  });
+  document.getElementById("databaseBackupInterval")?.addEventListener("change", async event => {
+    const select = event.currentTarget;
+    const previousValue = serverBackupIntervalDays;
+    const intervalDays = Number(select.value);
+    select.disabled = true;
+    try {
+      const result = await serverApi("backups.php", {
+        method: "PATCH",
+        body: JSON.stringify({ intervalDays })
+      });
+      serverBackupIntervalDays = Number(result.settings?.intervalDays ?? intervalDays);
+      showToast(intervalDays === 0 ? "Автомат backup унтарлаа" : `Автомат backup ${intervalDays} хоног тутам үүснэ`);
+    } catch (error) {
+      serverBackupIntervalDays = previousValue;
+      select.value = String(previousValue);
+      showToast(error?.message || "Backup хугацаа хадгалсангүй");
+    } finally {
+      select.disabled = false;
     }
   });
   document.getElementById("databaseClearOperationalData")?.addEventListener("click", clearOperationalDatabase);

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607181915">
+  <link rel="stylesheet" href="styles.css?v=202607181945">
 </head>
 <body>
   <div class="app-shell">
@@ -360,6 +360,7 @@
                   <button type="button" data-value="all" class="active">Бүх төлөв</button>
                   <button type="button" data-value="pending">Хүлээгдэж буй</button>
                   <button type="button" data-value="confirmed">Баталгаажсан</button>
+                  <button type="button" data-value="rejected">Татгалзсан</button>
                 </div>
               </div>
             <button class="secondary-btn clear-filter-btn icon-clear" id="clearBookingFilters" aria-label="Цэвэрлэх">×</button>
@@ -917,7 +918,20 @@
                 <strong>Backup жагсаалт</strong>
                 <span>Сэргээхээс өмнө одоогийн мэдээлэл мөн автоматаар хадгалагдана.</span>
               </div>
-              <button class="primary-btn" id="databaseCreateBackup" type="button">Backup үүсгэх</button>
+              <div class="database-backup-actions">
+                <label class="database-backup-frequency">
+                  <span>Автомат backup</span>
+                  <select class="input" id="databaseBackupInterval">
+                    <option value="0">Унтраах</option>
+                    <option value="1">Өдөр бүр</option>
+                    <option value="7">7 хоног тутам</option>
+                    <option value="14">14 хоног тутам</option>
+                    <option value="30">30 хоног тутам</option>
+                    <option value="90">90 хоног тутам</option>
+                  </select>
+                </label>
+                <button class="primary-btn" id="databaseCreateBackup" type="button">Backup үүсгэх</button>
+              </div>
             </div>
             <div class="database-backup-list" id="databaseBackupList"></div>
           </section>
@@ -1086,7 +1100,7 @@
   </div>
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
-  <script src="app.js?v=202607181915"></script>
+  <script src="app.js?v=202607181945"></script>
 </body>
 </html>
 
