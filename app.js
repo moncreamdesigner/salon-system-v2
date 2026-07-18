@@ -5,7 +5,7 @@ const moneyInputValue = value => Number(value || 0) > 0 ? formatNumber(value) : 
 
 const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
-const PROTOTYPE_DATA_RESET_VERSION = 1;
+const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
 let bookingDropdownCloseBound = false;
@@ -37,7 +37,6 @@ const defaultState = {
   giftCards: [],
   selectedCustomerId: null,
   databaseOperationalDataCleared: true,
-  prototypeDataResetVersion: PROTOTYPE_DATA_RESET_VERSION,
   scheduleSettings: {
     workStart: "09:00",
     workEnd: "19:00",
