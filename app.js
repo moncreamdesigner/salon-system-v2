@@ -530,6 +530,21 @@ function serverStateData() {
   };
 }
 
+function stableJsonValue(value) {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value)
+    .sort()
+    .reduce((result, key) => {
+      result[key] = stableJsonValue(value[key]);
+      return result;
+    }, {});
+}
+
+function stableJsonStringify(value) {
+  return JSON.stringify(stableJsonValue(value));
+}
+
 async function serverApi(path, options = {}) {
   const response = await fetch(`${SERVER_API_BASE}/${path}`, {
     credentials: "same-origin",
@@ -643,8 +658,8 @@ async function synchronizeServerState() {
     showToast("Одоогийн мэдээллийг server database-д хадгаллаа");
     return;
   }
-  const localJson = JSON.stringify(serverStateData());
-  const remoteJson = JSON.stringify(remote.data || {});
+  const localJson = stableJsonStringify(serverStateData());
+  const remoteJson = stableJsonStringify(remote.data || {});
   if (localJson !== remoteJson) {
     applyServerData(remote.data || {});
     window.location.reload();
