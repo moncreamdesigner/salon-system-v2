@@ -2567,11 +2567,13 @@ function renderSettingsServices() {
 
 function bookingStatusText(status) {
   if (status === "confirmed") return "Баталгаажсан";
+  if (status === "rejected") return "Татгалзсан";
   return "Хүлээгдэж буй";
 }
 
 function bookingStatusTone(status) {
   if (status === "confirmed") return "green";
+  if (status === "rejected") return "red";
   return "pink";
 }
 
@@ -5362,9 +5364,11 @@ function renderPaymentHistoryChips(item = {}) {
       ${payments.map(payment => {
         const label = payment.methodLabel || paymentMethodOptionsLabel(payment.method) || "Төлбөр";
         const time = payment.createdAt || payment.date || "";
-        const bonusText = payment.bonusAmount ? ` + бонус ${money(payment.bonusAmount)}` : "";
+        const paidAmount = Number(payment.paidAmount ?? payment.amount ?? 0);
+        const displayAmount = paidAmount || Number(payment.amount || payment.bonusAmount || 0);
+        const bonusText = payment.bonusAmount && paidAmount > 0 ? ` + бонус ${money(payment.bonusAmount)}` : "";
         const reference = payment.referenceLabel ? ` · ${payment.referenceLabel}` : "";
-        return `<span class="payment-history-chip">${money(payment.paidAmount || payment.amount || 0)} ${label}${reference}${bonusText}${time ? ` · ${time}` : ""}</span>`;
+        return `<span class="payment-history-chip">${money(displayAmount)} ${label}${reference}${bonusText}${time ? ` · ${time}` : ""}</span>`;
       }).join("")}
     </div>
   `;
@@ -9011,7 +9015,10 @@ function databaseImportedState(payload) {
 
 function databaseRecordKey(collection, item, index) {
   if (item === null || typeof item !== "object") return `value:${String(item)}`;
-  if (collection === "customers") return `phone:${item.phone || item.id || index}`;
+  if (collection === "customers") {
+    if (item.legacyCustomerId !== undefined && item.legacyCustomerId !== null) return `legacy-customer:${item.legacyCustomerId}`;
+    return `phone:${item.phone || item.id || index}`;
+  }
   if (collection === "salons") return `salon:${item.name || item.id || index}`;
   if (collection === "staff") return `staff:${item.phone || item.id || item.name || index}`;
   if (collection === "giftCards") return `card:${item.cardNumber || item.id || index}`;
