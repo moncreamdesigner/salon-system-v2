@@ -231,6 +231,7 @@ let assignmentPage = 1;
 let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
 let systemUsers = [];
+let serverDatabaseBackups = [];
 let systemUserEditingId = null;
 let systemUserMigratingLegacy = false;
 let systemUsersLoaded = false;
@@ -731,6 +732,7 @@ async function initializeServerStorage() {
     }
     applyActiveAccount(status.user);
     await synchronizeServerState();
+    await loadDatabaseBackups({ silent: true });
     rerenderAll();
     setView(activeView);
   } catch (error) {
@@ -8997,16 +8999,7 @@ function deleteGiftCard(id) {
 }
 
 function databaseBackups() {
-  try {
-    const backups = JSON.parse(localStorage.getItem(DATABASE_BACKUP_KEY) || "[]");
-    return Array.isArray(backups) ? backups : [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function saveDatabaseBackups(backups = []) {
-  localStorage.setItem(DATABASE_BACKUP_KEY, JSON.stringify(backups.slice(0, 5)));
+  return Array.isArray(serverDatabaseBackups) ? serverDatabaseBackups : [];
 }
 
 function databaseSelectedCategory() {
@@ -9076,16 +9069,33 @@ function databaseEnvelope(data = state, reason = "Гараар татсан", ca
   };
 }
 
-function createDatabaseBackup(reason = "Гараар үүсгэсэн backup", category = databaseSelectedCategory()) {
-  const backup = {
-    id: Date.now(),
-    createdAt: auditNowText(),
-    reason,
-    category,
-    data: clearTransientState(databaseCategoryData(category))
-  };
-  saveDatabaseBackups([backup, ...databaseBackups()]);
-  return backup;
+async function loadDatabaseBackups({ silent = false } = {}) {
+  if (!serverStorageReady || !isAdminAccount()) {
+    serverDatabaseBackups = [];
+    renderDatabaseBackups();
+    return [];
+  }
+  try {
+    const result = await serverApi("backups.php");
+    serverDatabaseBackups = Array.isArray(result.backups) ? result.backups : [];
+    localStorage.removeItem(DATABASE_BACKUP_KEY);
+    renderDatabaseBackups();
+    renderInfoHeader(activeView);
+    return serverDatabaseBackups;
+  } catch (error) {
+    if (!silent) showToast(error?.message || "Backup жагсаалт ачаалсангүй");
+    return [];
+  }
+}
+
+async function createDatabaseBackup(reason = "Гараар үүсгэсэн backup") {
+  if (!serverStorageReady) throw new Error("Server database-д нэвтэрсний дараа backup үүсгэнэ үү");
+  const result = await serverApi("backups.php", {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+  await loadDatabaseBackups({ silent: true });
+  return result.backup;
 }
 
 function downloadDatabaseJson(filename, payload) {
@@ -9181,7 +9191,7 @@ function renderDatabaseBackups() {
   if (!list) return;
   const backups = databaseBackups();
   list.innerHTML = backups.map(backup => {
-    const size = Math.max(1, Math.ceil(JSON.stringify(backup.data || {}).length / 1024));
+    const size = Math.max(1, Math.ceil(Number(backup.sizeBytes || 0) / 1024));
     return `
       <div class="database-backup-item">
         <div>
@@ -9198,33 +9208,55 @@ function renderDatabaseBackups() {
   }).join("") || `<div class="empty-state">Backup үүсгээгүй байна</div>`;
 
   list.querySelectorAll(".database-backup-download").forEach(button => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const backup = databaseBackups().find(item => Number(item.id) === Number(button.dataset.id));
       if (!backup) return;
-      downloadDatabaseJson(`khalgai-${backup.category || "all"}-backup-${String(backup.createdAt || todayText()).replace(/[: ]/g, "-")}.json`, databaseEnvelope(backup.data, backup.reason, backup.category || "all"));
+      button.disabled = true;
+      try {
+        const result = await serverApi(`backups.php?id=${backup.id}`);
+        downloadDatabaseJson(`khalgai-all-backup-${String(backup.createdAt || todayText()).replace(/[: ]/g, "-")}.json`, databaseEnvelope(result.data || {}, backup.reason, "all"));
+      } catch (error) {
+        showToast(error?.message || "Backup татаж чадсангүй");
+      } finally {
+        button.disabled = false;
+      }
     });
   });
   list.querySelectorAll(".database-backup-restore").forEach(button => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       if (!requireEditCode()) return;
       const backup = databaseBackups().find(item => Number(item.id) === Number(button.dataset.id));
       if (!backup || !window.confirm("Энэ backup-аас мэдээллийг сэргээх үү?")) return;
-      createDatabaseBackup("Backup сэргээхийн өмнөх автомат backup", "all");
-      const backupCategory = backup.category || "all";
-      const backupData = structuredClone(backup.data || {});
-      persistImportedServiceSettings(backupData);
-      delete backupData._serviceSettings;
-      const restoredState = databaseReplaceCategoryState(state, backupData, backupCategory);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(restoredState)));
-      window.location.reload();
+      button.disabled = true;
+      try {
+        await serverApi("backups.php", {
+          method: "PUT",
+          body: JSON.stringify({ id: backup.id })
+        });
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(DATABASE_BACKUP_KEY);
+        window.location.reload();
+      } catch (error) {
+        button.disabled = false;
+        showToast(error?.message || "Backup сэргээж чадсангүй");
+      }
     });
   });
   list.querySelectorAll(".database-backup-delete").forEach(button => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       if (!requireDeleteCode()) return;
-      saveDatabaseBackups(databaseBackups().filter(item => Number(item.id) !== Number(button.dataset.id)));
-      renderDatabaseBackups();
-      renderInfoHeader("settingsDatabase");
+      button.disabled = true;
+      try {
+        await serverApi("backups.php", {
+          method: "DELETE",
+          body: JSON.stringify({ id: Number(button.dataset.id) })
+        });
+        await loadDatabaseBackups({ silent: true });
+        showToast("Backup устлаа");
+      } catch (error) {
+        button.disabled = false;
+        showToast(error?.message || "Backup устгаж чадсангүй");
+      }
     });
   });
 }
@@ -9236,6 +9268,7 @@ function renderDatabaseSettings() {
   if (summary) summary.textContent = databaseCategorySummaryText(category);
   enhanceNativeSelects(["databaseCategory", "databaseImportMode"]);
   renderDatabaseBackups();
+  loadDatabaseBackups({ silent: true });
 }
 
 async function importDatabaseFile(event) {
@@ -9251,7 +9284,7 @@ async function importDatabaseFile(event) {
     const mode = document.getElementById("databaseImportMode")?.value || "merge";
     if (mode === "replace" && !requireEditCode()) return;
     if (!window.confirm(mode === "replace" ? "Одоогийн өгөгдлийг бүрэн солих уу?" : "Өгөгдлийг одоогийн сантай нэгтгэх үү?")) return;
-    createDatabaseBackup("Өгөгдөл импортлохын өмнөх автомат backup", "all");
+    await createDatabaseBackup("Өгөгдөл импортлохын өмнөх автомат backup");
     const stateIncoming = structuredClone(incoming);
     delete stateIncoming._serviceSettings;
     const nextState = mode === "replace"
@@ -9285,20 +9318,29 @@ async function importDatabaseFile(event) {
   }
 }
 
-function clearOperationalDatabase() {
+async function clearOperationalDatabase() {
   if (!requireDeleteCode()) return;
   if (!window.confirm("Үйл ажиллагааны бүх өгөгдлийг backup аваад цэвэрлэх үү?")) return;
-  createDatabaseBackup("Өгөгдөл цэвэрлэхийн өмнөх автомат backup", "all");
-  const cleaned = structuredClone(state);
-  ["customers", "customerGroups", "bookings", "holidays", "assignments", "kassSchedules", "services", "voucherLogs", "giftCards"].forEach(key => {
-    cleaned[key] = [];
-  });
-  cleaned.audit = [{ title: "database_cleared", meta: "Админ • Үйл ажиллагааны өгөгдөл цэвэрлэсэн", createdAt: auditNowText() }];
-  cleaned.selectedCustomerId = null;
-  cleaned.permanentlyDeletedCustomerIds = defaultState.customers.map(item => Number(item.id));
-  cleaned.databaseOperationalDataCleared = true;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(cleaned)));
-  window.location.reload();
+  try {
+    await createDatabaseBackup("Өгөгдөл цэвэрлэхийн өмнөх автомат backup");
+    const cleaned = structuredClone(state);
+    ["customers", "customerGroups", "bookings", "holidays", "assignments", "kassSchedules", "services", "voucherLogs", "giftCards"].forEach(key => {
+      cleaned[key] = [];
+    });
+    cleaned.audit = [{ title: "database_cleared", meta: "Админ • Үйл ажиллагааны өгөгдөл цэвэрлэсэн", createdAt: auditNowText() }];
+    cleaned.selectedCustomerId = null;
+    cleaned.permanentlyDeletedCustomerIds = state.customers.map(item => Number(item.id));
+    cleaned.databaseOperationalDataCleared = true;
+    const result = await serverApi("state.php", {
+      method: "PUT",
+      body: JSON.stringify({ revision: serverStorageRevision, data: { ...clearTransientState(cleaned), _serviceSettings: serverStateData()._serviceSettings } })
+    });
+    serverStorageRevision = Number(result.revision || serverStorageRevision);
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
+  } catch (error) {
+    showToast(error?.message || "Өгөгдөл цэвэрлэж чадсангүй");
+  }
 }
 
 function auditActionText(title = "") {
@@ -10310,11 +10352,17 @@ function bindEvents() {
     const category = databaseSelectedCategory();
     downloadDatabaseJson(`khalgai-${category}-${todayText()}.json`, databaseEnvelope(databaseCategoryData(category), "Одоогийн өгөгдлийн экспорт", category));
   });
-  document.getElementById("databaseCreateBackup")?.addEventListener("click", () => {
-    createDatabaseBackup();
-    renderDatabaseBackups();
-    renderInfoHeader("settingsDatabase");
-    showToast("Backup үүслээ");
+  document.getElementById("databaseCreateBackup")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await createDatabaseBackup();
+      showToast("Server backup үүслээ");
+    } catch (error) {
+      showToast(error?.message || "Backup үүсгэж чадсангүй");
+    } finally {
+      button.disabled = false;
+    }
   });
   document.getElementById("databaseClearOperationalData")?.addEventListener("click", clearOperationalDatabase);
   ["dashboardViewMode", "dashboardMonth", "dashboardSalon"].forEach(id => {
