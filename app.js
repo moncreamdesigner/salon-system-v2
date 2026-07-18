@@ -574,8 +574,27 @@ function applyServerData(data = {}) {
   const incoming = structuredClone(data || {});
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState({ ...structuredClone(defaultState), ...incoming })));
-  if (serviceSettings) localStorage.setItem(SERVICE_SETTINGS_KEY, JSON.stringify(serviceSettings));
+  state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (storageError) {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+  if (serviceSettings) {
+    if (serviceSettings.data) {
+      serviceSettingsData.single = Array.isArray(serviceSettings.data.single) ? serviceSettings.data.single : serviceSettingsData.single;
+      serviceSettingsData.course = Array.isArray(serviceSettings.data.course) ? serviceSettings.data.course : serviceSettingsData.course;
+      serviceSettingsData.products = serviceSettings.data.products && typeof serviceSettings.data.products === "object" ? serviceSettings.data.products : serviceSettingsData.products;
+    }
+    if (Array.isArray(serviceSettings.groups) && serviceSettings.groups.length) {
+      productGroups.splice(0, productGroups.length, ...serviceSettings.groups);
+    }
+    try {
+      localStorage.setItem(SERVICE_SETTINGS_KEY, JSON.stringify(serviceSettings));
+    } catch (storageError) {
+      localStorage.removeItem(SERVICE_SETTINGS_KEY);
+    }
+  }
 }
 
 async function saveServerStateNow() {
@@ -669,7 +688,7 @@ async function synchronizeServerState() {
   const remoteJson = stableJsonStringify(remote.data || {});
   if (localJson !== remoteJson) {
     applyServerData(remote.data || {});
-    window.location.reload();
+    serverStorageReady = true;
     return;
   }
   serverStorageReady = true;
@@ -9182,7 +9201,7 @@ async function importDatabaseFile(event) {
       localStorage.setItem(STORAGE_KEY, localStateJson);
     } catch (storageError) {
       localStorage.removeItem(DATABASE_BACKUP_KEY);
-      localStorage.setItem(STORAGE_KEY, localStateJson);
+      localStorage.removeItem(STORAGE_KEY);
     }
     window.location.reload();
   } catch (error) {
