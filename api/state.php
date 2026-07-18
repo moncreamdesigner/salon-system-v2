@@ -34,8 +34,14 @@ try {
     $currentRevision = (int)$revisionStmt->fetchColumn();
     $nextRevision = $currentRevision + 1;
 
-    $lastBackup = $pdo->query('SELECT created_at FROM app_backups ORDER BY id DESC LIMIT 1')->fetchColumn();
-    if ($currentRevision > 0 && (!$lastBackup || strtotime((string)$lastBackup) < time() - 300)) {
+    $backupIntervalDays = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_interval_days'")->fetchColumn();
+    $allowedBackupIntervals = [0, 1, 7, 14, 30, 90];
+    if (!in_array($backupIntervalDays, $allowedBackupIntervals, true)) $backupIntervalDays = 14;
+    $lastBackupStatement = $pdo->prepare('SELECT created_at FROM app_backups WHERE reason = ? ORDER BY id DESC LIMIT 1');
+    $lastBackupStatement->execute(['Автомат backup']);
+    $lastBackup = $lastBackupStatement->fetchColumn();
+    $backupDue = $backupIntervalDays > 0 && (!$lastBackup || strtotime((string)$lastBackup) <= time() - ($backupIntervalDays * 86400));
+    if ($currentRevision > 0 && $backupDue) {
         $oldRows = $pdo->query('SELECT section_key, payload FROM app_sections')->fetchAll();
         $oldData = [];
         foreach ($oldRows as $row) $oldData[$row['section_key']] = json_decode($row['payload'], true);
@@ -59,4 +65,3 @@ try {
     if ($pdo->inTransaction()) $pdo->rollBack();
     json_response(['ok' => false, 'message' => 'Server хадгалалт амжилтгүй.'], 500);
 }
-

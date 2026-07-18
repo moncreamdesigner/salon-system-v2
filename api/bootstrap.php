@@ -116,6 +116,7 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_users_salon (salon_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
+    $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '14')");
     $ready = true;
 }
 

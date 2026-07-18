@@ -60,7 +60,24 @@ if ($method === 'GET') {
     }
 
     $rows = $pdo->query('SELECT id, revision, reason, created_at, OCTET_LENGTH(payload) AS size_bytes FROM app_backups ORDER BY id DESC LIMIT 50')->fetchAll();
-    json_response(['ok' => true, 'backups' => array_map('backup_metadata', $rows)]);
+    $intervalDays = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_interval_days'")->fetchColumn();
+    if (!in_array($intervalDays, [0, 1, 7, 14, 30, 90], true)) $intervalDays = 14;
+    json_response([
+        'ok' => true,
+        'backups' => array_map('backup_metadata', $rows),
+        'settings' => ['intervalDays' => $intervalDays],
+    ]);
+}
+
+if ($method === 'PATCH') {
+    $payload = request_payload();
+    $intervalDays = (int)($payload['intervalDays'] ?? -1);
+    if (!in_array($intervalDays, [0, 1, 7, 14, 30, 90], true)) {
+        json_response(['ok' => false, 'message' => 'Backup хугацааны сонголт буруу байна.'], 422);
+    }
+    $statement = $pdo->prepare("INSERT INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
+    $statement->execute([(string)$intervalDays]);
+    json_response(['ok' => true, 'settings' => ['intervalDays' => $intervalDays]]);
 }
 
 if ($method === 'POST') {
