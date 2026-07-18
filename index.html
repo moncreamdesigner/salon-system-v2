@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607182015">
+  <link rel="stylesheet" href="styles.css?v=202607191030">
 </head>
 <body>
   <div class="app-shell">
@@ -24,17 +24,18 @@
         <button class="nav-item" data-view="performance">Гүйцэтгэл</button>
         <button class="nav-item" data-view="vouchers">Ваучер</button>
         <button class="nav-item" data-view="giftCards">Бэлгийн карт</button>
+        <button class="nav-item" data-view="settingsDiscounts">Хямдрал</button>
         <button class="nav-item" data-view="dashboard">Хяналтын самбар</button>
+        <button class="nav-item" data-view="settingsHumanResources">Хүний нөөц</button>
+        <button class="nav-item" data-view="settingsSchedule">Цагийн хуваарь</button>
         <div class="nav-group">
-          <button class="nav-item nav-parent" type="button" id="settingsToggle" aria-expanded="false">Тохиргоо</button>
+          <button class="nav-item nav-parent" type="button" id="settingsToggle" aria-expanded="false">Админ</button>
           <div class="nav-submenu" id="settingsSubmenu">
+            <button class="nav-subitem" data-view="settingsCatalog">Каталоги</button>
             <button class="nav-subitem" data-view="branches">Салбар</button>
-            <button class="nav-subitem" data-view="settingsSchedule">Цагийн хуваарь</button>
-            <button class="nav-subitem" data-view="settingsHolidays">Амралтын өдөр</button>
+            <button class="nav-subitem" data-view="settingsResults">Үр дүн</button>
             <button class="nav-subitem" data-view="settingsServices">Үйлчилгээ</button>
-            <button class="nav-subitem" data-view="settingsHumanResources">Хүний нөөц</button>
             <button class="nav-subitem" data-view="settingsPricing">Үнийн бодлого</button>
-            <button class="nav-subitem" data-view="settingsDiscounts">Хямдрал</button>
             <button class="nav-subitem" data-view="groups">Групп</button>
             <button class="nav-subitem" data-view="settingsUsers" data-admin-only>Хэрэглэгчийн эрх</button>
             <button class="nav-subitem" data-view="settingsDatabase">Өгөгдлийн сан</button>
@@ -126,6 +127,15 @@
       </section>
 
       <section class="view" id="branchesView">
+        <section class="panel wide branch-page-settings">
+          <form class="clean-form branch-page-settings-form" id="branchPageSettingsForm">
+            <label>Цаг захиалгын нүүрний гарчиг
+              <input class="input" id="branchDirectoryHeadline" maxlength="120" placeholder="ТА ӨӨРТ ОЙР САЛБАРТАА ЦАГ ЗАХИАЛААРАЙ">
+            </label>
+            <button class="primary-btn" type="submit">Хадгалах</button>
+          </form>
+        </section>
+
         <section class="branch-add-shell">
           <div class="branch-add-title">
             <span>Шинэ салбар нэмэх</span>
@@ -135,6 +145,15 @@
               <label>Нэр<input class="input" id="branchName" required placeholder="Жишээ: Хан-Уул салбар"></label>
               <label>Утас<input class="input" id="branchPhone" inputmode="numeric" maxlength="8" required placeholder="80024373"></label>
               <label>Хаяг<input class="input" id="branchAddress" required placeholder="Салбарын дэлгэрэнгүй хаяг"></label>
+              <label>Google Maps холбоос<input class="input" id="branchMapUrl" type="url" placeholder="https://maps.google.com/..."></label>
+              <label class="branch-media-field">Cover зураг
+                <span class="branch-upload-row"><input class="input" id="branchCoverImage" readonly placeholder="Cover зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="branchCoverUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
+                <span class="branch-media-preview" id="branchCoverPreview"></span>
+              </label>
+              <label class="branch-media-field">Slider зургууд
+                <span class="branch-upload-row"><span class="branch-upload-note">Олон зураг сонгож болно.</span><label class="secondary-btn branch-file-btn">Зураг нэмэх<input id="branchGalleryUpload" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden></label></span>
+                <span class="branch-gallery-list" id="branchGalleryList"></span>
+              </label>
               <div class="form-actions">
                 <button class="primary-btn" type="submit" id="branchSubmit">Хадгалах</button>
               </div>
@@ -674,6 +693,11 @@
       </section>
 
       <section class="view" id="settingsScheduleView">
+        <div class="schedule-section-tabs service-settings-tabs" role="tablist" aria-label="Цагийн хуваарийн хэсэг">
+          <button class="schedule-section-tab service-main-tab active" type="button" role="tab" data-schedule-section="holidays" aria-selected="true">Амралтын өдөр</button>
+          <button class="schedule-section-tab service-main-tab" type="button" role="tab" data-schedule-section="schedule" aria-selected="false">Цагийн хуваарь</button>
+        </div>
+        <div class="schedule-section-panel hidden" id="scheduleSettingsPanel" role="tabpanel">
         <section class="panel wide schedule-selector">
           <label>Салбар
             <select class="input" id="scheduleSalon">
@@ -716,8 +740,8 @@
             <span>09:00</span><span>09:30</span><span>10:00</span><span>10:30</span><span>11:00</span><span>11:30</span><span>12:00</span><span>12:30</span><span>13:00</span><span>13:30</span><span>14:00</span><span>14:30</span><span>15:00</span><span>15:30</span><span>16:00</span><span>16:30</span><span>17:00</span><span>17:30</span><span>18:00</span><span>18:30</span><span>19:00</span>
           </div>
         </section>
-      </section>
-      <section class="view" id="settingsHolidaysView">
+        </div>
+        <div class="schedule-section-panel" id="scheduleHolidaysPanel" role="tabpanel">
         <section class="branch-add-shell">
           <div class="branch-add-title">
             <span>Амралтын өдөр нэмэх</span>
@@ -741,6 +765,7 @@
           <div class="panel-head"><div><h2>Амралтын өдрийн жагсаалт</h2></div></div>
           <div class="holiday-list" id="holidayList"></div>
         </section>
+        </div>
       </section>
       <section class="view" id="settingsGeneralView">
         <section class="panel general-settings-panel">
@@ -855,6 +880,67 @@
             </table>
           </div>
           <p class="user-access-empty hidden" id="systemUserEmpty">Хайлтад тохирох хэрэглэгч алга.</p>
+        </section>
+      </section>
+      <section class="view" id="settingsCatalogView">
+        <section class="panel homepage-settings-shell">
+          <div class="service-settings-tabs homepage-settings-tabs">
+            <a class="secondary-btn homepage-preview-link" href="booking.html" target="_blank" rel="noopener">Local нүүр харах ↗</a>
+          </div>
+
+          <div class="homepage-settings-panel" id="homepageCatalogPanel">
+            <form class="homepage-settings-form" id="homepageCatalogForm">
+              <div class="homepage-form-head"><div><h2>FlipHTML5 каталог</h2><p>Public нүүрэнд зөвхөн энэ FlipHTML5 ном харагдана.</p></div></div>
+              <section class="homepage-code-settings homepage-wide-field">
+                <div class="homepage-code-head">
+                  <div><strong>FlipHTML5 код</strong><span>FlipHTML5-ээс авсан shortcode доторх номын ID, хэмжээ болон нэрийг ашиглана.</span></div>
+                  <button class="secondary-btn" id="homepageCatalogCodeReset" type="button">Эх код сэргээх</button>
+                </div>
+                <label>Shortcode / embed код<textarea class="input homepage-code-textarea large" id="homepageCatalogViewerHtml" spellcheck="false"></textarea></label>
+              </section>
+              <section class="homepage-code-settings homepage-wide-field">
+                <div class="homepage-code-head">
+                  <div><strong>Хуудас чирэх зааврын icon</strong><span>Нүүр нээгдэхэд ногоон дэвсгэртэй icon хөдөлж харагдаад 10 секундын дараа алга болно.</span></div>
+                  <label class="homepage-inline-select">Төлөв
+                    <select class="input" id="homepageCatalogDragHintEnabled">
+                      <option value="true">Харуулах</option>
+                      <option value="false">Нуух</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="homepage-code-grid">
+                  <label>Icon HTML / SVG<textarea class="input homepage-code-textarea" id="homepageCatalogDragHintHtml" spellcheck="false"></textarea></label>
+                  <label>Icon CSS<textarea class="input homepage-code-textarea" id="homepageCatalogDragHintCss" spellcheck="false"></textarea></label>
+                </div>
+              </section>
+              <div class="form-actions"><button class="primary-btn" type="submit">Хадгалах</button></div>
+            </form>
+          </div>
+
+        </section>
+      </section>
+      <section class="view" id="settingsResultsView">
+        <section class="panel homepage-settings-shell">
+          <div class="homepage-settings-panel" id="homepageResultsPanel">
+            <form class="homepage-result-form" id="homepageResultForm">
+              <div class="homepage-form-head"><div><h2>Үр дүн нэмэх</h2><p>Хоёр зураг оруулна. Хэрэглэгчийн хуудсанд slider хэлбэрээр харагдана.</p></div></div>
+              <label>Гарчиг<input class="input" id="homepageResultTitle" maxlength="140" required></label>
+              <label>Үр дүнгийн хугацаа<input class="input" id="homepageResultDuration" maxlength="80" placeholder="3 сарын үр дүн"></label>
+              <label class="homepage-result-image-field">Эхний зураг
+                <span class="branch-upload-row"><input class="input" id="homepageResultImageOne" readonly placeholder="Зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="homepageResultImageOneUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
+                <span class="branch-media-preview homepage-result-preview" id="homepageResultImageOnePreview"></span>
+              </label>
+              <label class="homepage-result-image-field">Хоёр дахь зураг
+                <span class="branch-upload-row"><input class="input" id="homepageResultImageTwo" readonly placeholder="Зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="homepageResultImageTwoUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
+                <span class="branch-media-preview homepage-result-preview" id="homepageResultImageTwoPreview"></span>
+              </label>
+              <label class="homepage-wide-field">Тайлбар<textarea class="input homepage-textarea small" id="homepageResultDescription"></textarea></label>
+              <label class="homepage-wide-field">Web холбоос<input class="input" id="homepageResultWebUrl" type="text" inputmode="url" maxlength="500" placeholder="www.moncream.mn"></label>
+              <label>Төлөв<select class="input" id="homepageResultPublished"><option value="true">Нийтэлсэн</option><option value="false">Нуусан</option></select></label>
+              <div class="homepage-result-actions"><button class="primary-btn" id="homepageResultSubmit" type="submit">Нэмэх</button><button class="secondary-btn hidden" id="homepageResultCancel" type="button">Болих</button></div>
+            </form>
+            <div class="homepage-result-list" id="homepageResultList"></div>
+          </div>
         </section>
       </section>
       <section class="view" id="settingsDatabaseView">
@@ -1100,7 +1186,8 @@
   </div>
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
-  <script src="app.js?v=202607182015"></script>
+  <script src="fliphtml5.js?v=202607190100"></script>
+  <script src="app.js?v=202607191030"></script>
 </body>
 </html>
 

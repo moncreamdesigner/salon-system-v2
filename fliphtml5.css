@@ -1,0 +1,62 @@
+.public-app.catalog-mode {
+  width: 100%;
+  max-width: none;
+  background: #171514;
+  box-shadow: none;
+}
+
+.catalog-mode .public-logo-head { display: none; }
+.catalog-mode #catalogView,
+.catalog-stage { min-height: 700px; padding: 0; background: #171514; }
+
+#flipOuter {
+  position: relative;
+  width: 100%;
+  height: var(--flip-height,700px);
+  margin: 0;
+  padding: 0;
+  display: block;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+}
+
+#flipOuter iframe {
+  width: var(--flip-width,100%) !important;
+  height: var(--flip-height,700px) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  border: 0 !important;
+  vertical-align: top !important;
+}
+
+.catalog-drag-hint-frame {
+  position: fixed;
+  z-index: 150;
+  top: 50%;
+  left: 50%;
+  width: 160px;
+  height: 140px;
+  display: block;
+  transform: translate(-50%,-50%);
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+@media (max-width: 767px) {
+  .catalog-mode #catalogView,
+  .catalog-stage,
+  #flipOuter {
+    height: calc(100dvh - var(--public-nav-height) - env(safe-area-inset-bottom)) !important;
+    min-height: 0 !important;
+    margin-top: 0 !important;
+  }
+
+  #flipOuter iframe {
+    height: calc(100dvh - var(--public-nav-height) - env(safe-area-inset-bottom) + 120px) !important;
+    min-height: 0 !important;
+    margin-top: -120px !important;
+  }
+}

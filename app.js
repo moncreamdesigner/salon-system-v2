@@ -9,6 +9,9 @@ const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
 const SERVER_API_BASE = "api";
+const DEFAULT_CATALOG_VIEWER_HTML = window.KhalgaiFlipHtml5.DEFAULT_CODE;
+const DEFAULT_CATALOG_DRAG_HINT_HTML = window.KhalgaiFlipHtml5.DEFAULT_HINT_HTML;
+const DEFAULT_CATALOG_DRAG_HINT_CSS = window.KhalgaiFlipHtml5.DEFAULT_HINT_CSS;
 let bookingDropdownCloseBound = false;
 let nativeSelectCloseBound = false;
 let serverStorageReady = false;
@@ -60,6 +63,32 @@ const defaultState = {
     serviceEditDays: 3,
     customerEditDays: 3
   },
+  homepageSettings: {
+    catalog: {
+      flipHtml5Code: DEFAULT_CATALOG_VIEWER_HTML,
+      dragHintEnabled: true,
+      dragHintHtml: DEFAULT_CATALOG_DRAG_HINT_HTML,
+      dragHintCss: DEFAULT_CATALOG_DRAG_HINT_CSS
+    },
+    booking: {
+      directoryHeadline: "ТА ӨӨРТ ОЙР САЛБАРТАА ЦАГ ЗАХИАЛААРАЙ"
+    },
+    salons: {},
+    results: {
+      categories: ["Бүгд"],
+      posts: [{
+        id: 1,
+        title: "Үсний уналт багассан үр дүн",
+        duration: "3 сарын үр дүн",
+        description: "Үсний уналт багасаж, шинэ үсний ургалт нэмэгдсэн бодит үр дүн.",
+        webUrl: "",
+        images: ["", ""],
+        beforeImage: "",
+        afterImage: "",
+        published: true
+      }]
+    }
+  },
   diagnosisTypes: [
     "Буурал үстэй",
     "Голомтот халзралт",
@@ -104,6 +133,19 @@ const defaultState = {
 };
 
 let state = loadState();
+
+state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : structuredClone(defaultState.salons)).map((salon, index) => {
+  const fallback = defaultState.salons.find(item => Number(item.id) === Number(salon?.id) || item.name === salon?.name) || {};
+  return {
+    ...fallback,
+    ...salon,
+    id: Number(salon?.id) || Number(fallback.id) || index + 1,
+    bookings: Number(salon?.bookings ?? fallback.bookings ?? 0),
+    revenue: Number(salon?.revenue ?? fallback.revenue ?? 0),
+    staff: String(salon?.staff ?? fallback.staff ?? "0"),
+    status: String(salon?.status ?? fallback.status ?? "Ачаалал хэвийн")
+  };
+});
 
 function normalizeCustomerNamesWithoutSurname(targetState = state) {
   let changed = false;
@@ -189,6 +231,23 @@ state.generalSettings = {
   ...structuredClone(defaultState.generalSettings),
   ...(state.generalSettings || {})
 };
+state.homepageSettings = {
+  ...structuredClone(defaultState.homepageSettings),
+  ...(state.homepageSettings || {}),
+  catalog: (() => {
+    const stored = state.homepageSettings?.catalog || {};
+    const legacyCode = String(stored.flipHtml5Code || stored.customViewerHtml || "");
+    return {
+      flipHtml5Code: /\[fliph5\s/i.test(legacyCode) ? legacyCode : DEFAULT_CATALOG_VIEWER_HTML,
+      dragHintEnabled: stored.dragHintEnabled !== false,
+      dragHintHtml: stored.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
+      dragHintCss: stored.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS
+    };
+  })(),
+  salons: { ...(state.homepageSettings?.salons || {}) },
+  results: { ...structuredClone(defaultState.homepageSettings.results), ...(state.homepageSettings?.results || {}) }
+};
+localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
 state.diagnosisTypes = Array.isArray(state.diagnosisTypes) && state.diagnosisTypes.length ? state.diagnosisTypes : [...defaultState.diagnosisTypes];
 normalizeStoredNames();
 const humanResourceSeed = [
@@ -225,6 +284,7 @@ removePaginationDemoData();
 let activeView = "bookings";
 let bookingTimeOptions = [];
 let branchEditingId = null;
+let branchGalleryDraft = [];
 let humanResourceEditingId = null;
 let assignmentEditingId = null;
 let assignmentPage = 1;
@@ -265,6 +325,8 @@ const dashboardDemoData = {
 let activeServiceMainTab = "single";
 let activeProductGroup = "gift";
 let activeDatabaseTab = "import";
+let activeHomepageSettingsTab = "catalog";
+let homepageResultEditingId = null;
 let serviceEditingRef = null;
 let customerPage = 1;
 let holidayEditingId = null;
@@ -725,6 +787,12 @@ async function synchronizeServerState() {
 }
 
 async function initializeServerStorage() {
+  if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+    hideServerLogin();
+    rerenderAll();
+    setView(activeView);
+    return;
+  }
   try {
     const status = await serverApi("status.php");
     if (!status.authenticated) {
@@ -1089,6 +1157,19 @@ function renderScheduleSettings(selectedName = selectedScheduleSalonName()) {
   enhanceScheduleTimeInputs();
 }
 
+function setScheduleSection(name = "holidays") {
+  const selected = name === "holidays" ? "holidays" : "schedule";
+  document.querySelectorAll("[data-schedule-section]").forEach(button => {
+    const active = button.dataset.scheduleSection === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.getElementById("scheduleSettingsPanel")?.classList.toggle("hidden", selected !== "schedule");
+  document.getElementById("scheduleHolidaysPanel")?.classList.toggle("hidden", selected !== "holidays");
+  if (selected === "schedule") renderScheduleSettings();
+  if (selected === "holidays") renderHolidaySettings();
+}
+
 function saveScheduleSettings() {
   const scheduleSalon = document.getElementById("scheduleSalon");
   if (!scheduleSalon) return;
@@ -1241,7 +1322,7 @@ function assignmentTimeOptions(selected = "09:00") {
 
 function ensureHumanResourceShell() {
   const submenu = document.getElementById("settingsSubmenu");
-  if (submenu && !submenu.querySelector('[data-view="settingsHumanResources"]')) {
+  if (submenu && !document.querySelector('[data-view="settingsHumanResources"]')) {
     const button = document.createElement("button");
     button.className = "nav-subitem";
     button.type = "button";
@@ -2903,6 +2984,14 @@ function infoForView(name) {
       ["Зургийн хэмжээ", generalSettings().diagnosisCaptureMode === "native" ? "Камерын үндсэн" : generalSettings().diagnosisCaptureSize],
       ["Оношилгоо", state.diagnosisTypes.length]
     ]],
+    settingsCatalog: ["КАТАЛОГИ", [
+      ["Төрөл", "FlipHTML5"],
+      ["Чирэх заавар", homepageSettings().catalog.dragHintEnabled === false ? "Нуусан" : "Харуулна"]
+    ]],
+    settingsResults: ["ҮР ДҮН", [
+      ["Нийт", homepageSettings().results.posts.length],
+      ["Нийтэлсэн", homepageSettings().results.posts.filter(item => item.published !== false).length]
+    ]],
     settingsDatabase: ["ӨГӨГДЛИЙН САН", [
       ["Хэрэглэгч", state.customers.filter(item => !item.deleted).length],
       ["Цаг захиалга", state.bookings.length],
@@ -3657,11 +3746,14 @@ function rerenderAll() {
   renderGroupDirectory();
   renderPerformance();
   renderAudit();
+  renderHomepageSettings();
   if (systemUsersLoaded) renderSystemUsers();
 }
 
 function setView(name) {
   releaseDiagnosisCameraSession();
+  const requestedScheduleSection = name === "settingsHolidays" ? "holidays" : null;
+  if (name === "settingsHolidays") name = "settingsSchedule";
   if (retiredViews.has(name)) name = "bookings";
   if (name === "settingsUsers" && !isAdminAccount()) {
     showToast("Хэрэглэгчийн эрхийг зөвхөн админ удирдана");
@@ -3680,7 +3772,8 @@ function setView(name) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
   document.querySelectorAll(".nav-subitem").forEach(item => item.classList.toggle("active", item.dataset.view === name));
-  const isSettingsView = name.startsWith("settings") || name === "branches" || name === "audit" || name === "groups";
+  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsGeneral", "audit"];
+  const isSettingsView = adminViews.includes(name);
   document.getElementById("settingsToggle")?.classList.toggle("active", isSettingsView);
   document.getElementById("settingsSubmenu")?.classList.toggle("open", isSettingsView);
   document.getElementById("settingsToggle")?.setAttribute("aria-expanded", String(isSettingsView));
@@ -3690,9 +3783,20 @@ function setView(name) {
 
   if (name === "settingsServices") renderSettingsServices();
   if (name === "settingsHumanResources") renderHumanResources();
+  if (name === "settingsSchedule") setScheduleSection(requestedScheduleSection || "holidays");
   if (name === "settingsPricing") renderPricePolicySettings();
   if (name === "settingsDiscounts") renderDiscountSettings();
   if (name === "settingsGeneral") renderGeneralSettings();
+  if (name === "settingsCatalog") {
+    activeHomepageSettingsTab = "catalog";
+    renderHomepageSettings();
+  }
+  if (name === "settingsResults") {
+    homepageSettings();
+    document.getElementById("homepageResultsPanel")?.classList.remove("hidden");
+    renderHomepageResults();
+    enhanceNativeSelects(["homepageResultPublished"]);
+  }
   if (name === "settingsDatabase") renderDatabaseSettings();
   if (name === "settingsUsers") loadSystemUsers();
   if (name === "dashboard") renderDashboard();
@@ -3791,8 +3895,61 @@ function salonPhone(salon) {
   return salon.phone || "--------";
 }
 
+function branchPublicMedia(branch = {}) {
+  const legacy = homepageSettings().salons?.[branch.id] || homepageSettings().salons?.[branch.name] || {};
+  return {
+    coverImage: branch.coverImage || legacy.coverImage || "",
+    gallery: Array.isArray(branch.gallery) ? branch.gallery : (Array.isArray(legacy.gallery) ? legacy.gallery : []),
+    mapUrl: branch.mapUrl || legacy.mapUrl || ""
+  };
+}
+
+function renderBranchMediaDraft() {
+  const cover = document.getElementById("branchCoverImage")?.value || "";
+  const coverPreview = document.getElementById("branchCoverPreview");
+  if (coverPreview) coverPreview.innerHTML = cover ? `<img src="${htmlSafe(cover)}" alt="Cover зураг"><button type="button" data-branch-cover-remove aria-label="Cover зураг арилгах">×</button>` : "";
+  const gallery = document.getElementById("branchGalleryList");
+  if (gallery) gallery.innerHTML = branchGalleryDraft.map((url, index) => `<span class="branch-gallery-item"><img src="${htmlSafe(url)}" alt="Slider зураг ${index + 1}"><button type="button" data-branch-gallery-remove="${index}" aria-label="Slider зураг хасах">×</button></span>`).join("");
+}
+
+function compressBranchImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Зургийг уншиж чадсангүй"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Зургийн файл буруу байна"));
+      image.onload = () => {
+        const maxSide = 1800;
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/webp", 0.84));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadBranchImage(file) {
+  if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
+  if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
+  if (["localhost", "127.0.0.1"].includes(location.hostname)) return compressBranchImage(file);
+  const body = new FormData();
+  body.append("image", file);
+  const response = await fetch(`${SERVER_API_BASE}/upload.php`, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "KhalgaiSalon" }, body });
+  const result = await response.json().catch(() => ({ ok: false }));
+  if (!response.ok || !result.ok) throw new Error(result.message || "Зураг upload хийсэнгүй");
+  return result.url;
+}
+
 function renderBranches() {
   ensureBranchStatusField();
+  const directoryHeadline = document.getElementById("branchDirectoryHeadline");
+  if (directoryHeadline) directoryHeadline.value = homepageSettings().booking.directoryHeadline || "ТА ӨӨРТ ОЙР САЛБАРТАА ЦАГ ЗАХИАЛААРАЙ";
   const rows = document.getElementById("branchRows");
   if (!rows) return;
   rows.innerHTML = state.salons.map(salon => `
@@ -3827,6 +3984,11 @@ function openBranchForm(id) {
   document.getElementById("branchName").value = branch?.name || "";
   document.getElementById("branchPhone").value = branch?.phone || "";
   document.getElementById("branchAddress").value = branch?.address || "";
+  const media = branchPublicMedia(branch || {});
+  document.getElementById("branchMapUrl").value = media.mapUrl;
+  document.getElementById("branchCoverImage").value = media.coverImage;
+  branchGalleryDraft = [...media.gallery];
+  renderBranchMediaDraft();
   document.querySelector(".branch-status-field")?.classList.toggle("hidden", !branch);
   const status = document.getElementById("branchStatus");
   if (status) status.value = branch?.active === false ? "inactive" : "active";
@@ -3836,6 +3998,8 @@ function openBranchForm(id) {
 function closeBranchForm() {
   branchEditingId = null;
   document.getElementById("branchForm")?.reset();
+  branchGalleryDraft = [];
+  renderBranchMediaDraft();
   document.querySelector(".branch-status-field")?.classList.add("hidden");
 }
 
@@ -4554,6 +4718,9 @@ function saveBranch(event) {
     name,
     phone,
     address,
+    mapUrl: formValue("branchMapUrl"),
+    coverImage: formValue("branchCoverImage"),
+    gallery: [...branchGalleryDraft],
     active: branchEditingId ? formValue("branchStatus") !== "inactive" : true
   };
   if (branchEditingId) {
@@ -4580,6 +4747,15 @@ function saveBranch(event) {
   setupCustomSelect();
   renderInfoHeader(activeView);
   showToast("Салбар хадгалагдлаа");
+}
+
+function saveBranchPageSettings(event) {
+  event.preventDefault();
+  const value = formValue("branchDirectoryHeadline") || "ТА ӨӨРТ ОЙР САЛБАРТАА ЦАГ ЗАХИАЛААРАЙ";
+  homepageSettings().booking.directoryHeadline = value;
+  saveState();
+  renderBranches();
+  showToast("Цаг захиалгын нүүрний гарчиг хадгалагдлаа");
 }
 
 function toggleBranch(id) {
@@ -8999,6 +9175,218 @@ function deleteGiftCard(id) {
   showToast("Бэлгийн карт устлаа");
 }
 
+function homepageSettings() {
+  const storedCatalog = state.homepageSettings?.catalog || {};
+  const storedFlipCode = String(storedCatalog.flipHtml5Code || storedCatalog.customViewerHtml || "");
+  const storedHintCss = String(storedCatalog.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS).replace(/#(?:68bd63|7da64b|789f4a)/gi, "#78a450");
+  state.homepageSettings = {
+    ...structuredClone(defaultState.homepageSettings),
+    ...(state.homepageSettings || {}),
+    catalog: {
+      flipHtml5Code: /\[fliph5\s/i.test(storedFlipCode) ? storedFlipCode : DEFAULT_CATALOG_VIEWER_HTML,
+      dragHintEnabled: storedCatalog.dragHintEnabled !== false,
+      dragHintHtml: storedCatalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
+      dragHintCss: storedHintCss
+    },
+    booking: {
+      ...structuredClone(defaultState.homepageSettings.booking),
+      ...(state.homepageSettings?.booking || {})
+    },
+    salons: { ...(state.homepageSettings?.salons || {}) },
+    results: { ...structuredClone(defaultState.homepageSettings.results), ...(state.homepageSettings?.results || {}) }
+  };
+  state.homepageSettings.results.categories = Array.isArray(state.homepageSettings.results.categories) ? state.homepageSettings.results.categories : ["Бүгд"];
+  state.homepageSettings.results.posts = Array.isArray(state.homepageSettings.results.posts) ? state.homepageSettings.results.posts : [];
+  return state.homepageSettings;
+}
+
+function setHomepageSettingsTab(name = "catalog") {
+  activeHomepageSettingsTab = ["catalog", "booking", "results"].includes(name) ? name : "catalog";
+  document.querySelectorAll("[data-homepage-tab]").forEach(button => {
+    const active = button.dataset.homepageTab === activeHomepageSettingsTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.getElementById("homepageCatalogPanel")?.classList.toggle("hidden", activeHomepageSettingsTab !== "catalog");
+  document.getElementById("homepageBookingPanel")?.classList.toggle("hidden", activeHomepageSettingsTab !== "booking");
+  document.getElementById("homepageResultsPanel")?.classList.toggle("hidden", activeHomepageSettingsTab !== "results");
+}
+
+function homepageSalonConfig(salon) {
+  const settings = homepageSettings();
+  return settings.salons[salon.id] || settings.salons[salon.name] || { coverImage: "", gallery: [], mapUrl: "" };
+}
+
+function renderHomepageSalonSettings() {
+  const root = document.getElementById("homepageSalonSettings");
+  if (!root) return;
+  root.innerHTML = state.salons.map(salon => {
+    const config = homepageSalonConfig(salon);
+    return `<article class="homepage-salon-setting" data-homepage-salon="${salon.id}">
+      <div class="homepage-salon-title"><strong>${htmlSafe(salon.name)}</strong><span>${htmlSafe(salon.phone || "Утасгүй")}</span></div>
+      <label>Cover зураг<input class="input homepage-salon-cover" value="${htmlSafe(config.coverImage || "")}" placeholder="assets/salons/cover.jpg"></label>
+      <label>Slider зургууд<textarea class="input homepage-salon-gallery" placeholder="Нэг мөрөнд нэг зураг">${htmlSafe((config.gallery || []).join("\n"))}</textarea></label>
+      <label>Google Maps холбоос<input class="input homepage-salon-map" value="${htmlSafe(config.mapUrl || "")}" placeholder="https://maps.google.com/..."></label>
+    </article>`;
+  }).join("") || `<div class="empty-state">Салбар бүртгээгүй байна</div>`;
+}
+
+function homepageResultImages(post = {}) {
+  const images = Array.isArray(post.images) ? post.images.filter(Boolean).slice(0, 2) : [];
+  if (!images.length) images.push(...[post.beforeImage, post.afterImage].filter(Boolean).slice(0, 2));
+  return [images[0] || "", images[1] || ""];
+}
+
+function renderHomepageResultImageDraft() {
+  [["homepageResultImageOne", "homepageResultImageOnePreview", "Эхний зураг"], ["homepageResultImageTwo", "homepageResultImageTwoPreview", "Хоёр дахь зураг"]].forEach(([inputId, previewId, label]) => {
+    const url = document.getElementById(inputId)?.value || "";
+    const preview = document.getElementById(previewId);
+    if (preview) preview.innerHTML = url ? `<img src="${htmlSafe(url)}" alt="${label}">` : "";
+  });
+}
+
+function resetHomepageResultForm() {
+  homepageResultEditingId = null;
+  document.getElementById("homepageResultForm")?.reset();
+  ["homepageResultImageOne", "homepageResultImageTwo"].forEach(id => { const field = document.getElementById(id); if (field) field.value = ""; });
+  renderHomepageResultImageDraft();
+  const published = document.getElementById("homepageResultPublished");
+  if (published) published.value = "true";
+  document.getElementById("homepageResultSubmit").textContent = "Нэмэх";
+  document.getElementById("homepageResultCancel").classList.add("hidden");
+  enhanceNativeSelects(["homepageResultPublished"]);
+}
+
+function renderHomepageResults() {
+  const settings = homepageSettings();
+  const list = document.getElementById("homepageResultList");
+  if (!list) return;
+  list.innerHTML = settings.results.posts.map(post => `<article class="homepage-result-item">
+    <div><strong>${htmlSafe(post.title || "Гарчиггүй")}</strong>${post.webUrl ? `<span>${htmlSafe(post.webUrl)}</span>` : ""}</div>
+    <span>${htmlSafe([post.duration, post.published === false ? "Нуусан" : "Нийтэлсэн"].filter(Boolean).join(" • "))}</span>
+    <div class="table-actions"><button class="secondary-btn icon-action" type="button" data-homepage-result-edit="${post.id}" aria-label="Үр дүн засах" title="Засах">${editIcon()}</button><button class="danger-btn icon-danger" type="button" data-homepage-result-delete="${post.id}" aria-label="Үр дүн устгах">${trashIcon()}</button></div>
+  </article>`).join("") || `<div class="empty-state">Үр дүн оруулаагүй байна</div>`;
+}
+
+function resetHomepageCatalogCodeFields() {
+  const html = document.getElementById("homepageCatalogViewerHtml");
+  const hintEnabled = document.getElementById("homepageCatalogDragHintEnabled");
+  const hintHtml = document.getElementById("homepageCatalogDragHintHtml");
+  const hintCss = document.getElementById("homepageCatalogDragHintCss");
+  if (html) html.value = DEFAULT_CATALOG_VIEWER_HTML;
+  if (hintEnabled) hintEnabled.value = "true";
+  if (hintHtml) hintHtml.value = DEFAULT_CATALOG_DRAG_HINT_HTML;
+  if (hintCss) hintCss.value = DEFAULT_CATALOG_DRAG_HINT_CSS;
+  enhanceNativeSelects(["homepageCatalogDragHintEnabled"]);
+  showToast("FlipHTML5 болон icon-ы эх код сэргээгдлээ. Хадгалах товч дарж баталгаажуулна уу");
+}
+
+function renderHomepageSettings() {
+  const settings = homepageSettings();
+  const viewerHtml = document.getElementById("homepageCatalogViewerHtml");
+  const dragHintEnabled = document.getElementById("homepageCatalogDragHintEnabled");
+  const dragHintHtml = document.getElementById("homepageCatalogDragHintHtml");
+  const dragHintCss = document.getElementById("homepageCatalogDragHintCss");
+  if (viewerHtml) viewerHtml.value = settings.catalog.flipHtml5Code || DEFAULT_CATALOG_VIEWER_HTML;
+  if (dragHintEnabled) dragHintEnabled.value = settings.catalog.dragHintEnabled === false ? "false" : "true";
+  if (dragHintHtml) dragHintHtml.value = settings.catalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML;
+  if (dragHintCss) dragHintCss.value = settings.catalog.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS;
+  renderHomepageSalonSettings();
+  renderHomepageResults();
+  setHomepageSettingsTab(activeHomepageSettingsTab);
+  enhanceNativeSelects(["homepageResultPublished", "homepageCatalogDragHintEnabled"]);
+}
+
+function saveHomepageCatalog(event) {
+  event.preventDefault();
+  const settings = homepageSettings();
+  settings.catalog.flipHtml5Code = formValue("homepageCatalogViewerHtml") || DEFAULT_CATALOG_VIEWER_HTML;
+  settings.catalog.dragHintEnabled = formValue("homepageCatalogDragHintEnabled") !== "false";
+  settings.catalog.dragHintHtml = formValue("homepageCatalogDragHintHtml") || DEFAULT_CATALOG_DRAG_HINT_HTML;
+  settings.catalog.dragHintCss = formValue("homepageCatalogDragHintCss") || DEFAULT_CATALOG_DRAG_HINT_CSS;
+  saveState();
+  renderInfoHeader(activeView);
+  showToast("Каталогийн тохиргоо хадгалагдлаа");
+}
+
+function saveHomepageSalons(event) {
+  event.preventDefault();
+  const settings = homepageSettings();
+  document.querySelectorAll("[data-homepage-salon]").forEach(card => {
+    settings.salons[card.dataset.homepageSalon] = {
+      coverImage: card.querySelector(".homepage-salon-cover")?.value.trim() || "",
+      gallery: String(card.querySelector(".homepage-salon-gallery")?.value || "").split(/\r?\n/).map(item => item.trim()).filter(Boolean),
+      mapUrl: card.querySelector(".homepage-salon-map")?.value.trim() || ""
+    };
+  });
+  saveState();
+  showToast("Салоны нүүрний тохиргоо хадгалагдлаа");
+}
+
+function normalizeExternalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const normalized = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, "")}`;
+    const url = new URL(normalized);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function saveHomepageResult(event) {
+  event.preventDefault();
+  const settings = homepageSettings();
+  const wasEditing = Boolean(homepageResultEditingId);
+  const images = [formValue("homepageResultImageOne"), formValue("homepageResultImageTwo")];
+  const rawWebUrl = formValue("homepageResultWebUrl");
+  const webUrl = normalizeExternalUrl(rawWebUrl);
+  const payload = {
+    title: formValue("homepageResultTitle"),
+    duration: formValue("homepageResultDuration"),
+    images,
+    beforeImage: images[0],
+    afterImage: images[1],
+    description: formValue("homepageResultDescription"),
+    webUrl,
+    published: document.getElementById("homepageResultPublished")?.value !== "false"
+  };
+  if (!payload.title) return showToast("Үр дүнгийн гарчиг оруулна уу");
+  if (!images[0] || !images[1]) return showToast("Үр дүнгийн хоёр зургийг оруулна уу");
+  if (rawWebUrl && !webUrl) return showToast("Web холбоосоо зөв оруулна уу");
+  if (homepageResultEditingId) {
+    const post = settings.results.posts.find(item => Number(item.id) === Number(homepageResultEditingId));
+    if (post) Object.assign(post, payload);
+  } else {
+    settings.results.posts.unshift({ id: nextId(settings.results.posts), ...payload });
+  }
+  saveState();
+  resetHomepageResultForm();
+  renderHomepageResults();
+  renderInfoHeader(activeView);
+  showToast(wasEditing ? "Үр дүн шинэчлэгдлээ" : "Үр дүн нэмэгдлээ");
+}
+
+function editHomepageResult(id) {
+  const post = homepageSettings().results.posts.find(item => Number(item.id) === Number(id));
+  if (!post) return;
+  homepageResultEditingId = Number(id);
+  const images = homepageResultImages(post);
+  document.getElementById("homepageResultTitle").value = post.title || "";
+  document.getElementById("homepageResultDuration").value = post.duration || "";
+  document.getElementById("homepageResultImageOne").value = images[0];
+  document.getElementById("homepageResultImageTwo").value = images[1];
+  document.getElementById("homepageResultDescription").value = post.description || "";
+  document.getElementById("homepageResultWebUrl").value = post.webUrl || "";
+  document.getElementById("homepageResultPublished").value = String(post.published !== false);
+  renderHomepageResultImageDraft();
+  syncNativeSelectProxy(document.getElementById("homepageResultPublished"));
+  document.getElementById("homepageResultSubmit").textContent = "Хадгалах";
+  document.getElementById("homepageResultCancel").classList.remove("hidden");
+  document.getElementById("homepageResultTitle").focus();
+}
+
 function databaseBackups() {
   return Array.isArray(serverDatabaseBackups) ? serverDatabaseBackups : [];
 }
@@ -9026,7 +9414,7 @@ function databaseCategoryStateKeys(category = "all") {
     services: ["customers", "services", "catalog", "diagnosisTypes"],
     kass: ["customers", "kassSchedules", "voucherLogs", "giftCards", "voucherRoles"],
     staff: ["staff", "assignments"],
-    settings: ["salons", "holidays", "scheduleSettings", "generalSettings", "pricePolicy", "discounts"]
+    settings: ["salons", "holidays", "scheduleSettings", "generalSettings", "homepageSettings", "pricePolicy", "discounts"]
   };
   return keys[category] || Object.keys(state).filter(key => !key.startsWith("paginationDemo"));
 }
@@ -10237,6 +10625,9 @@ function bindEvents() {
   document.querySelectorAll("[data-view-target]").forEach(item => {
     item.addEventListener("click", () => setView(item.dataset.viewTarget));
   });
+  document.querySelectorAll("[data-schedule-section]").forEach(button => {
+    button.addEventListener("click", () => setScheduleSection(button.dataset.scheduleSection));
+  });
 
   document.getElementById("serverLogoutBtn")?.addEventListener("click", async () => {
     try {
@@ -10269,8 +10660,40 @@ function bindEvents() {
   });
 
   document.getElementById("branchForm")?.addEventListener("submit", saveBranch);
+  document.getElementById("branchPageSettingsForm")?.addEventListener("submit", saveBranchPageSettings);
   document.getElementById("branchPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
+  document.getElementById("branchCoverUpload")?.addEventListener("change", async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      document.getElementById("branchCoverImage").value = await uploadBranchImage(file);
+      renderBranchMediaDraft();
+      showToast("Cover зураг нэмэгдлээ");
+    } catch (error) { showToast(error.message || "Зураг upload хийсэнгүй"); }
+    event.target.value = "";
+  });
+  document.getElementById("branchGalleryUpload")?.addEventListener("change", async event => {
+    const files = [...(event.target.files || [])];
+    if (!files.length) return;
+    try {
+      for (const file of files) branchGalleryDraft.push(await uploadBranchImage(file));
+      renderBranchMediaDraft();
+      showToast(`${files.length} slider зураг нэмэгдлээ`);
+    } catch (error) { showToast(error.message || "Зураг upload хийсэнгүй"); }
+    event.target.value = "";
+  });
+  document.getElementById("branchCoverPreview")?.addEventListener("click", event => {
+    if (!event.target.closest("[data-branch-cover-remove]")) return;
+    document.getElementById("branchCoverImage").value = "";
+    renderBranchMediaDraft();
+  });
+  document.getElementById("branchGalleryList")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-branch-gallery-remove]");
+    if (!button) return;
+    branchGalleryDraft.splice(Number(button.dataset.branchGalleryRemove), 1);
+    renderBranchMediaDraft();
   });
   document.getElementById("holidayForm")?.addEventListener("submit", saveHoliday);
   document.getElementById("hrStaffForm")?.addEventListener("submit", saveHumanResourceStaff);
@@ -10342,6 +10765,40 @@ function bindEvents() {
   document.getElementById("customerTypeForm")?.addEventListener("submit", saveCustomerType);
   document.getElementById("discountForm")?.addEventListener("submit", saveDiscount);
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);
+  document.querySelectorAll("[data-homepage-tab]").forEach(button => {
+    button.addEventListener("click", () => setHomepageSettingsTab(button.dataset.homepageTab));
+  });
+  document.getElementById("homepageCatalogForm")?.addEventListener("submit", saveHomepageCatalog);
+  document.getElementById("homepageCatalogCodeReset")?.addEventListener("click", resetHomepageCatalogCodeFields);
+  document.getElementById("homepageSalonForm")?.addEventListener("submit", saveHomepageSalons);
+  document.getElementById("homepageResultForm")?.addEventListener("submit", saveHomepageResult);
+  document.getElementById("homepageResultCancel")?.addEventListener("click", resetHomepageResultForm);
+  [["homepageResultImageOneUpload", "homepageResultImageOne"], ["homepageResultImageTwoUpload", "homepageResultImageTwo"]].forEach(([uploadId, valueId]) => {
+    document.getElementById(uploadId)?.addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        document.getElementById(valueId).value = await uploadBranchImage(file);
+        renderHomepageResultImageDraft();
+        showToast("Үр дүнгийн зураг нэмэгдлээ");
+      } catch (error) {
+        showToast(error.message || "Зураг upload хийсэнгүй");
+      }
+      event.target.value = "";
+    });
+  });
+  document.getElementById("homepageResultList")?.addEventListener("click", event => {
+    const editButton = event.target.closest("[data-homepage-result-edit]");
+    const deleteButton = event.target.closest("[data-homepage-result-delete]");
+    if (editButton) editHomepageResult(editButton.dataset.homepageResultEdit);
+    if (deleteButton) {
+      homepageSettings().results.posts = homepageSettings().results.posts.filter(item => Number(item.id) !== Number(deleteButton.dataset.homepageResultDelete));
+      saveState();
+      renderHomepageResults();
+      renderInfoHeader(activeView);
+      showToast("Үр дүн устлаа");
+    }
+  });
   document.getElementById("diagnosisCaptureMode")?.addEventListener("change", toggleDiagnosisCaptureSizeSetting);
   document.getElementById("diagnosisTypeForm")?.addEventListener("submit", saveDiagnosisType);
   document.querySelectorAll(".database-section-tab").forEach(button => {
