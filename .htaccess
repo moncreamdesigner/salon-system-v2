@@ -1,0 +1,12 @@
+Options -Indexes
+DirectoryIndex booking.html
+
+RewriteEngine On
+
+# /login/ хаягийг нэг стандарт /login хаяг руу оруулна.
+RewriteCond %{THE_REQUEST} \s/+login/[?\s] [NC]
+RewriteRule ^login/$ /login [R=302,L]
+
+# Одоогийн салон удирдлагын систем.
+RewriteRule ^login$ index.html [L]
+
