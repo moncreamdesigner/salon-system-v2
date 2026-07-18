@@ -9163,14 +9163,27 @@ async function importDatabaseFile(event) {
       ? databaseReplaceCategoryState(state, stateIncoming, category)
       : databaseMergeState(state, stateIncoming);
     persistImportedServiceSettings(incoming);
-    saveDatabaseBackups([{
-      id: Date.now() + 1,
-      createdAt: auditNowText(),
-      reason: "Импортын дараах автомат backup",
-      category: "all",
-      data: clearTransientState({ ...databaseCategoryData("all", nextState), _serviceSettings: incoming._serviceSettings || databaseCategoryData("all")._serviceSettings })
-    }, ...databaseBackups()]);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(nextState)));
+    if (!serverStorageReady) throw new Error("Server database-д нэвтэрсний дараа импорт хийнэ үү");
+    const nextServerData = {
+      ...clearTransientState(nextState),
+      _serviceSettings: incoming._serviceSettings || {
+        data: structuredClone(serviceSettingsData),
+        groups: structuredClone(productGroups)
+      }
+    };
+    const result = await serverApi("state.php", {
+      method: "PUT",
+      body: JSON.stringify({ revision: serverStorageRevision, data: nextServerData })
+    });
+    serverStorageRevision = Number(result.revision || serverStorageRevision);
+    state = nextState;
+    const localStateJson = JSON.stringify(clearTransientState(nextState));
+    try {
+      localStorage.setItem(STORAGE_KEY, localStateJson);
+    } catch (storageError) {
+      localStorage.removeItem(DATABASE_BACKUP_KEY);
+      localStorage.setItem(STORAGE_KEY, localStateJson);
+    }
     window.location.reload();
   } catch (error) {
     showToast(error?.message || "Файл уншихад алдаа гарлаа");
