@@ -101,8 +101,33 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_backups_created (created_at),
         CHECK (JSON_VALID(payload))
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_users (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(64) NOT NULL UNIQUE,
+        display_name VARCHAR(120) NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL,
+        salon_name VARCHAR(190) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        last_login_at DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_users_role_active (role, is_active),
+        INDEX idx_users_salon (salon_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
     $ready = true;
+}
+
+function session_user_from_row(array $row): array
+{
+    return [
+        'id' => (int)($row['id'] ?? 0),
+        'username' => (string)($row['username'] ?? ''),
+        'displayName' => (string)($row['display_name'] ?? $row['displayName'] ?? $row['username'] ?? ''),
+        'role' => (string)($row['role'] ?? 'salon'),
+        'salon' => (string)($row['salon_name'] ?? $row['salon'] ?? ''),
+    ];
 }
 
 function require_auth(): array
@@ -111,6 +136,27 @@ function require_auth(): array
     if (empty($_SESSION['khalgai_user'])) {
         json_response(['ok' => false, 'authenticated' => false, 'message' => 'Нэвтрэх шаардлагатай.'], 401);
     }
+    $sessionUser = $_SESSION['khalgai_user'];
+    $userId = (int)($sessionUser['id'] ?? 0);
+    if ($userId > 0) {
+        $statement = db()->prepare('SELECT id, username, display_name, role, salon_name, is_active FROM app_users WHERE id = ? LIMIT 1');
+        $statement->execute([$userId]);
+        $row = $statement->fetch();
+        if (!$row || !(bool)$row['is_active']) {
+            $_SESSION = [];
+            session_destroy();
+            json_response(['ok' => false, 'authenticated' => false, 'message' => 'Таны хэрэглэгчийн эрх идэвхгүй болсон байна.'], 401);
+        }
+        $_SESSION['khalgai_user'] = session_user_from_row($row);
+    }
     return $_SESSION['khalgai_user'];
 }
 
+function require_admin(): array
+{
+    $user = require_auth();
+    if (($user['role'] ?? '') !== 'admin') {
+        json_response(['ok' => false, 'message' => 'Энэ үйлдлийг зөвхөн админ хийх эрхтэй.'], 403);
+    }
+    return $user;
+}

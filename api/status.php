@@ -4,11 +4,11 @@ require __DIR__ . '/bootstrap.php';
 
 $config = private_config();
 start_secure_session();
+$user = empty($_SESSION['khalgai_user']) ? null : require_auth();
 json_response([
     'ok' => true,
     'configured' => true,
-    'authenticated' => !empty($_SESSION['khalgai_user']),
-    'user' => $_SESSION['khalgai_user'] ?? null,
+    'authenticated' => $user !== null,
+    'user' => $user,
     'database' => $config['db_name'] ?? '',
 ]);
-
