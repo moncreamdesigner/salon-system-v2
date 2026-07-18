@@ -82,7 +82,19 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
-    $data = validated_user_payload(request_payload(), true);
+    $payload = request_payload();
+    $migratingLegacy = !empty($payload['migrateLegacy']);
+    if ($migratingLegacy) {
+        if ((int)($currentUser['id'] ?? 0) !== 0) {
+            json_response(['ok' => false, 'message' => 'Үндсэн админ шинэ хэлбэрт аль хэдийн шилжсэн байна.'], 409);
+        }
+        $config = private_config();
+        $payload['username'] = (string)($config['app_user'] ?? $currentUser['username'] ?? 'admin');
+        $payload['role'] = 'admin';
+        $payload['salon'] = '';
+        $payload['active'] = true;
+    }
+    $data = validated_user_payload($payload, true);
     try {
         $statement = $pdo->prepare('INSERT INTO app_users (username, display_name, password_hash, role, salon_name, is_active) VALUES (?, ?, ?, ?, ?, ?)');
         $statement->execute([
@@ -97,7 +109,15 @@ if ($method === 'POST') {
         if ($error->getCode() === '23000') json_response(['ok' => false, 'message' => 'Энэ нэвтрэх нэр бүртгэлтэй байна.'], 409);
         json_response(['ok' => false, 'message' => 'Хэрэглэгч үүсгэж чадсангүй.'], 500);
     }
-    json_response(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
+    $newId = (int)$pdo->lastInsertId();
+    if ($migratingLegacy) {
+        $statement = $pdo->prepare('SELECT id, username, display_name, role, salon_name, is_active FROM app_users WHERE id = ? LIMIT 1');
+        $statement->execute([$newId]);
+        $newUser = $statement->fetch();
+        $_SESSION['khalgai_user'] = session_user_from_row($newUser ?: []);
+        json_response(['ok' => true, 'id' => $newId, 'user' => $_SESSION['khalgai_user']]);
+    }
+    json_response(['ok' => true, 'id' => $newId]);
 }
 
 if ($method === 'PUT') {
