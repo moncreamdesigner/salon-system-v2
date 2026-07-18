@@ -208,6 +208,7 @@ let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
 let systemUsers = [];
 let systemUserEditingId = null;
+let systemUserMigratingLegacy = false;
 let systemUsersLoaded = false;
 const retiredViews = new Set(["services", "payments", "reports", "catalog", "staff"]);
 let activeAccount = { id: 0, username: "", displayName: "Админ", role: "admin", salon: "" };
@@ -3816,11 +3817,15 @@ function populateSystemUserSalons(selected = "") {
 
 function resetSystemUserForm() {
   systemUserEditingId = null;
+  systemUserMigratingLegacy = false;
   const form = document.getElementById("systemUserForm");
   if (!form) return;
   form.reset();
   document.getElementById("systemUserRole").value = "manager";
   document.getElementById("systemUserActive").value = "true";
+  document.getElementById("systemUsername").readOnly = false;
+  document.getElementById("systemUserRole").disabled = false;
+  document.getElementById("systemUserActive").disabled = false;
   document.getElementById("systemUserPassword").required = true;
   document.getElementById("systemUserSubmit").textContent = "Хадгалах";
   document.getElementById("systemUserCancel").classList.add("hidden");
@@ -3854,7 +3859,7 @@ function renderSystemUsers() {
         <td><span class="user-status-label ${user.active ? "active" : "inactive"}">${user.active ? "Идэвхтэй" : "Идэвхгүй"}</span></td>
         <td>${formatSystemUserDate(user.lastLoginAt)}</td>
         <td><div class="user-access-actions">
-          <button class="secondary-btn" type="button" data-system-user-edit="${user.id}" ${legacy ? "disabled" : ""}>Засах</button>
+          <button class="secondary-btn" type="button" data-system-user-edit="${user.id}">Засах</button>
           <button class="${user.active ? "danger-btn" : "secondary-btn"}" type="button" data-system-user-toggle="${user.id}" ${legacy || editingSelf ? "disabled" : ""}>${user.active ? "Идэвхгүй" : "Идэвхжүүлэх"}</button>
         </div></td>
       </tr>`;
@@ -3887,15 +3892,19 @@ async function loadSystemUsers(force = false) {
 
 function editSystemUser(id) {
   const user = systemUsers.find(item => Number(item.id) === Number(id));
-  if (!user || user.legacy) return showToast("Үндсэн админаар дахин нэвтэрсний дараа засна");
-  systemUserEditingId = Number(user.id);
+  if (!user) return;
+  systemUserMigratingLegacy = Boolean(user.legacy);
+  systemUserEditingId = systemUserMigratingLegacy ? null : Number(user.id);
   document.getElementById("systemUserDisplayName").value = user.displayName || "";
   document.getElementById("systemUsername").value = user.username || "";
   document.getElementById("systemUserPassword").value = "";
-  document.getElementById("systemUserPassword").required = false;
+  document.getElementById("systemUserPassword").required = systemUserMigratingLegacy;
   document.getElementById("systemUserRole").value = user.role || "salon";
   populateSystemUserSalons(user.salon || "");
   document.getElementById("systemUserActive").value = user.active ? "true" : "false";
+  document.getElementById("systemUsername").readOnly = systemUserMigratingLegacy;
+  document.getElementById("systemUserRole").disabled = systemUserMigratingLegacy;
+  document.getElementById("systemUserActive").disabled = systemUserMigratingLegacy;
   document.getElementById("systemUserSubmit").textContent = "Шинэчлэх";
   document.getElementById("systemUserCancel").classList.remove("hidden");
   enhanceNativeSelects(["systemUserRole", "systemUserSalon", "systemUserActive"]);
@@ -3911,7 +3920,7 @@ async function saveSystemUser(event) {
   const role = formValue("systemUserRole");
   const salon = role === "salon" ? formValue("systemUserSalon") : "";
   const active = formValue("systemUserActive") === "true";
-  const wasEditing = Boolean(systemUserEditingId);
+  const wasEditing = Boolean(systemUserEditingId) || systemUserMigratingLegacy;
   if (!displayName || !username) return showToast("Нэр болон нэвтрэх нэрийг оруулна уу");
   if (!systemUserEditingId && password.length < 8) return showToast("Нууц үг хамгийн багадаа 8 тэмдэгт байна");
   if (systemUserEditingId && password && password.length < 8) return showToast("Нууц үг хамгийн багадаа 8 тэмдэгт байна");
@@ -3919,12 +3928,13 @@ async function saveSystemUser(event) {
   const button = document.getElementById("systemUserSubmit");
   button.disabled = true;
   try {
-    await serverApi("users.php", {
+    const result = await serverApi("users.php", {
       method: systemUserEditingId ? "PUT" : "POST",
-      body: JSON.stringify({ id: systemUserEditingId, displayName, username, password, role, salon, active })
+      body: JSON.stringify({ id: systemUserEditingId, displayName, username, password, role, salon, active, migrateLegacy: systemUserMigratingLegacy })
     });
+    if (systemUserMigratingLegacy && result.user) applyActiveAccount(result.user);
     state.audit.unshift({
-      title: systemUserEditingId ? "user_updated" : "user_created",
+      title: wasEditing ? "user_updated" : "user_created",
       meta: `${activeAccount.displayName || activeAccount.username} • ${displayName} • ${systemUserRoleLabel(role)}`
     });
     saveState();
