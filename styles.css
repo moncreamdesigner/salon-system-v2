@@ -4194,6 +4194,15 @@ tr:last-child td {
   overflow: hidden;
 }
 
+.database-shell.database-backup-open {
+  overflow: visible;
+}
+
+.database-shell.database-backup-open .database-backup-toolbar {
+  position: relative;
+  z-index: 5;
+}
+
 .database-shell .database-section-tabs {
   margin: 0;
   border: 0;

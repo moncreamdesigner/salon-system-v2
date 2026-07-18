@@ -9176,6 +9176,7 @@ function persistImportedServiceSettings(incoming = {}) {
 
 function setDatabaseTab(name = "import") {
   activeDatabaseTab = ["import", "backup", "cleanup"].includes(name) ? name : "import";
+  document.querySelector("#settingsDatabaseView .database-shell")?.classList.toggle("database-backup-open", activeDatabaseTab === "backup");
   document.querySelectorAll(".database-section-tab").forEach(button => {
     const active = button.dataset.databaseTab === activeDatabaseTab;
     button.classList.toggle("active", active);
