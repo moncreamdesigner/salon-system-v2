@@ -3822,7 +3822,6 @@ function resetSystemUserForm() {
   document.getElementById("systemUserRole").value = "manager";
   document.getElementById("systemUserActive").value = "true";
   document.getElementById("systemUserPassword").required = true;
-  document.getElementById("systemUserPasswordNote").textContent = "Шинэ хэрэглэгчид заавал оруулна.";
   document.getElementById("systemUserSubmit").textContent = "Хадгалах";
   document.getElementById("systemUserCancel").classList.add("hidden");
   populateSystemUserSalons();
@@ -3894,7 +3893,6 @@ function editSystemUser(id) {
   document.getElementById("systemUsername").value = user.username || "";
   document.getElementById("systemUserPassword").value = "";
   document.getElementById("systemUserPassword").required = false;
-  document.getElementById("systemUserPasswordNote").textContent = "Солихгүй бол хоосон үлдээнэ.";
   document.getElementById("systemUserRole").value = user.role || "salon";
   populateSystemUserSalons(user.salon || "");
   document.getElementById("systemUserActive").value = user.active ? "true" : "false";
