@@ -105,6 +105,30 @@ const defaultState = {
 
 let state = loadState();
 
+function normalizeCustomerNamesWithoutSurname(targetState = state) {
+  let changed = false;
+  const customers = Array.isArray(targetState?.customers) ? targetState.customers : [];
+  targetState.customers = customers.map(customer => {
+    const surname = String(customer?.surname || "").trim();
+    let name = String(customer?.name || "").trim();
+    if (surname) {
+      const escapedSurname = surname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const cleanedName = name.replace(new RegExp(`^${escapedSurname}(?:\\s+|$)`, "i"), "").trim();
+      if (cleanedName) name = cleanedName;
+    }
+    const next = { ...customer, name };
+    if (Object.prototype.hasOwnProperty.call(next, "surname")) {
+      delete next.surname;
+      changed = true;
+    }
+    if (name !== String(customer?.name || "").trim()) changed = true;
+    return next;
+  });
+  return changed;
+}
+
+normalizeCustomerNamesWithoutSurname();
+
 function resetPrototypeOperationalData() {
   if (Number(state.prototypeDataResetVersion || 0) >= PROTOTYPE_DATA_RESET_VERSION) return;
   [
@@ -491,6 +515,7 @@ function clearTransientState(source) {
   });
   (next.customerGroups || []).forEach(group => {
     delete group.editingName;
+    delete group.directoryExpanded;
   });
   return next;
 }
@@ -575,6 +600,7 @@ function applyServerData(data = {}) {
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
+  const customerNamesChanged = normalizeCustomerNamesWithoutSurname(state);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (storageError) {
@@ -595,6 +621,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
+  return customerNamesChanged;
 }
 
 async function saveServerStateNow() {
@@ -687,8 +714,9 @@ async function synchronizeServerState() {
   const localJson = stableJsonStringify(serverStateData());
   const remoteJson = stableJsonStringify(remote.data || {});
   if (localJson !== remoteJson) {
-    applyServerData(remote.data || {});
+    const customerNamesChanged = applyServerData(remote.data || {});
     serverStorageReady = true;
+    if (customerNamesChanged) await saveServerStateNow();
     return;
   }
   serverStorageReady = true;
@@ -3637,11 +3665,13 @@ function setView(name) {
     name = "bookings";
   }
   const previousView = activeView;
-  if (previousView === "profile" && name !== "profile") {
+  if (previousView !== name) {
     state.customers.forEach(customer => clearCustomerUiState(customer));
     state.customerGroups.forEach(group => {
       group.editingName = false;
+      group.directoryExpanded = false;
     });
+    resetIncomingViewState(name);
   }
   activeView = name;
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
@@ -3672,6 +3702,52 @@ function setView(name) {
   if (name === "profile") renderProfile();
   if (name !== "performance") renderInfoHeader(name);
   document.getElementById("sidebar").classList.remove("open");
+}
+
+function resetIncomingViewState(name) {
+  closeModal();
+  const resetValues = values => Object.entries(values).forEach(([id, value]) => {
+    const control = document.getElementById(id);
+    if (!control) return;
+    control.value = value;
+    if (control.tagName === "SELECT") syncNativeSelectProxy(control);
+  });
+
+  if (name === "customers") {
+    resetValues({ customerSearch: "", customerDistrictFilter: "all", customerKhorooFilter: "", customerTypeFilter: "all", customerWorkFilter: "all" });
+    customerSortMode = "date";
+    customerPage = 1;
+    state.selectedCustomerId = null;
+  }
+  if (name === "bookings") {
+    resetValues({ bookingSearch: "", bookingSalonFilter: "all", bookingDateFilter: "", bookingStatusFilter: "all" });
+    bookingPage = 1;
+  }
+  if (name === "kass") {
+    resetValues({ kassFromFilter: "", kassToFilter: "", kassSalonFilter: "all", kassStaffFilter: "all" });
+    kassPage = 1;
+    kassEditingId = null;
+  }
+  if (name === "vouchers") {
+    resetValues({ voucherDateFilter: "", voucherCustomerFilter: "", voucherPhoneFilter: "", voucherRoleFilter: "all" });
+    voucherPage = 1;
+  }
+  if (name === "giftCards") {
+    resetValues({ giftCardNumberFilter: "", giftCardStatusFilter: "all", giftCardFromFilter: "", giftCardToFilter: "" });
+    giftCardPage = 1;
+    giftCardEditingId = null;
+  }
+  if (name === "groups") {
+    resetValues({ groupDirectorySearch: "", groupDirectoryStatusFilter: "all" });
+  }
+  if (name === "audit") {
+    resetValues({ auditActionFilter: "all" });
+    auditPage = 1;
+  }
+  if (name === "settingsUsers") {
+    resetValues({ systemUserSearch: "", systemUserRoleFilter: "all", systemUserStatusFilter: "all" });
+    systemUserEditingId = null;
+  }
 }
 
 function initials(name) {
