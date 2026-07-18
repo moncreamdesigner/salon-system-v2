@@ -381,6 +381,27 @@ const serviceSettingsData = {
   }
 };
 
+const defaultServiceSettingsData = structuredClone(serviceSettingsData);
+
+function restoreCoreServiceSettingsIfMissing() {
+  let changed = false;
+  if (!Array.isArray(serviceSettingsData.single) || !serviceSettingsData.single.length) {
+    serviceSettingsData.single = structuredClone(defaultServiceSettingsData.single);
+    changed = true;
+  }
+  if (!Array.isArray(serviceSettingsData.course) || !serviceSettingsData.course.length) {
+    serviceSettingsData.course = structuredClone(defaultServiceSettingsData.course);
+    changed = true;
+  }
+  const productCount = Object.values(serviceSettingsData.products || {})
+    .reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0);
+  if (!productCount) {
+    serviceSettingsData.products = structuredClone(defaultServiceSettingsData.products);
+    changed = true;
+  }
+  if (changed) saveServiceSettings();
+}
+
 const SERVICE_SETTINGS_KEY = `${STORAGE_KEY}:service-settings`;
 
 function loadServiceSettings() {
@@ -9967,7 +9988,7 @@ function init() {
   removeRetiredViews();
   ensureHumanResourceShell();
   loadServiceSettings();
-  resetPrototypeProductCatalog();
+  restoreCoreServiceSettingsIfMissing();
   migrateSalonSchedules();
   refreshBookingTimeOptions();
   renderScheduleSettings();
