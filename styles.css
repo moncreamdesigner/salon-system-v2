@@ -1746,6 +1746,59 @@ button {
   }
 }
 
+.server-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(246, 249, 245, .96);
+  backdrop-filter: blur(5px);
+}
+
+.server-login-card {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 16px;
+  padding: 30px;
+  border: 1px solid var(--line, #d9e1d7);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 16px 44px rgba(31, 48, 32, .12);
+}
+
+.server-login-card img {
+  width: 150px;
+  max-height: 72px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.server-login-card h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.server-login-card p {
+  min-height: 20px;
+  margin: 0;
+  color: #738075;
+  font-size: 14px;
+}
+
+.server-login-card label {
+  display: grid;
+  gap: 7px;
+  color: #59655b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.server-login-card .primary-btn {
+  min-height: 46px;
+}
+
 .group-directory-panel .group-list-table-wrap {
   border: 0 !important;
   border-radius: 0;

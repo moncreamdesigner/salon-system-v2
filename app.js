@@ -8,8 +8,14 @@ const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
 const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
+const SERVER_API_BASE = "api";
 let bookingDropdownCloseBound = false;
 let nativeSelectCloseBound = false;
+let serverStorageReady = false;
+let serverStorageRevision = 0;
+let serverSaveTimer = null;
+let serverSaveInFlight = false;
+let serverSavePending = false;
 
 const defaultState = {
   salons: [
@@ -427,6 +433,7 @@ function saveServiceSettings() {
     data: serviceSettingsData,
     groups: productGroups
   }));
+  queueServerStateSave();
 }
 
 function resetPrototypeProductCatalog() {
@@ -510,6 +517,158 @@ function saveState() {
     if (!Object.prototype.hasOwnProperty.call(item, "createdAt")) item.createdAt = createdAt;
   });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+  queueServerStateSave();
+}
+
+function serverStateData() {
+  return {
+    ...clearTransientState(state),
+    _serviceSettings: {
+      data: structuredClone(serviceSettingsData),
+      groups: structuredClone(productGroups)
+    }
+  };
+}
+
+async function serverApi(path, options = {}) {
+  const response = await fetch(`${SERVER_API_BASE}/${path}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "KhalgaiSalon",
+      ...(options.headers || {})
+    }
+  });
+  const payload = await response.json().catch(() => ({ ok: false, message: "Server хариу буруу байна." }));
+  if (!response.ok) {
+    const error = new Error(payload.message || "Server холболт амжилтгүй.");
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function applyServerData(data = {}) {
+  const incoming = structuredClone(data || {});
+  const serviceSettings = incoming._serviceSettings;
+  delete incoming._serviceSettings;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState({ ...structuredClone(defaultState), ...incoming })));
+  if (serviceSettings) localStorage.setItem(SERVICE_SETTINGS_KEY, JSON.stringify(serviceSettings));
+}
+
+async function saveServerStateNow() {
+  if (!serverStorageReady) return;
+  if (serverSaveInFlight) {
+    serverSavePending = true;
+    return;
+  }
+  serverSaveInFlight = true;
+  try {
+    const result = await serverApi("state.php", {
+      method: "PUT",
+      body: JSON.stringify({ revision: serverStorageRevision, data: serverStateData() })
+    });
+    serverStorageRevision = Number(result.revision || serverStorageRevision);
+  } catch (error) {
+    console.error("Server save failed", error);
+    showToast("Server хадгалалт түр амжилтгүй боллоо");
+  } finally {
+    serverSaveInFlight = false;
+    if (serverSavePending) {
+      serverSavePending = false;
+      queueServerStateSave(100);
+    }
+  }
+}
+
+function queueServerStateSave(delay = 450) {
+  if (!serverStorageReady) return;
+  clearTimeout(serverSaveTimer);
+  serverSaveTimer = setTimeout(saveServerStateNow, delay);
+}
+
+function hideServerLogin() {
+  document.getElementById("serverLoginOverlay")?.remove();
+}
+
+function showServerLogin(message = "Системд нэвтэрнэ үү") {
+  let overlay = document.getElementById("serverLoginOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "serverLoginOverlay";
+    overlay.className = "server-login-overlay";
+    overlay.innerHTML = `
+      <form class="server-login-card" id="serverLoginForm" novalidate>
+        <img src="assets/khalgai-salon-logo.png" alt="Халгай салбар">
+        <h1>Системд нэвтрэх</h1>
+        <p id="serverLoginMessage"></p>
+        <label>Нэвтрэх нэр<input class="input" id="serverLoginUsername" autocomplete="username" required></label>
+        <label>Нууц үг<input class="input" id="serverLoginPassword" type="password" autocomplete="current-password" required></label>
+        <button class="primary-btn" type="submit">Нэвтрэх</button>
+      </form>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("#serverLoginForm")?.addEventListener("submit", async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector("button[type='submit']");
+      button.disabled = true;
+      try {
+        await serverApi("login.php", {
+          method: "POST",
+          body: JSON.stringify({
+            username: overlay.querySelector("#serverLoginUsername").value.trim(),
+            password: overlay.querySelector("#serverLoginPassword").value
+          })
+        });
+        hideServerLogin();
+        await synchronizeServerState();
+      } catch (error) {
+        overlay.querySelector("#serverLoginMessage").textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+  overlay.querySelector("#serverLoginMessage").textContent = message;
+}
+
+async function synchronizeServerState() {
+  const remote = await serverApi("state.php");
+  serverStorageRevision = Number(remote.revision || 0);
+  if (remote.empty) {
+    serverStorageReady = true;
+    await saveServerStateNow();
+    showToast("Одоогийн мэдээллийг server database-д хадгаллаа");
+    return;
+  }
+  const localJson = JSON.stringify(serverStateData());
+  const remoteJson = JSON.stringify(remote.data || {});
+  if (localJson !== remoteJson) {
+    applyServerData(remote.data || {});
+    window.location.reload();
+    return;
+  }
+  serverStorageReady = true;
+}
+
+async function initializeServerStorage() {
+  try {
+    const status = await serverApi("status.php");
+    if (!status.authenticated) {
+      showServerLogin("Server database-д нэвтэрч мэдээллээ ачаална уу");
+      return;
+    }
+    await synchronizeServerState();
+  } catch (error) {
+    if (error.status === 401) {
+      showServerLogin(error.message);
+      return;
+    }
+    console.error("Server storage unavailable", error);
+    showServerLogin(error.message || "Server database тохиргоо хийгдээгүй байна");
+  }
 }
 
 function auditNowText() {
@@ -10020,3 +10179,4 @@ function init() {
 }
 
 init();
+initializeServerStorage();
