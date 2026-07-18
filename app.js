@@ -2691,6 +2691,16 @@ function infoForView(name) {
     ]],
     profile: (() => {
       const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId)) || customers[0];
+      if (!customer) {
+        return ["ХЭРЭГЛЭГЧИЙН СТАТИСТИК", [
+          ["Нийт төлсөн", money(0)],
+          ["Дутуу төлбөр", money(0)],
+          ["Групп бонус", money(0)],
+          ["Нэг удаа", 0],
+          ["Курс", 0],
+          ["Касс", 0]
+        ]];
+      }
       const group = customerGroup(customer);
       const bonus = groupBonusInfo(group);
       const stats = profileServiceStats(customer);
