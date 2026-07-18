@@ -5,6 +5,8 @@ const moneyInputValue = value => Number(value || 0) > 0 ? formatNumber(value) : 
 
 const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
+const PROTOTYPE_DATA_RESET_VERSION = 1;
+const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
 let bookingDropdownCloseBound = false;
 let nativeSelectCloseBound = false;
@@ -15,77 +17,27 @@ const defaultState = {
     { id: 2, name: "Төв салбар", address: "Чингэлтэй дүүрэг, 3-р хороо, Peace mall худалдааны төвийн хойно.", phone: "89894373", active: true, bookings: 22, revenue: 2140000, staff: "6/8", status: "Ажилтан хэрэгтэй", slotCapacity: 6 },
     { id: 3, name: "Вип салбар", address: "Хан-Уул дүүрэг, Вип өрөөтэй салбар.", phone: "80024444", active: true, bookings: 8, revenue: 860000, staff: "5/5", status: "Вип өрөөтэй", slotCapacity: 4 }
   ],
-  customers: [
-    { id: 1, name: "Бат Хулан", phone: "99137481", type: "Хэрэглэгч", bonus: "5%", activeCourse: true, course: "Курс 3/8", unpaid: true, spent: 8400000, balance: 128000, last: "2026-07-10", age: 34, gender: "Эмэгтэй", district: "Хан-Уул", khoroo: "2-р хороо", registeredAt: "2026-07-10" },
-    { id: 2, name: "Энх Номин", phone: "88112233", type: "Тусгай хэрэглэгч", bonus: "10%", activeCourse: true, course: "Курс 6/8", unpaid: false, spent: 12600000, balance: 420000, last: "2026-07-08", age: 41, gender: "Эмэгтэй", district: "Чингэлтэй", khoroo: "3-р хороо", registeredAt: "2026-07-08" },
-    { id: 3, name: "Болор", phone: "99001122", type: "Ажилтан", bonus: "-", activeCourse: false, course: "", unpaid: true, spent: 2200000, balance: 0, last: "2026-06-29", age: 29, gender: "Эмэгтэй", district: "Баянгол", khoroo: "6-р хороо", registeredAt: "2026-06-29" },
-    { id: 4, name: "Мөнхзул", phone: "80808080", type: "Хэрэглэгч", bonus: "2%", activeCourse: false, course: "", unpaid: false, spent: 680000, balance: 13600, last: "2026-07-01", age: 27, gender: "Эмэгтэй", district: "Хан-Уул", khoroo: "15-р хороо", registeredAt: "2026-07-01" },
-    { id: 5, name: "Сарангэрэл", phone: "99110022", type: "Тусгай хэрэглэгч", bonus: "8%", activeCourse: false, course: "", unpaid: false, spent: 6200000, balance: 210000, last: "2026-06-18", age: 45, gender: "Эмэгтэй", district: "Хан-Уул", khoroo: "11-р хороо", registeredAt: "2026-06-18" },
-    { id: 6, name: "Алтанцэцэг", phone: "88004455", type: "Хэрэглэгч", bonus: "3%", activeCourse: false, course: "", unpaid: true, spent: 1450000, balance: 29000, last: "2026-07-12", age: 38, gender: "Эмэгтэй", district: "Сүхбаатар", khoroo: "8-р хороо", registeredAt: "2026-07-12", currentTreatment: { id: "tr-6", service: "Тэжээлийн эмчилгээ", salon: "Хан-Уул салбар", stage: "Төлбөр дутуу", progress: "Нэг удаа", staff: "Ариундулам", paymentBalance: 45000, startedAt: "2026-07-12" } }
-  ],
-  customerGroups: [
-    { id: 1, name: "99137481", adminCustomerId: 1, spent2y: 8400000, bonusPool: 420000, usedBonus: 292000, members: [1, 4] },
-    { id: 2, name: "88112233", adminCustomerId: 2, spent2y: 12600000, bonusPool: 1260000, usedBonus: 840000, members: [2, 5] }
-  ],
-  catalog: [
-    { id: 1, code: "SRV-001", name: "Үүргийн хурс эмчилгээ", type: "course", price: 81250, salons: "Бүх салбар", rules: "QR, зураг" },
-    { id: 2, code: "SRV-002", name: "Арьс оношилгоо", type: "service", price: 45000, salons: "Бүх салбар", rules: "Зураг шаардлагатай" },
-    { id: 3, code: "PRD-101", name: "Арчилгааны бүтээгдэхүүн", type: "product", price: 65000, salons: "Сонгосон", rules: "Бүтээгдэхүүн" },
-    { id: 4, code: "Вип-001", name: "Вип арчилгаа", type: "service", price: 120000, salons: "Вип салбар", rules: "Вип зөвшөөрсөн" }
-  ],
+  customers: [],
+  customerGroups: [],
+  catalog: [],
   staff: [
     { id: 1, name: "Хулан", salon: "Хан-Уул салбар", vip: true, commission: "10%", status: "active" },
     { id: 2, name: "Болор", salon: "Төв салбар", vip: false, commission: "8%", status: "active" },
     { id: 3, name: "Номин", salon: "Вип салбар", vip: true, commission: "12%", status: "active" },
     { id: 4, name: "Солонго", salon: "Хан-Уул салбар", vip: false, commission: "9%", status: "active" }
   ],
-  bookings: [
-    { id: 1, salon: "Хан-Уул салбар", date: "2026-07-11", time: "10:00", phone: "99137481", source: "admin", status: "confirmed" },
-    { id: 2, salon: "Төв салбар", date: "2026-07-11", time: "10:30", phone: "88776655", source: "site", status: "pending" },
-    { id: 3, salon: "Вип салбар", date: "2026-07-11", time: "11:00", phone: "99001122", source: "admin", status: "confirmed" },
-    { id: 4, salon: "Төв салбар", date: "2026-07-12", time: "12:00", phone: "80808080", source: "site", status: "pending" }
-  ],
-  holidays: [
-    { id: 1, salon: "Хан-Уул салбар", date: "2026-07-13", name: "Дотоод сургалт", note: "Бүтэн өдөр хаалттай" },
-    { id: 2, salon: "Вип салбар", date: "2026-07-15", name: "Засвар үйлчилгээ", note: "Оношилгооны өрөө засвартай" }
-  ],
-  assignments: [
-    { staff: "Хулан", from: "Хан-Уул салбар", to: "Төв салбар", date: "2026-07-11", time: "12:00-18:00" },
-    { staff: "Номин", from: "Вип салбар", to: "Төв салбар", date: "2026-07-12", time: "10:00-14:00" }
-  ],
-  kassSchedules: [
-    { id: 1, date: "2026-07-12", salon: "Хан-Уул салбар", staff: "Ариундулам", createdAt: "2026-07-12" },
-    { id: 2, date: "2026-07-11", salon: "Төв салбар", staff: "Оюундарь", createdAt: "2026-07-11" },
-    { id: 3, date: "2026-07-10", salon: "Хан-Уул салбар", staff: "Урантогос", createdAt: "2026-07-10" },
-    { id: 4, date: "2026-07-09", salon: "Вип салбар", staff: "Энхзул", createdAt: "2026-07-09" }
-  ],
-  services: [
-    { customer: "Бат Хулан", service: "Үүргийн хурс эмчилгээ", staff: "Хулан", total: 96250, salon: "Хан-Уул салбар" },
-    { customer: "Энх Номин", service: "Арьс оношилгоо", staff: "Номин", total: 80000, salon: "Вип салбар" }
-  ],
-  audit: [
-    { title: "staff_assigned", meta: "Менежер • Хулан ажилтныг Төв салбар руу 12:00-18:00 томилсон" },
-    { title: "payment_created", meta: "Reception • Бат Хулан • 96,250₮" },
-    { title: "customer_updated", meta: "Менежер • Утасны мэдээлэл зассан" },
-    { title: "excel_exported", meta: "Super Admin • Staff performance report татсан" }
-  ],
-  voucherRoles: [
-    { id: 1, name: "Г.Иш", position: "Маркетинг менежер" },
-    { id: 2, name: "Д.Уранчимэг", position: "Дэд захирал" },
-    { id: 3, name: "Э.Уранчимэг", position: "Үүсгэн байгуулагч" }
-  ],
-  voucherLogs: [
-    { id: 1, date: "2026-07-09", time: "19:07", customer: "Эрхэмбаяр", phone: "88109040", roleName: "Д.Уранчимэг", rolePosition: "Дэд захирал", amount: 100000, note: "Дизайн менежер" },
-    { id: 2, date: "2026-07-08", time: "19:18", customer: "Уранчимэг", phone: "83076666", roleName: "Э.Уранчимэг", rolePosition: "Үүсгэн байгуулагч", amount: 26730, note: "Ажилчдын хөнгөлөлт 10%" },
-    { id: 3, date: "2026-07-07", time: "16:42", customer: "Номин", phone: "99112233", roleName: "Г.Иш", rolePosition: "Маркетинг менежер", amount: 50000, note: "Урамшууллын эрх" }
-  ],
-  giftCards: [
-    { id: 1, cardNumber: "GC-0001234", status: "new", amount: 150000, remainingAmount: 150000, createdAt: "2026-07-09", expiryDate: "2026-12-31", usage: [] },
-    { id: 2, cardNumber: "GC-0001235", status: "new", amount: 100000, remainingAmount: 40000, createdAt: "2026-07-08", expiryDate: "2026-12-31", usage: [{ date: "2026-07-10", time: "15:20", customer: "Бат Хулан", phone: "99137481", service: "Үүргийн эмчилгээ", amount: 60000 }] },
-    { id: 3, cardNumber: "GC-0001236", status: "used", amount: 50000, remainingAmount: 0, createdAt: "2026-07-07", expiryDate: "", usage: [{ date: "2026-07-11", time: "12:10", customer: "Энх Номин", phone: "88112233", service: "Тэжээлийн эмчилгээ", amount: 50000 }] },
-    { id: 4, cardNumber: "GC-0001237", status: "inactive", amount: 75000, remainingAmount: 75000, createdAt: "2026-07-06", expiryDate: "2026-11-30", usage: [] }
-  ],
-  selectedCustomerId: 1,
+  bookings: [],
+  holidays: [],
+  assignments: [],
+  kassSchedules: [],
+  services: [],
+  audit: [],
+  voucherRoles: [],
+  voucherLogs: [],
+  giftCards: [],
+  selectedCustomerId: null,
+  databaseOperationalDataCleared: true,
+  prototypeDataResetVersion: PROTOTYPE_DATA_RESET_VERSION,
   scheduleSettings: {
     workStart: "09:00",
     workEnd: "19:00",
@@ -147,12 +99,30 @@ const defaultState = {
 };
 
 let state = loadState();
+
+function resetPrototypeOperationalData() {
+  if (Number(state.prototypeDataResetVersion || 0) >= PROTOTYPE_DATA_RESET_VERSION) return;
+  [
+    "customers", "customerGroups", "catalog", "bookings", "holidays", "assignments",
+    "kassSchedules", "services", "audit", "voucherRoles", "voucherLogs", "giftCards", "discounts"
+  ].forEach(key => {
+    state[key] = [];
+  });
+  state.selectedCustomerId = null;
+  state.permanentlyDeletedCustomerIds = [];
+  state.databaseOperationalDataCleared = true;
+  state.prototypeDataResetVersion = PROTOTYPE_DATA_RESET_VERSION;
+  localStorage.removeItem(DATABASE_BACKUP_KEY);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+}
+
+resetPrototypeOperationalData();
 state.audit = (Array.isArray(state.audit) ? state.audit : []).map(item =>
   Object.prototype.hasOwnProperty.call(item, "createdAt") ? item : { ...item, createdAt: "" }
 );
 state.bookings = state.bookings.filter(booking => booking.status !== "cancelled");
 state.holidays = Array.isArray(state.holidays) ? state.holidays : [];
-state.kassSchedules = Array.isArray(state.kassSchedules) ? state.kassSchedules : [...defaultState.kassSchedules];
+state.kassSchedules = Array.isArray(state.kassSchedules) ? state.kassSchedules : [];
 state.customerTypes = Array.isArray(state.customerTypes) && state.customerTypes.length ? state.customerTypes : [...defaultState.customerTypes];
 state.customerTypes = state.customerTypes.map(type => type === "Шинэ хэрэглэгч" ? "Хэрэглэгч" : type);
 if (!state.customerTypes.includes("Хэрэглэгч")) state.customerTypes.unshift("Хэрэглэгч");
@@ -160,9 +130,7 @@ state.customers = state.customers.map(customer => ({
   ...customer,
   type: customer.type === "Шинэ хэрэглэгч" ? "Хэрэглэгч" : customer.type
 }));
-state.customerGroups = Array.isArray(state.customerGroups) && state.customerGroups.length
-  ? state.customerGroups
-  : structuredClone(defaultState.customerGroups);
+state.customerGroups = Array.isArray(state.customerGroups) ? state.customerGroups : [];
 ensureCustomerWorkflowData();
 ensureCustomerAgeData();
 state.customerTypeRules = {
@@ -186,22 +154,14 @@ state.pricePolicy = {
 };
 state.discounts = Array.isArray(state.discounts) ? state.discounts : [];
 state.voucherRoles = Array.isArray(state.voucherRoles) ? state.voucherRoles : [];
-state.voucherLogs = Array.isArray(state.voucherLogs) ? state.voucherLogs : [...defaultState.voucherLogs];
-state.giftCards = Array.isArray(state.giftCards) ? state.giftCards : [...defaultState.giftCards];
-if (!state.voucherRolesRestoredV1) {
-  defaultState.voucherRoles.forEach(role => {
-    const exists = state.voucherRoles.some(item => item.name === role.name || Number(item.id) === Number(role.id));
-    if (!exists) state.voucherRoles.push({ ...role });
-  });
-  state.voucherRolesRestoredV1 = true;
-}
+state.voucherLogs = Array.isArray(state.voucherLogs) ? state.voucherLogs : [];
+state.giftCards = Array.isArray(state.giftCards) ? state.giftCards : [];
 state.generalSettings = {
   ...structuredClone(defaultState.generalSettings),
   ...(state.generalSettings || {})
 };
 state.diagnosisTypes = Array.isArray(state.diagnosisTypes) && state.diagnosisTypes.length ? state.diagnosisTypes : [...defaultState.diagnosisTypes];
 normalizeStoredNames();
-ensureExpiredServiceDemoData();
 const humanResourceSeed = [
   { id: 1, name: "Ариундулам", phone: "88093590", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
   { id: 2, name: "Бадамханд", phone: "99286879", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
@@ -246,37 +206,26 @@ const activeAccount = { role: "admin", salon: "Хан-Уул салбар" };
 
 const dashboardDemoData = {
   months: [
-    { key: "2026-02", label: "2026 оны 2 сар", short: "2 сар", revenue: 112800000, payments: 1846, visits: 1572, products: 28600000, newCustomers: 118, outstanding: 7400000, completion: 89, occupancy: 67 },
-    { key: "2026-03", label: "2026 оны 3 сар", short: "3 сар", revenue: 126400000, payments: 2032, visits: 1718, products: 31400000, newCustomers: 136, outstanding: 6900000, completion: 91, occupancy: 71 },
-    { key: "2026-04", label: "2026 оны 4 сар", short: "4 сар", revenue: 119700000, payments: 1944, visits: 1640, products: 29800000, newCustomers: 121, outstanding: 8100000, completion: 88, occupancy: 69 },
-    { key: "2026-05", label: "2026 оны 5 сар", short: "5 сар", revenue: 138900000, payments: 2218, visits: 1886, products: 35200000, newCustomers: 154, outstanding: 7600000, completion: 92, occupancy: 76 },
-    { key: "2026-06", label: "2026 оны 6 сар", short: "6 сар", revenue: 147600000, payments: 2341, visits: 1997, products: 38100000, newCustomers: 167, outstanding: 7200000, completion: 93, occupancy: 79 },
-    { key: "2026-07", label: "2026 оны 7 сар", short: "7 сар", revenue: 156840000, payments: 2476, visits: 2114, products: 42600000, newCustomers: 183, outstanding: 6750000, completion: 94, occupancy: 82 }
+    { key: "2026-07", label: "2026 оны 7 сар", short: "7 сар", revenue: 0, payments: 0, visits: 0, products: 0, newCustomers: 0, outstanding: 0, completion: 0, occupancy: 0 }
   ],
   branches: [
-    { name: "Хан-Уул салбар", share: .41, completionDelta: 1, occupancyDelta: 3 },
-    { name: "Төв салбар", share: .36, completionDelta: -1, occupancyDelta: 0 },
-    { name: "Вип салбар", share: .23, completionDelta: 2, occupancyDelta: -4 }
+    { name: "Хан-Уул салбар", share: 0, completionDelta: 0, occupancyDelta: 0 },
+    { name: "Төв салбар", share: 0, completionDelta: 0, occupancyDelta: 0 },
+    { name: "Вип салбар", share: 0, completionDelta: 0, occupancyDelta: 0 }
   ],
   services: [
-    { name: "Курс эмчилгээ", share: 38, color: "#60bf63" },
-    { name: "Нэг удаагийн үйлчилгээ", share: 27, color: "#91cf86" },
-    { name: "Касс бүтээгдэхүүн", share: 21, color: "#bfdcae" },
-    { name: "Оношилгоо", share: 14, color: "#dfe9d7" }
+    { name: "Курс эмчилгээ", share: 0, color: "#60bf63" },
+    { name: "Нэг удаагийн үйлчилгээ", share: 0, color: "#91cf86" },
+    { name: "Касс бүтээгдэхүүн", share: 0, color: "#bfdcae" },
+    { name: "Оношилгоо", share: 0, color: "#dfe9d7" }
   ],
   payments: [
-    { name: "Карт", share: 46, color: "#60bf63" },
-    { name: "QPay", share: 29, color: "#87c77e" },
-    { name: "Бэлэн", share: 17, color: "#b7d9aa" },
-    { name: "Ваучер / карт", share: 8, color: "#dfe9d7" }
+    { name: "Карт", share: 0, color: "#60bf63" },
+    { name: "QPay", share: 0, color: "#87c77e" },
+    { name: "Бэлэн", share: 0, color: "#b7d9aa" },
+    { name: "Ваучер / карт", share: 0, color: "#dfe9d7" }
   ],
-  topServices: [
-    ["Үс ургуулах курс эмчилгээ", 342, 28400000],
-    ["Халгай Nano багц", 298, 22600000],
-    ["Хуйх, үсний оношилгоо", 276, 13800000],
-    ["Үс уналтын нэг удаагийн эмчилгээ", 244, 17600000],
-    ["Халгай шампунь 550", 219, 11800000]
-  ]
+  topServices: []
 };
 let activeServiceMainTab = "single";
 let activeProductGroup = "gift";
@@ -458,6 +407,16 @@ function saveServiceSettings() {
     data: serviceSettingsData,
     groups: productGroups
   }));
+}
+
+function resetPrototypeProductCatalog() {
+  if (localStorage.getItem(PROTOTYPE_SERVICE_RESET_KEY) === "1") return;
+  Object.keys(serviceSettingsData.products || {}).forEach(key => {
+    serviceSettingsData.products[key] = [];
+  });
+  refreshProductGroupCounts();
+  saveServiceSettings();
+  localStorage.setItem(PROTOTYPE_SERVICE_RESET_KEY, "1");
 }
 
 const productGroups = [
@@ -1878,29 +1837,7 @@ function kassRevenueSourceRows() {
       });
     });
   });
-  if (rows.length) return rows;
-
-  const demoCustomers = state.customers.filter(customer => !customer.deleted && !customer.deletedAt).slice(0, 8);
-  const demoSalons = state.salons.map(salon => salon.name).filter(Boolean);
-  const services = ["Үс ургуулах курс эмчилгээ", "Гүн цэвэрлэгээ", "Халгай Nano шампунь", "Толгойн бариа", "Хуйхны оношилгоо", "Бүтээгдэхүүний багц"];
-  const methods = ["card", "cash", "qpay", "transfer"];
-  const amounts = [72000, 58500, 13500, 45000, 96000, 132000, 28000, 64000, 85000, 39500, 118000, 52000];
-  return amounts.map((amount, index) => {
-    const customer = demoCustomers[index % Math.max(demoCustomers.length, 1)] || {};
-    const date = new Date(`${todayText()}T00:00:00`);
-    date.setDate(date.getDate() - (index % 12));
-    return {
-      id: `demo-revenue-${index}`,
-      date: localDateText(date),
-      time: `${String(19 - (index % 9)).padStart(2, "0")}:${index % 2 ? "18" : "50"}`,
-      customer: customer.name || `Хэрэглэгч ${index + 1}`,
-      phone: customer.phone || `9900${String(index + 1).padStart(4, "0")}`,
-      service: services[index % services.length],
-      salon: demoSalons[index % Math.max(demoSalons.length, 1)] || "Хан-Уул салбар",
-      method: methods[index % methods.length],
-      amount
-    };
-  });
+  return rows;
 }
 
 function initializeKassRevenueFilters() {
@@ -2927,18 +2864,35 @@ function dashboardDonutMarkup(items, total, valueKey = "share") {
 }
 
 function dashboardCustomerDemographics() {
+  const customers = state.customers.filter(item => !item.deleted && !item.deletedAt);
+  const total = customers.length;
+  const count = predicate => customers.filter(predicate).length;
+  const demographicItem = (name, value, color) => ({
+    name,
+    value,
+    share: total ? Math.round(value / total * 100) : 0,
+    color
+  });
+  const ageValue = customer => Number(customerAge(customer) || customer.age || 0);
+  const districtCounts = customers.reduce((result, customer) => {
+    const name = customer.district || "Мэдээлэлгүй";
+    result[name] = (result[name] || 0) + 1;
+    return result;
+  }, {});
   return {
     genders: [
-      { name: "Эмэгтэй", value: 1512, share: 82, color: "#60bf63" },
-      { name: "Эрэгтэй", value: 276, share: 15, color: "#9bcf91" },
-      { name: "Мэдээлэлгүй", value: 54, share: 3, color: "#dfe9d7" }
+      demographicItem("Эмэгтэй", count(item => item.gender === "Эмэгтэй"), "#60bf63"),
+      demographicItem("Эрэгтэй", count(item => item.gender === "Эрэгтэй"), "#9bcf91"),
+      demographicItem("Мэдээлэлгүй", count(item => !item.gender), "#dfe9d7")
     ],
     ages: [
-      { name: "18–24", value: 148 }, { name: "25–34", value: 492 }, { name: "35–44", value: 618 }, { name: "45–54", value: 394 }, { name: "55+", value: 190 }
+      { name: "18–24", value: count(item => ageValue(item) >= 18 && ageValue(item) <= 24) },
+      { name: "25–34", value: count(item => ageValue(item) >= 25 && ageValue(item) <= 34) },
+      { name: "35–44", value: count(item => ageValue(item) >= 35 && ageValue(item) <= 44) },
+      { name: "45–54", value: count(item => ageValue(item) >= 45 && ageValue(item) <= 54) },
+      { name: "55+", value: count(item => ageValue(item) >= 55) }
     ],
-    districts: [
-      { name: "Хан-Уул", value: 612 }, { name: "Баянгол", value: 388 }, { name: "Чингэлтэй", value: 326 }, { name: "Баянзүрх", value: 284 }, { name: "Сүхбаатар", value: 162 }, { name: "Бусад", value: 70 }
-    ]
+    districts: Object.entries(districtCounts).map(([name, value]) => ({ name, value }))
   };
 }
 
@@ -2950,7 +2904,7 @@ function dashboardStaffRows(month, salon) {
   return source.map((item, index) => {
     const rate = Math.max(.035, .105 - index * .009);
     const revenue = Math.round(snapshot.revenue * rate);
-    const visits = Math.max(12, Math.round(snapshot.visits * rate * 1.55));
+    const visits = Math.max(0, Math.round(snapshot.visits * rate * 1.55));
     const serviceReward = Math.round(revenue * .1);
     const kassReward = index % 3 === 0 ? Math.round(snapshot.products * rate * .02) : 0;
     return { name: item.name, homeSalon: item.salon || salon || "Үндсэн салбар", workedSalon: salon || item.salon || "Олон салбар", revenue, visits, serviceReward, kassReward, totalReward: serviceReward + kassReward };
@@ -2984,24 +2938,26 @@ function dashboardSelectedViewMode() {
 
 function dashboardOperationsHtml(month, salon, snapshot) {
   const scope = salon || "Нийт салбар";
-  const factor = salon ? dashboardBranch(salon).share : 1;
-  const bookings = Math.max(12, Math.round(96 * factor));
+  const today = todayText();
+  const todayBookings = state.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
+  const bookings = todayBookings.length;
+  const statusCount = status => todayBookings.filter(item => item.status === status).length;
   const bookingStatus = [
-    { name: "Баталгаажсан", value: Math.round(bookings * .66), share: 66, color: "#60bf63" },
-    { name: "Хүлээгдэж буй", value: Math.round(bookings * .17), share: 17, color: "#9bcf91" },
-    { name: "Ирсэнгүй", value: Math.round(bookings * .08), share: 8, color: "#e5b65d" },
-    { name: "Цуцалсан", value: Math.round(bookings * .09), share: 9, color: "#e38a8a" }
+    { name: "Баталгаажсан", value: statusCount("confirmed"), share: bookings ? Math.round(statusCount("confirmed") / bookings * 100) : 0, color: "#60bf63" },
+    { name: "Хүлээгдэж буй", value: statusCount("pending"), share: bookings ? Math.round(statusCount("pending") / bookings * 100) : 0, color: "#9bcf91" },
+    { name: "Ирсэнгүй", value: statusCount("missed"), share: bookings ? Math.round(statusCount("missed") / bookings * 100) : 0, color: "#e5b65d" },
+    { name: "Цуцалсан", value: statusCount("cancelled"), share: bookings ? Math.round(statusCount("cancelled") / bookings * 100) : 0, color: "#e38a8a" }
   ];
-  const slots = [
-    { name: "09:00", value: 42 }, { name: "11:00", value: 68 }, { name: "13:00", value: 54 },
-    { name: "15:00", value: 91 }, { name: "17:00", value: 84 }, { name: "19:00", value: 63 }
-  ];
+  const slots = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00"].map(name => ({ name, value: todayBookings.filter(item => item.time?.startsWith(name.slice(0, 2))).length }));
+  const activeTreatments = state.customers.filter(customer => customer.currentTreatment && (!salon || (customer.currentTreatment.salon || customer.salon) === salon)).length;
+  const workingStaff = state.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
+  const activeAssignments = state.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
   const staff = dashboardStaffRows(month, salon).slice(0, 6).map(item => ({ ...item, load: Math.min(98, Math.round(item.visits / Math.max(snapshot.visits, 1) * 720)) }));
   return `
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
       <article class="dashboard-kpi"><span>Өнөөдрийн захиалга</span><strong>${bookings}</strong><small>${bookingStatus[1].value} хүлээгдэж буй</small></article>
-      <article class="dashboard-kpi"><span>Одоо үйлчлүүлж байгаа</span><strong>${Math.max(4, Math.round(18 * factor))}</strong><small>Нийт салон, өрөөнд</small></article>
-      <article class="dashboard-kpi"><span>Ажиллаж байгаа ажилтан</span><strong>${Math.max(5, Math.round(24 * factor))}</strong><small>${Math.max(1, Math.round(3 * factor))} түр томилгоотой</small></article>
+      <article class="dashboard-kpi"><span>Одоо үйлчлүүлж байгаа</span><strong>${activeTreatments}</strong><small>Нийт салон, өрөөнд</small></article>
+      <article class="dashboard-kpi"><span>Ажиллаж байгаа ажилтан</span><strong>${workingStaff}</strong><small>${activeAssignments} түр томилгоотой</small></article>
       <article class="dashboard-kpi"><span>Өнөөдрийн орлого</span><strong>${money(Math.round(snapshot.revenue / 26))}</strong><small>${scope}</small></article>
       <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(Math.round(snapshot.outstanding / 5))}</strong><small>Өнөөдөр үүссэн</small></article>
       <article class="dashboard-kpi"><span>Цагийн дүүргэлт</span><strong>${snapshot.occupancy}%</strong><small>Оргил цаг 15:00–18:00</small></article>
@@ -3018,11 +2974,11 @@ function dashboardOperationsHtml(month, salon, snapshot) {
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Анхаарах ажил</h3><p>Өнөөдөр шийдвэрлэх зүйлс</p></div></div>
         <div class="dashboard-action-list">
-          <div><i class="warning"></i><span>Баталгаажаагүй үйлчилгээ</span><strong>${Math.max(2, Math.round(7 * factor))}</strong></div>
-          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${Math.max(3, Math.round(11 * factor))}</strong></div>
-          <div><i></i><span>Дуусах дөхсөн курс</span><strong>${Math.max(4, Math.round(16 * factor))}</strong></div>
-          <div><i class="warning"></i><span>Барааны үлдэгдэл бага</span><strong>${Math.max(2, Math.round(6 * factor))}</strong></div>
-          <div><i></i><span>Кассын хаалт хүлээгдэж буй</span><strong>${Math.max(1, Math.round(2 * factor))}</strong></div>
+          <div><i class="warning"></i><span>Баталгаажаагүй үйлчилгээ</span><strong>0</strong></div>
+          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${state.customers.filter(item => item.unpaid).length}</strong></div>
+          <div><i></i><span>Дуусах дөхсөн курс</span><strong>0</strong></div>
+          <div><i class="warning"></i><span>Барааны үлдэгдэл бага</span><strong>0</strong></div>
+          <div><i></i><span>Кассын хаалт хүлээгдэж буй</span><strong>0</strong></div>
         </div>
       </section>
     </div>
@@ -3089,24 +3045,31 @@ function dashboardCashflowHtml(month, salon, snapshot) {
 
 function dashboardSystemHtml(month, salon) {
   const scope = salon || "Нийт систем";
-  const factor = salon ? dashboardBranch(salon).share : 1;
-  const actions = [
-    { name: "Даваа", value: Math.round(324 * factor) }, { name: "Мягмар", value: Math.round(398 * factor) },
-    { name: "Лхагва", value: Math.round(442 * factor) }, { name: "Пүрэв", value: Math.round(376 * factor) },
-    { name: "Баасан", value: Math.round(468 * factor) }, { name: "Бямба", value: Math.round(512 * factor) }, { name: "Ням", value: Math.round(284 * factor) }
-  ];
+  const actions = ["Даваа", "Мягмар", "Лхагва", "Пүрэв", "Баасан", "Бямба", "Ням"].map(name => ({ name, value: 0 }));
+  const activeCustomers = state.customers.filter(item => !item.deleted && !item.deletedAt);
+  const deletedCustomers = state.customers.filter(item => item.deleted || item.deletedAt).length;
+  const phoneCounts = activeCustomers.reduce((result, item) => {
+    if (item.phone) result[item.phone] = (result[item.phone] || 0) + 1;
+    return result;
+  }, {});
+  const duplicatePhones = Object.values(phoneCounts).filter(value => value > 1).length;
+  const todayActions = state.audit.filter(item => String(item.createdAt || "").startsWith(todayText())).length;
+  const backupCount = databaseBackups().length;
   const dataSizes = [
-    { name: "Оношилгооны зураг", value: 6840 }, { name: "Үйлчилгээний түүх", value: 3280 },
-    { name: "Хэрэглэгч ба групп", value: 1842 }, { name: "Төлбөр, касс", value: 1260 }, { name: "Цаг захиалга", value: 940 }
+    { name: "Оношилгооны зураг", value: 0 },
+    { name: "Үйлчилгээний түүх", value: activeCustomers.reduce((sum, item) => sum + (item.serviceHistory || []).length, 0) },
+    { name: "Хэрэглэгч ба групп", value: activeCustomers.length + state.customerGroups.length },
+    { name: "Төлбөр, касс", value: kassRevenueSourceRows().length },
+    { name: "Цаг захиалга", value: state.bookings.length }
   ];
   return `
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
-      <article class="dashboard-kpi"><span>Өнөөдрийн үйлдэл</span><strong>${formatNumber(Math.round(512 * factor))}</strong><small>${scope}</small></article>
-      <article class="dashboard-kpi"><span>Зассан бүртгэл</span><strong>${Math.max(4, Math.round(23 * factor))}</strong><small>Сүүлийн 24 цаг</small></article>
-      <article class="dashboard-kpi"><span>Устгасан бүртгэл</span><strong>${Math.max(1, Math.round(6 * factor))}</strong><small>Бүр мөсөн устгасан 0</small></article>
-      <article class="dashboard-kpi"><span>Давхардсан хэрэглэгч</span><strong class="dashboard-kpi-alert">9</strong><small>Нэгтгэх шаардлагатай</small></article>
-      <article class="dashboard-kpi"><span>Сүүлийн backup</span><strong class="dashboard-kpi-text">Өнөөдөр 03:10</strong><small>Автомат backup амжилттай</small></article>
-      <article class="dashboard-kpi"><span>Хадгалалтын хэмжээ</span><strong>14.2 GB</strong><small>Зураг 9.8 GB</small></article>
+      <article class="dashboard-kpi"><span>Өнөөдрийн үйлдэл</span><strong>${formatNumber(todayActions)}</strong><small>${scope}</small></article>
+      <article class="dashboard-kpi"><span>Зассан бүртгэл</span><strong>0</strong><small>Сүүлийн 24 цаг</small></article>
+      <article class="dashboard-kpi"><span>Устгасан бүртгэл</span><strong>${deletedCustomers}</strong><small>Бүр мөсөн устгасан 0</small></article>
+      <article class="dashboard-kpi"><span>Давхардсан хэрэглэгч</span><strong class="dashboard-kpi-alert">${duplicatePhones}</strong><small>Нэгтгэх шаардлагатай</small></article>
+      <article class="dashboard-kpi"><span>Сүүлийн backup</span><strong class="dashboard-kpi-text">${backupCount ? "Backup байна" : "Мэдээлэлгүй"}</strong><small>${backupCount} хадгалсан хувилбар</small></article>
+      <article class="dashboard-kpi"><span>Хадгалалтын хэмжээ</span><strong>0 GB</strong><small>Зураг 0 GB</small></article>
     </div>
     <div class="dashboard-grid dashboard-purpose-grid">
       <section class="panel dashboard-card dashboard-card-wide">
@@ -3122,28 +3085,28 @@ function dashboardSystemHtml(month, salon) {
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Анхааруулга</h3><p>Шалгах шаардлагатай мэдээлэл</p></div></div>
         <div class="dashboard-action-list">
-          <div><i class="danger"></i><span>Давхардсан утас</span><strong>9</strong></div>
-          <div><i class="warning"></i><span>Зураггүй оношилгоо</span><strong>14</strong></div>
-          <div><i class="warning"></i><span>Ажилтангүй үйлчилгээ</span><strong>3</strong></div>
-          <div><i></i><span>Тохиргоогүй тусгай үнэ</span><strong>2</strong></div>
+          <div><i class="danger"></i><span>Давхардсан утас</span><strong>${duplicatePhones}</strong></div>
+          <div><i class="warning"></i><span>Зураггүй оношилгоо</span><strong>0</strong></div>
+          <div><i class="warning"></i><span>Ажилтангүй үйлчилгээ</span><strong>0</strong></div>
+          <div><i></i><span>Тохиргоогүй тусгай үнэ</span><strong>0</strong></div>
         </div>
       </section>
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Backup төлөв</h3><p>Өгөгдлийн аюулгүй байдал</p></div></div>
         <div class="dashboard-action-list">
-          <div><i></i><span>Өдөр тутмын backup</span><strong>Амжилттай</strong></div>
-          <div><i></i><span>Сүүлийн бүрэн backup</span><strong>03:10</strong></div>
-          <div><i></i><span>Хадгалж буй хувилбар</span><strong>14</strong></div>
-          <div><i></i><span>Дараагийн backup</span><strong>03:00</strong></div>
+          <div><i></i><span>Өдөр тутмын backup</span><strong>Тохируулаагүй</strong></div>
+          <div><i></i><span>Сүүлийн бүрэн backup</span><strong>—</strong></div>
+          <div><i></i><span>Хадгалж буй хувилбар</span><strong>${backupCount}</strong></div>
+          <div><i></i><span>Дараагийн backup</span><strong>—</strong></div>
         </div>
       </section>
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Системийн төлөв</h3><p>Үндсэн үйлчилгээ</p></div></div>
         <div class="dashboard-action-list">
-          <div><i></i><span>Өгөгдлийн сан</span><strong>Хэвийн</strong></div>
-          <div><i></i><span>Зураг хадгалалт</span><strong>69%</strong></div>
-          <div><i></i><span>Камерын бүртгэл</span><strong>Хэвийн</strong></div>
-          <div><i class="warning"></i><span>Сүүлийн алдаа</span><strong>2</strong></div>
+          <div><i></i><span>Өгөгдлийн сан</span><strong>Холбоогүй</strong></div>
+          <div><i></i><span>Зураг хадгалалт</span><strong>0%</strong></div>
+          <div><i></i><span>Камерын бүртгэл</span><strong>Бэлэн</strong></div>
+          <div><i class="warning"></i><span>Сүүлийн алдаа</span><strong>0</strong></div>
         </div>
       </section>
     </div>`;
@@ -3181,7 +3144,7 @@ function renderDashboard() {
   const previous = previousIndex >= 0 ? dashboardSnapshot(dashboardDemoData.months[previousIndex], salon) : snapshot;
   const growth = previous.revenue ? ((snapshot.revenue - previous.revenue) / previous.revenue * 100) : 0;
   const scopeText = salon || "Нийт салбар";
-  document.getElementById("dashboardScopeNote").textContent = isSalonAccount() ? `${activeAccount.salon} • зөвхөн таны салбарын мэдээлэл` : `${scopeText} • зохиомол тайлангийн өгөгдөл`;
+  document.getElementById("dashboardScopeNote").textContent = isSalonAccount() ? `${activeAccount.salon} • зөвхөн таны салбарын мэдээлэл` : `${scopeText} • бүртгэлийн өгөгдөл`;
 
   const viewMode = dashboardSelectedViewMode();
   if (viewMode === "operations") {
@@ -3203,6 +3166,11 @@ function renderDashboard() {
   const monthIndex = dashboardDemoData.months.findIndex(item => item.key === month.key);
   const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
   const demographics = dashboardCustomerDemographics();
+  const activeCustomers = state.customers.filter(item => !item.deleted && !item.deletedAt);
+  const customerCount = activeCustomers.length;
+  const activeGroupCount = state.customerGroups.filter(group => (group.members || []).length > 0).length;
+  const activeCourseCount = activeCustomers.filter(customer => customer.activeCourse || (customer.serviceHistory || []).some(item => item.kind === "course" && item.completed !== true)).length;
+  const bonusBalance = activeCustomers.reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
   const staffRows = dashboardStaffRows(month, salon);
   const topScale = salon ? dashboardBranch(salon).share : 1;
   const topServices = dashboardDemoData.topServices.map(([name, count, revenue]) => ({ name, count: Math.round(count * topScale), revenue: Math.round(revenue * topScale) }));
@@ -3234,9 +3202,9 @@ function renderDashboard() {
       <article class="dashboard-kpi"><span>Нийт орлого</span><strong>${money(snapshot.revenue)}</strong><small class="${growth >= 0 ? "positive" : "negative"}">${growth >= 0 ? "↑" : "↓"} ${Math.abs(growth).toFixed(1)}% өмнөх сараас</small></article>
       <article class="dashboard-kpi"><span>Төлбөрийн тоо</span><strong>${formatNumber(snapshot.payments)}</strong><small>Дундаж ${money(Math.round(snapshot.revenue / Math.max(snapshot.payments, 1)))}</small></article>
       <article class="dashboard-kpi"><span>Үйлчилгээний оролт</span><strong>${formatNumber(snapshot.visits)}</strong><small>${snapshot.completion}% амжилттай дууссан</small></article>
-      <article class="dashboard-kpi"><span>Барааны борлуулалт</span><strong>${money(snapshot.products)}</strong><small>Нийт орлогын ${Math.round(snapshot.products / snapshot.revenue * 100)}%</small></article>
+      <article class="dashboard-kpi"><span>Барааны борлуулалт</span><strong>${money(snapshot.products)}</strong><small>Нийт орлогын ${Math.round(snapshot.products / Math.max(snapshot.revenue, 1) * 100)}%</small></article>
       <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(snapshot.outstanding)}</strong><small>Нэхэмжлэх шаардлагатай</small></article>
-      <article class="dashboard-kpi customer-kpi"><span>Нийт хэрэглэгч</span><strong>1,842</strong><small>+${month.newCustomers} шинэ • бүх салбар</small></article>
+      <article class="dashboard-kpi customer-kpi"><span>Нийт хэрэглэгч</span><strong>${formatNumber(customerCount)}</strong><small>+${month.newCustomers} шинэ • бүх салбар</small></article>
     </div>
 
     <div class="dashboard-grid dashboard-grid-top">
@@ -3262,21 +3230,21 @@ function renderDashboard() {
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Хэрэглэгч ба бонус</h3><p>Нэгдсэн хэрэглэгчийн мэдээлэл</p></div></div>
         <div class="dashboard-customer-list">
-          <div><span>Нийт хэрэглэгч</span><strong>1,842</strong></div>
-          <div><span>Идэвхтэй групп</span><strong>318</strong></div>
-          <div><span>Идэвхтэй курс</span><strong>426</strong></div>
-          <div><span>Бонус үлдэгдэл</span><strong>28,460,000₮</strong></div>
-          <div><span>2 жил дуусах дөхсөн</span><strong>74</strong></div>
+          <div><span>Нийт хэрэглэгч</span><strong>${formatNumber(customerCount)}</strong></div>
+          <div><span>Идэвхтэй групп</span><strong>${formatNumber(activeGroupCount)}</strong></div>
+          <div><span>Идэвхтэй курс</span><strong>${formatNumber(activeCourseCount)}</strong></div>
+          <div><span>Бонус үлдэгдэл</span><strong>${money(bonusBalance)}</strong></div>
+          <div><span>2 жил дуусах дөхсөн</span><strong>0</strong></div>
         </div>
       </section>
     </div>
 
     <section class="panel dashboard-card dashboard-demographic-card">
-      <div class="dashboard-card-head"><div><h3>Хэрэглэгчийн бүтэц</h3><p>Бүх салбарын нэгдсэн хэрэглэгчийн мэдээлэл • салбараар шүүгдэхгүй</p></div><strong>1,842 хэрэглэгч</strong></div>
+      <div class="dashboard-card-head"><div><h3>Хэрэглэгчийн бүтэц</h3><p>Бүх салбарын нэгдсэн хэрэглэгчийн мэдээлэл • салбараар шүүгдэхгүй</p></div><strong>${formatNumber(customerCount)} хэрэглэгч</strong></div>
       <div class="dashboard-demographic-grid">
         <article class="dashboard-demographic-block">
           <h4>Хүйс</h4>
-          ${dashboardDonutMarkup(demographics.genders, 1842, "value")}
+          ${dashboardDonutMarkup(demographics.genders, customerCount, "value")}
         </article>
         <article class="dashboard-demographic-block">
           <h4>Насны бүлэг</h4>
@@ -3299,7 +3267,7 @@ function renderDashboard() {
       <div class="table-wrap dashboard-table-wrap">
         <table class="dashboard-table">
           <thead><tr><th>№</th><th>Үйлчилгээ / бүтээгдэхүүн</th><th class="amount-cell">Тоо</th><th class="amount-cell">Орлого</th><th class="amount-cell">Нийтэд эзлэх</th></tr></thead>
-          <tbody>${topServices.map((item, index) => `<tr><td>${index + 1}</td><td><strong>${htmlSafe(item.name)}</strong></td><td class="amount-cell">${formatNumber(item.count)}</td><td class="amount-cell"><strong>${money(item.revenue)}</strong></td><td class="amount-cell">${Math.round(item.revenue / snapshot.revenue * 100)}%</td></tr>`).join("")}</tbody>
+          <tbody>${topServices.length ? topServices.map((item, index) => `<tr><td>${index + 1}</td><td><strong>${htmlSafe(item.name)}</strong></td><td class="amount-cell">${formatNumber(item.count)}</td><td class="amount-cell"><strong>${money(item.revenue)}</strong></td><td class="amount-cell">${Math.round(item.revenue / Math.max(snapshot.revenue, 1) * 100)}%</td></tr>`).join("") : `<tr><td colspan="5" class="empty-cell">Мэдээлэл байхгүй</td></tr>`}</tbody>
         </table>
       </div>
     </section>
@@ -3332,11 +3300,12 @@ function exportDashboardExcel() {
   const serviceRows = dashboardDemoData.services.map(item => [item.name, item.share, Math.round(snapshot.visits * item.share / 100)]);
   const paymentRows = dashboardDemoData.payments.map(item => [item.name, item.share, Math.round(snapshot.revenue * item.share / 100)]);
   const demographics = dashboardCustomerDemographics();
+  const customerCount = state.customers.filter(item => !item.deleted && !item.deletedAt).length;
   const staffRows = dashboardStaffRows(month, salon);
   const workbook = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
     <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
       ${dashboardWorksheet("Нэгдсэн үзүүлэлт", [
-        ["Харагдац", viewMode], ["Хугацаа", month.label], ["Хамрах хүрээ", scope], ["Нийт орлого", snapshot.revenue], ["Төлбөрийн тоо", snapshot.payments], ["Үйлчилгээний оролт", snapshot.visits], ["Барааны борлуулалт", snapshot.products], ["Дутуу төлбөр", snapshot.outstanding], ["Дуусгалт %", snapshot.completion], ["Дүүргэлт %", snapshot.occupancy], ["Нийт хэрэглэгч", 1842], ["Шинэ хэрэглэгч", month.newCustomers]
+        ["Харагдац", viewMode], ["Хугацаа", month.label], ["Хамрах хүрээ", scope], ["Нийт орлого", snapshot.revenue], ["Төлбөрийн тоо", snapshot.payments], ["Үйлчилгээний оролт", snapshot.visits], ["Барааны борлуулалт", snapshot.products], ["Дутуу төлбөр", snapshot.outstanding], ["Дуусгалт %", snapshot.completion], ["Дүүргэлт %", snapshot.occupancy], ["Нийт хэрэглэгч", customerCount], ["Шинэ хэрэглэгч", month.newCustomers]
       ])}
       ${dashboardWorksheet("Сарын өөрчлөлт", [["Сар", "Орлого", "Төлбөр", "Оролт", "Бараа", "Дутуу төлбөр", "Дуусгалт %", "Дүүргэлт %"], ...trendRows])}
       ${dashboardWorksheet("Салбар", [["Салбар", "Орлого", "Төлбөр", "Оролт", "Дутуу төлбөр", "Дуусгалт %", "Дүүргэлт %"], ...branchRows.map(item => [item.name, item.revenue, item.payments, item.visits, item.outstanding, item.completion, item.occupancy])])}
@@ -3345,8 +3314,8 @@ function exportDashboardExcel() {
       ${dashboardWorksheet("Хэрэглэгчийн бүтэц", [
         ["Ангилал", "Нэр", "Хэрэглэгчийн тоо", "Хувь %"],
         ...demographics.genders.map(item => ["Хүйс", item.name, item.value, item.share]),
-        ...demographics.ages.map(item => ["Нас", item.name, item.value, Math.round(item.value / 1842 * 100)]),
-        ...demographics.districts.map(item => ["Дүүрэг", item.name, item.value, Math.round(item.value / 1842 * 100)])
+        ...demographics.ages.map(item => ["Нас", item.name, item.value, Math.round(item.value / Math.max(customerCount, 1) * 100)]),
+        ...demographics.districts.map(item => ["Дүүрэг", item.name, item.value, Math.round(item.value / Math.max(customerCount, 1) * 100)])
       ])}
       ${dashboardWorksheet("Ажилтны гүйцэтгэл", [["Ажилтан", "Үндсэн салбар", "Ажилласан салбар", "Оролт", "Орлого", "Үйлчилгээний урамшуулал", "Кассын урамшуулал", "Нийт урамшуулал"], ...staffRows.map(item => [item.name, item.homeSalon, item.workedSalon, item.visits, item.revenue, item.serviceReward, item.kassReward, item.totalReward])])}
     </Workbook>`;
@@ -4759,7 +4728,6 @@ function performanceTransactions() {
       revenue: Number(item.total || item.price || 0)
     });
   });
-  performanceDemoData().forEach(add);
   return transactions;
 }
 
@@ -9990,6 +9958,7 @@ function init() {
   removeRetiredViews();
   ensureHumanResourceShell();
   loadServiceSettings();
+  resetPrototypeProductCatalog();
   migrateSalonSchedules();
   refreshBookingTimeOptions();
   renderScheduleSettings();
