@@ -206,8 +206,11 @@ let assignmentEditingId = null;
 let assignmentPage = 1;
 let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
+let systemUsers = [];
+let systemUserEditingId = null;
+let systemUsersLoaded = false;
 const retiredViews = new Set(["services", "payments", "reports", "catalog", "staff"]);
-const activeAccount = { role: "admin", salon: "Хан-Уул салбар" };
+let activeAccount = { id: 0, username: "", displayName: "Админ", role: "admin", salon: "" };
 
 const dashboardDemoData = {
   months: [
@@ -630,15 +633,18 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
       const button = event.currentTarget.querySelector("button[type='submit']");
       button.disabled = true;
       try {
-        await serverApi("login.php", {
+        const loginResult = await serverApi("login.php", {
           method: "POST",
           body: JSON.stringify({
             username: overlay.querySelector("#serverLoginUsername").value.trim(),
             password: overlay.querySelector("#serverLoginPassword").value
           })
         });
+        applyActiveAccount(loginResult.user);
         hideServerLogin();
         await synchronizeServerState();
+        rerenderAll();
+        setView(activeView);
       } catch (error) {
         overlay.querySelector("#serverLoginMessage").textContent = error.message;
       } finally {
@@ -675,7 +681,10 @@ async function initializeServerStorage() {
       showServerLogin("Server database-д нэвтэрч мэдээллээ ачаална уу");
       return;
     }
+    applyActiveAccount(status.user);
     await synchronizeServerState();
+    rerenderAll();
+    setView(activeView);
   } catch (error) {
     if (error.status === 401) {
       showServerLogin(error.message);
@@ -2847,6 +2856,13 @@ function infoForView(name) {
       ["Төлбөр", kassRevenueSourceRows().length],
       ["Backup", databaseBackups().length]
     ]],
+    settingsUsers: ["ХЭРЭГЛЭГЧИЙН ЭРХ", [
+      ["Нийт", systemUsers.length],
+      ["Админ", systemUsers.filter(item => item.role === "admin" && item.active).length],
+      ["Менежер", systemUsers.filter(item => item.role === "manager" && item.active).length],
+      ["Салбарын эрх", systemUsers.filter(item => item.role === "salon" && item.active).length],
+      ["Идэвхгүй", systemUsers.filter(item => !item.active).length]
+    ]],
     settingsPricing: ["ҮНИЙН БОДЛОГО", [
       ["Вип өрөө", money(pricePolicy().vipRoomFee)],
       ["Мастер", money(pricePolicy().masterStaffFee)],
@@ -3588,11 +3604,16 @@ function rerenderAll() {
   renderGroupDirectory();
   renderPerformance();
   renderAudit();
+  if (systemUsersLoaded) renderSystemUsers();
 }
 
 function setView(name) {
   releaseDiagnosisCameraSession();
   if (retiredViews.has(name)) name = "bookings";
+  if (name === "settingsUsers" && !isAdminAccount()) {
+    showToast("Хэрэглэгчийн эрхийг зөвхөн админ удирдана");
+    name = "bookings";
+  }
   const previousView = activeView;
   if (previousView === "profile" && name !== "profile") {
     state.customers.forEach(customer => clearCustomerUiState(customer));
@@ -3618,6 +3639,7 @@ function setView(name) {
   if (name === "settingsDiscounts") renderDiscountSettings();
   if (name === "settingsGeneral") renderGeneralSettings();
   if (name === "settingsDatabase") renderDatabaseSettings();
+  if (name === "settingsUsers") loadSystemUsers();
   if (name === "dashboard") renderDashboard();
   if (name === "kass") renderKassSchedule();
   if (name === "vouchers") renderVouchers();
@@ -3738,6 +3760,211 @@ function holidayForDate(salonName, dateText) {
 
 function isSalonAccount() {
   return activeAccount.role === "salon";
+}
+
+function isAdminAccount() {
+  return activeAccount.role === "admin";
+}
+
+function accountRoleLabel(role) {
+  return ({ admin: "Админ", manager: "Менежер", salon: "Салбарын эрх" })[role] || "Хэрэглэгч";
+}
+
+function applyActiveAccount(account = {}) {
+  activeAccount = {
+    id: Number(account.id || 0),
+    username: String(account.username || ""),
+    displayName: String(account.displayName || account.display_name || account.username || "Хэрэглэгч"),
+    role: ["admin", "manager", "salon"].includes(account.role) ? account.role : "salon",
+    salon: String(account.salon || account.salon_name || "")
+  };
+  if (activeAccount.role === "salon" && !activeAccount.salon) activeAccount.salon = state.salons[0]?.name || "";
+  const avatar = document.getElementById("sidebarUserAvatar");
+  const name = document.getElementById("sidebarUserName");
+  const scope = document.getElementById("sidebarUserScope");
+  if (avatar) avatar.textContent = initials(activeAccount.displayName || activeAccount.username || "Х");
+  if (name) name.textContent = activeAccount.displayName || accountRoleLabel(activeAccount.role);
+  if (scope) scope.textContent = activeAccount.role === "salon" ? activeAccount.salon : `${accountRoleLabel(activeAccount.role)} • Бүх салбар`;
+  document.querySelectorAll("[data-admin-only]").forEach(item => item.classList.toggle("hidden", !isAdminAccount()));
+  if (!isAdminAccount() && activeView === "settingsUsers") activeView = "bookings";
+}
+
+function systemUserRoleLabel(role) {
+  return accountRoleLabel(role);
+}
+
+function formatSystemUserDate(value) {
+  if (!value) return "—";
+  return String(value).replace("T", " ").slice(0, 16);
+}
+
+function updateSystemUserSalonField() {
+  const role = document.getElementById("systemUserRole")?.value || "manager";
+  document.getElementById("systemUserSalonField")?.classList.toggle("hidden", role !== "salon");
+}
+
+function populateSystemUserSalons(selected = "") {
+  const select = document.getElementById("systemUserSalon");
+  if (!select) return;
+  const preferred = selected || select.value || state.salons.find(item => item.active !== false)?.name || state.salons[0]?.name || "";
+  select.innerHTML = state.salons
+    .filter(item => item.active !== false)
+    .map(item => `<option value="${htmlSafe(item.name)}">${htmlSafe(item.name)}</option>`)
+    .join("");
+  if (Array.from(select.options).some(option => option.value === preferred)) select.value = preferred;
+}
+
+function resetSystemUserForm() {
+  systemUserEditingId = null;
+  const form = document.getElementById("systemUserForm");
+  if (!form) return;
+  form.reset();
+  document.getElementById("systemUserRole").value = "manager";
+  document.getElementById("systemUserActive").value = "true";
+  document.getElementById("systemUserPassword").required = true;
+  document.getElementById("systemUserPasswordNote").textContent = "Шинэ хэрэглэгчид заавал оруулна.";
+  document.getElementById("systemUserSubmit").textContent = "Хадгалах";
+  document.getElementById("systemUserCancel").classList.add("hidden");
+  populateSystemUserSalons();
+  updateSystemUserSalonField();
+  enhanceNativeSelects(["systemUserRole", "systemUserSalon", "systemUserActive"]);
+}
+
+function renderSystemUsers() {
+  if (!isAdminAccount()) return;
+  populateSystemUserSalons();
+  const query = String(document.getElementById("systemUserSearch")?.value || "").trim().toLocaleLowerCase("mn-MN");
+  const role = document.getElementById("systemUserRoleFilter")?.value || "";
+  const status = document.getElementById("systemUserStatusFilter")?.value || "";
+  const filtered = systemUsers.filter(user => {
+    const matchesQuery = !query || `${user.displayName} ${user.username} ${user.salon || ""}`.toLocaleLowerCase("mn-MN").includes(query);
+    const matchesRole = !role || user.role === role;
+    const matchesStatus = !status || (status === "active" ? user.active : !user.active);
+    return matchesQuery && matchesRole && matchesStatus;
+  });
+  const rows = document.getElementById("systemUserRows");
+  if (rows) {
+    rows.innerHTML = filtered.map(user => {
+      const editingSelf = Number(user.id) === Number(activeAccount.id);
+      const legacy = Boolean(user.legacy);
+      return `<tr>
+        <td><strong>${htmlSafe(user.displayName || user.username)}</strong>${legacy ? "<small>Одоогийн үндсэн нэвтрэлт</small>" : ""}</td>
+        <td>${htmlSafe(user.username)}</td>
+        <td><span class="user-role-label">${systemUserRoleLabel(user.role)}</span></td>
+        <td>${user.role === "salon" ? htmlSafe(user.salon || "—") : "Бүх салбар"}</td>
+        <td><span class="user-status-label ${user.active ? "active" : "inactive"}">${user.active ? "Идэвхтэй" : "Идэвхгүй"}</span></td>
+        <td>${formatSystemUserDate(user.lastLoginAt)}</td>
+        <td><div class="user-access-actions">
+          <button class="secondary-btn" type="button" data-system-user-edit="${user.id}" ${legacy ? "disabled" : ""}>Засах</button>
+          <button class="${user.active ? "danger-btn" : "secondary-btn"}" type="button" data-system-user-toggle="${user.id}" ${legacy || editingSelf ? "disabled" : ""}>${user.active ? "Идэвхгүй" : "Идэвхжүүлэх"}</button>
+        </div></td>
+      </tr>`;
+    }).join("");
+  }
+  document.getElementById("systemUserEmpty")?.classList.toggle("hidden", filtered.length !== 0);
+  enhanceNativeSelects(["systemUserRole", "systemUserSalon", "systemUserActive", "systemUserRoleFilter", "systemUserStatusFilter"]);
+  updateSystemUserSalonField();
+}
+
+async function loadSystemUsers(force = false) {
+  if (!isAdminAccount() || (systemUsersLoaded && !force)) {
+    renderSystemUsers();
+    return;
+  }
+  try {
+    const result = await serverApi("users.php");
+    systemUsers = Array.isArray(result.users) ? result.users : [];
+    systemUsersLoaded = true;
+    renderSystemUsers();
+    if (activeView === "settingsUsers") renderInfoHeader("settingsUsers");
+  } catch (error) {
+    if (error.status === 401) {
+      showServerLogin(error.message);
+      return;
+    }
+    showToast(error.message || "Хэрэглэгчийн жагсаалт ачаалсангүй");
+  }
+}
+
+function editSystemUser(id) {
+  const user = systemUsers.find(item => Number(item.id) === Number(id));
+  if (!user || user.legacy) return showToast("Үндсэн админаар дахин нэвтэрсний дараа засна");
+  systemUserEditingId = Number(user.id);
+  document.getElementById("systemUserDisplayName").value = user.displayName || "";
+  document.getElementById("systemUsername").value = user.username || "";
+  document.getElementById("systemUserPassword").value = "";
+  document.getElementById("systemUserPassword").required = false;
+  document.getElementById("systemUserPasswordNote").textContent = "Солихгүй бол хоосон үлдээнэ.";
+  document.getElementById("systemUserRole").value = user.role || "salon";
+  populateSystemUserSalons(user.salon || "");
+  document.getElementById("systemUserActive").value = user.active ? "true" : "false";
+  document.getElementById("systemUserSubmit").textContent = "Шинэчлэх";
+  document.getElementById("systemUserCancel").classList.remove("hidden");
+  enhanceNativeSelects(["systemUserRole", "systemUserSalon", "systemUserActive"]);
+  updateSystemUserSalonField();
+  document.getElementById("systemUserDisplayName")?.focus();
+}
+
+async function saveSystemUser(event) {
+  event.preventDefault();
+  const displayName = formValue("systemUserDisplayName");
+  const username = formValue("systemUsername").toLowerCase();
+  const password = document.getElementById("systemUserPassword")?.value || "";
+  const role = formValue("systemUserRole");
+  const salon = role === "salon" ? formValue("systemUserSalon") : "";
+  const active = formValue("systemUserActive") === "true";
+  const wasEditing = Boolean(systemUserEditingId);
+  if (!displayName || !username) return showToast("Нэр болон нэвтрэх нэрийг оруулна уу");
+  if (!systemUserEditingId && password.length < 8) return showToast("Нууц үг хамгийн багадаа 8 тэмдэгт байна");
+  if (systemUserEditingId && password && password.length < 8) return showToast("Нууц үг хамгийн багадаа 8 тэмдэгт байна");
+  if (role === "salon" && !salon) return showToast("Салбар сонгоно уу");
+  const button = document.getElementById("systemUserSubmit");
+  button.disabled = true;
+  try {
+    await serverApi("users.php", {
+      method: systemUserEditingId ? "PUT" : "POST",
+      body: JSON.stringify({ id: systemUserEditingId, displayName, username, password, role, salon, active })
+    });
+    state.audit.unshift({
+      title: systemUserEditingId ? "user_updated" : "user_created",
+      meta: `${activeAccount.displayName || activeAccount.username} • ${displayName} • ${systemUserRoleLabel(role)}`
+    });
+    saveState();
+    resetSystemUserForm();
+    await loadSystemUsers(true);
+    renderAudit();
+    showToast(wasEditing ? "Хэрэглэгч шинэчлэгдлээ" : "Хэрэглэгч нэмэгдлээ");
+  } catch (error) {
+    showToast(error.message || "Хэрэглэгч хадгалсангүй");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function toggleSystemUser(id) {
+  const user = systemUsers.find(item => Number(item.id) === Number(id));
+  if (!user || user.legacy || Number(user.id) === Number(activeAccount.id)) return;
+  try {
+    await serverApi("users.php", {
+      method: "PUT",
+      body: JSON.stringify({
+        id: user.id,
+        displayName: user.displayName,
+        username: user.username,
+        password: "",
+        role: user.role,
+        salon: user.salon || "",
+        active: !user.active
+      })
+    });
+    state.audit.unshift({ title: "user_status_changed", meta: `${activeAccount.displayName || activeAccount.username} • ${user.displayName} • ${user.active ? "Идэвхгүй" : "Идэвхтэй"}` });
+    saveState();
+    await loadSystemUsers(true);
+    renderAudit();
+    showToast(user.active ? "Хэрэглэгч идэвхгүй боллоо" : "Хэрэглэгч идэвхжлээ");
+  } catch (error) {
+    showToast(error.message || "Хэрэглэгчийн төлөв өөрчлөгдсөнгүй");
+  }
 }
 
 function holidaySelectableSalons() {
@@ -8981,7 +9208,10 @@ function auditActionText(title = "") {
     group_updated: "Группийн мэдээллийг зассан",
     catalog_created: "Бараа, үйлчилгээ нэмсэн",
     excel_exported: "Тайлан татсан",
-    database_cleared: "Үйл ажиллагааны өгөгдөл цэвэрлэсэн"
+    database_cleared: "Үйл ажиллагааны өгөгдөл цэвэрлэсэн",
+    user_created: "Системийн хэрэглэгч нэмсэн",
+    user_updated: "Системийн хэрэглэгчийн мэдээлэл зассан",
+    user_status_changed: "Системийн хэрэглэгчийн төлөв өөрчилсөн"
   };
   return actionNames[title] || title || "Үйлдэл бүртгэгдсэн";
 }
@@ -9835,6 +10065,36 @@ function bindEvents() {
     item.addEventListener("click", () => setView(item.dataset.viewTarget));
   });
 
+  document.getElementById("serverLogoutBtn")?.addEventListener("click", async () => {
+    try {
+      await serverApi("logout.php", { method: "POST", body: "{}" });
+    } finally {
+      window.location.reload();
+    }
+  });
+  document.getElementById("systemUserForm")?.addEventListener("submit", saveSystemUser);
+  document.getElementById("systemUserRole")?.addEventListener("change", updateSystemUserSalonField);
+  document.getElementById("systemUserCancel")?.addEventListener("click", resetSystemUserForm);
+  document.getElementById("systemUsername")?.addEventListener("input", event => {
+    event.target.value = event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 64);
+  });
+  document.getElementById("systemUserSearch")?.addEventListener("input", renderSystemUsers);
+  ["systemUserRoleFilter", "systemUserStatusFilter"].forEach(id => {
+    document.getElementById(id)?.addEventListener("change", renderSystemUsers);
+  });
+  document.getElementById("clearSystemUserFilters")?.addEventListener("click", () => {
+    document.getElementById("systemUserSearch").value = "";
+    document.getElementById("systemUserRoleFilter").value = "";
+    document.getElementById("systemUserStatusFilter").value = "";
+    renderSystemUsers();
+  });
+  document.getElementById("systemUserRows")?.addEventListener("click", event => {
+    const editButton = event.target.closest("[data-system-user-edit]");
+    const toggleButton = event.target.closest("[data-system-user-toggle]");
+    if (editButton) editSystemUser(editButton.dataset.systemUserEdit);
+    if (toggleButton) toggleSystemUser(toggleButton.dataset.systemUserToggle);
+  });
+
   document.getElementById("branchForm")?.addEventListener("submit", saveBranch);
   document.getElementById("branchPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
@@ -10160,6 +10420,7 @@ function bindEvents() {
 
 function init() {
   removeRetiredViews();
+  applyActiveAccount(activeAccount);
   ensureHumanResourceShell();
   loadServiceSettings();
   restoreCoreServiceSettingsIfMissing();
@@ -10188,6 +10449,7 @@ function init() {
   renderBookings();
   renderServices();
   renderAudit();
+  resetSystemUserForm();
   bindEvents();
   openBookingModal();
   setView("bookings");

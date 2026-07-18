@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607181600">
+  <link rel="stylesheet" href="styles.css?v=202607181645">
 </head>
 <body>
   <div class="app-shell">
@@ -36,6 +36,7 @@
             <button class="nav-subitem" data-view="settingsPricing">Үнийн бодлого</button>
             <button class="nav-subitem" data-view="settingsDiscounts">Хямдрал</button>
             <button class="nav-subitem" data-view="groups">Групп</button>
+            <button class="nav-subitem" data-view="settingsUsers" data-admin-only>Хэрэглэгчийн эрх</button>
             <button class="nav-subitem" data-view="settingsDatabase">Өгөгдлийн сан</button>
             <button class="nav-subitem" data-view="settingsGeneral">Ерөнхий</button>
             <button class="nav-subitem" data-view="audit">Үйлдлийн түүх</button>
@@ -44,11 +45,12 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="sidebar-user-avatar">M</div>
+        <div class="sidebar-user-avatar" id="sidebarUserAvatar">А</div>
         <div class="sidebar-user-info">
-          <strong>Менежер</strong>
-          <span>Хан-Уул салбар</span>
+          <strong id="sidebarUserName">Админ</strong>
+          <span id="sidebarUserScope">Бүх салбар</span>
         </div>
+        <button class="sidebar-logout" id="serverLogoutBtn" type="button" aria-label="Системээс гарах" title="Системээс гарах">↪</button>
       </div>
     </aside>
 
@@ -779,6 +781,82 @@
           <div class="service-category-list diagnosis-list" id="diagnosisTypeList"></div>
         </section>
       </section>
+      <section class="view" id="settingsUsersView">
+        <section class="panel user-access-form-panel">
+          <div class="user-role-guide" aria-label="Эрхийн тайлбар">
+            <div><strong>Админ</strong><span>Бүх мэдээлэл, тохиргоо, хэрэглэгчийн эрхийг удирдана.</span></div>
+            <div><strong>Менежер</strong><span>Бүх салбарын өдөр тутмын ажиллагаатай ажиллана.</span></div>
+            <div><strong>Салбарын эрх</strong><span>Зөвхөн сонгосон салбарын мэдээлэлтэй ажиллана.</span></div>
+          </div>
+          <form class="user-access-form" id="systemUserForm" novalidate>
+            <label>Нэр
+              <input class="input" id="systemUserDisplayName" maxlength="120" required placeholder="Жишээ: Салбарын эрхлэгч">
+            </label>
+            <label>Нэвтрэх нэр
+              <input class="input" id="systemUsername" maxlength="64" required autocomplete="off" placeholder="salon.manager">
+            </label>
+            <label>Нууц үг
+              <input class="input" id="systemUserPassword" type="password" minlength="8" autocomplete="new-password" placeholder="Хамгийн багадаа 8 тэмдэгт">
+              <small id="systemUserPasswordNote">Шинэ хэрэглэгчид заавал оруулна.</small>
+            </label>
+            <label>Эрх
+              <select class="input" id="systemUserRole">
+                <option value="admin">Админ</option>
+                <option value="manager">Менежер</option>
+                <option value="salon">Салбарын эрх</option>
+              </select>
+            </label>
+            <label class="hidden" id="systemUserSalonField">Салбар
+              <select class="input" id="systemUserSalon"></select>
+            </label>
+            <label>Төлөв
+              <select class="input" id="systemUserActive">
+                <option value="true">Идэвхтэй</option>
+                <option value="false">Идэвхгүй</option>
+              </select>
+            </label>
+            <div class="user-access-form-actions">
+              <button class="primary-btn" id="systemUserSubmit" type="submit">Хадгалах</button>
+              <button class="secondary-btn hidden" id="systemUserCancel" type="button">Болих</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel user-access-list-panel">
+          <div class="user-access-toolbar">
+            <input class="input" id="systemUserSearch" maxlength="64" placeholder="Нэр эсвэл нэвтрэх нэр">
+            <select class="input" id="systemUserRoleFilter">
+              <option value="">Бүх эрх</option>
+              <option value="admin">Админ</option>
+              <option value="manager">Менежер</option>
+              <option value="salon">Салбарын эрх</option>
+            </select>
+            <select class="input" id="systemUserStatusFilter">
+              <option value="">Бүх төлөв</option>
+              <option value="active">Идэвхтэй</option>
+              <option value="inactive">Идэвхгүй</option>
+            </select>
+            <button class="secondary-btn user-filter-clear" id="clearSystemUserFilters" type="button" aria-label="Хайлт цэвэрлэх">×</button>
+          </div>
+          <div class="table-wrap user-access-table-wrap">
+            <table class="branch-table user-access-table">
+              <thead>
+                <tr>
+                  <th>Нэр</th>
+                  <th>Нэвтрэх нэр</th>
+                  <th>Эрх</th>
+                  <th>Салбар</th>
+                  <th>Төлөв</th>
+                  <th>Сүүлд нэвтэрсэн</th>
+                  <th>Үйлдэл</th>
+                </tr>
+              </thead>
+              <tbody id="systemUserRows"></tbody>
+            </table>
+          </div>
+          <p class="user-access-empty hidden" id="systemUserEmpty">Хайлтад тохирох хэрэглэгч алга.</p>
+        </section>
+      </section>
       <section class="view" id="settingsDatabaseView">
         <section class="panel database-shell">
         <div class="database-section-tabs service-settings-tabs" role="tablist" aria-label="Өгөгдлийн сангийн хэсэг">
@@ -1009,7 +1087,7 @@
   </div>
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
-  <script src="app.js?v=202607181600"></script>
+  <script src="app.js?v=202607181645"></script>
 </body>
 </html>
 

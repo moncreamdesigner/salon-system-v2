@@ -1746,6 +1746,251 @@ button {
   }
 }
 
+/* System user access */
+.sidebar-user-info {
+  flex: 1 1 auto;
+}
+
+.sidebar-logout {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.sidebar-logout:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.user-access-form-panel,
+.user-access-list-panel {
+  margin-bottom: 12px;
+}
+
+.user-role-guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: -2px 0 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.user-role-guide > div {
+  min-width: 0;
+  padding: 0 16px;
+  border-right: 1px solid var(--line);
+}
+
+.user-role-guide > div:first-child {
+  padding-left: 0;
+}
+
+.user-role-guide > div:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.user-role-guide strong,
+.user-role-guide span {
+  display: block;
+}
+
+.user-role-guide strong {
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.user-role-guide span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.user-access-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.15fr) minmax(140px, 1fr) minmax(190px, 1.25fr) minmax(130px, .85fr) minmax(150px, 1fr) minmax(125px, .8fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.user-access-form label {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.user-access-form label .input,
+.user-access-form label .custom-select {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.user-access-form label small {
+  display: block;
+  min-height: 14px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.user-access-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 18px;
+}
+
+.user-access-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.user-access-toolbar #systemUserSearch {
+  width: 230px;
+}
+
+.user-access-toolbar .input,
+.user-access-toolbar .custom-select {
+  flex: 0 0 auto;
+}
+
+.user-access-toolbar .custom-select {
+  width: 150px;
+}
+
+.user-access-toolbar .user-filter-clear {
+  width: 40px;
+  padding: 0;
+}
+
+.user-access-table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+.user-access-table {
+  min-width: 890px;
+}
+
+.user-access-table th,
+.user-access-table td {
+  padding: 12px 10px;
+}
+
+.user-access-table th:last-child,
+.user-access-table td:last-child {
+  width: 148px;
+  text-align: right;
+}
+
+.user-access-table td:first-child strong,
+.user-access-table td:first-child small {
+  display: block;
+}
+
+.user-access-table td:first-child small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.user-role-label,
+.user-status-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: #f2f5f2;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.user-status-label.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.user-status-label.inactive {
+  color: var(--muted);
+}
+
+.user-access-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.user-access-actions .secondary-btn,
+.user-access-actions .danger-btn {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.user-access-empty {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 1280px) {
+  .user-access-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .user-access-form-actions {
+    padding-bottom: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .user-role-guide,
+  .user-access-form {
+    grid-template-columns: 1fr;
+  }
+
+  .user-role-guide > div {
+    padding: 10px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .user-role-guide > div:last-child {
+    border-bottom: 0;
+  }
+
+  .user-access-toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr 40px;
+  }
+
+  .user-access-toolbar #systemUserSearch {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+
+  .user-access-toolbar .custom-select {
+    width: 100%;
+  }
+}
+
 .server-login-overlay {
   position: fixed;
   inset: 0;
