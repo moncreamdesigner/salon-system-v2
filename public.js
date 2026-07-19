@@ -49,7 +49,6 @@ let weekOffset = 0;
 let bookingSubmissionSucceeded = false;
 let publicToastTimer = null;
 let activeHeroSlide = 0;
-let heroTimer = null;
 
 function mergePublicSettings(settings = {}) {
   const storedCatalog = settings.catalog || {};
@@ -200,7 +199,6 @@ function bindSalonDirectorySlider() {
 }
 
 function renderSalonDirectory() {
-  clearInterval(heroTimer);
   const directory = document.getElementById("salonDirectory");
   const detail = document.getElementById("salonDetail");
   directory.classList.remove("hidden");
@@ -270,8 +268,6 @@ function renderSalonDetail(salonId) {
     </div>`;
   renderHero(salon);
   renderBookingComposer(salon);
-  const gallery = Array.isArray(config.gallery) ? config.gallery.filter(Boolean) : [];
-  if (gallery.length > 1) heroTimer = setInterval(() => { activeHeroSlide = (activeHeroSlide + 1) % gallery.length; renderHero(salon); }, 4300);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -279,9 +275,29 @@ function renderHero(salon) {
   const config = salonConfig(salon);
   const gallery = Array.isArray(config.gallery) ? config.gallery.filter(Boolean) : [];
   const slide = document.getElementById("salonHeroSlide");
-  if (slide) slide.innerHTML = salonVisual(salon, "hero");
+  if (slide) {
+    slide.innerHTML = salonVisual(salon, "hero");
+    slide.style.transform = "";
+    slide.style.opacity = "";
+  }
   const dots = document.getElementById("salonHeroDots");
   if (dots) dots.innerHTML = (gallery.length ? gallery : [""]).map((_, index) => `<i class="${index === activeHeroSlide ? "active" : ""}"></i>`).join("");
+}
+
+function finishSalonHeroDrag(hero, clientX) {
+  const startX = Number(hero?.dataset.dragStartX);
+  if (!hero || !Number.isFinite(startX)) return;
+  const distance = clientX - startX;
+  delete hero.dataset.dragStartX;
+  hero.classList.remove("dragging");
+  const salon = activeSalons().find(item => Number(item.id) === Number(selectedSalonId));
+  const gallery = salon ? salonConfig(salon).gallery?.filter(Boolean) || [] : [];
+  if (!salon) return;
+  if (gallery.length < 2 || Math.abs(distance) < Math.min(48, hero.clientWidth * .14)) return renderHero(salon);
+  activeHeroSlide = distance < 0
+    ? (activeHeroSlide + 1) % gallery.length
+    : (activeHeroSlide - 1 + gallery.length) % gallery.length;
+  renderHero(salon);
 }
 
 function dateText(date) {
@@ -520,6 +536,17 @@ function bindPublicEvents() {
     if (event.target.id === "publicBookingPhone") event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
   document.addEventListener("pointerdown", event => {
+    const hero = event.target.closest(".salon-hero");
+    if (hero) {
+      const salon = activeSalons().find(item => Number(item.id) === Number(selectedSalonId));
+      const gallery = salon ? salonConfig(salon).gallery?.filter(Boolean) || [] : [];
+      if (gallery.length > 1) {
+        hero.dataset.dragStartX = String(event.clientX);
+        hero.classList.add("dragging");
+        hero.setPointerCapture?.(event.pointerId);
+      }
+      return;
+    }
     const slider = event.target.closest("[data-result-slider]");
     if (!slider || event.target.closest("button, a")) return;
     slider.dataset.dragStartX = String(event.clientX);
@@ -528,6 +555,16 @@ function bindPublicEvents() {
     slider.setPointerCapture?.(event.pointerId);
   });
   document.addEventListener("pointermove", event => {
+    const hero = event.target.closest(".salon-hero");
+    if (hero?.dataset.dragStartX !== undefined) {
+      const distance = event.clientX - Number(hero.dataset.dragStartX);
+      const slide = hero.querySelector(".salon-hero-slide");
+      if (slide) {
+        slide.style.transform = `translateX(${distance}px)`;
+        slide.style.opacity = String(Math.max(.62, 1 - Math.abs(distance) / Math.max(hero.clientWidth, 1)));
+      }
+      return;
+    }
     const slider = event.target.closest("[data-result-slider]");
     if (!slider || slider.dataset.dragStartX === undefined) return;
     const distance = event.clientX - Number(slider.dataset.dragStartX);
@@ -536,10 +573,14 @@ function bindPublicEvents() {
     if (track) track.style.transform = `translateX(calc(-${startIndex * 50}% + ${distance}px))`;
   });
   document.addEventListener("pointerup", event => {
+    const hero = event.target.closest(".salon-hero");
+    if (hero?.dataset.dragStartX !== undefined) return finishSalonHeroDrag(hero, event.clientX);
     const slider = event.target.closest("[data-result-slider]");
     if (slider) finishResultSlideDrag(slider, event.clientX);
   });
   document.addEventListener("pointercancel", event => {
+    const hero = event.target.closest(".salon-hero");
+    if (hero?.dataset.dragStartX !== undefined) return finishSalonHeroDrag(hero, Number(hero.dataset.dragStartX));
     const slider = event.target.closest("[data-result-slider]");
     if (slider) finishResultSlideDrag(slider, Number(slider.dataset.dragStartX));
   });

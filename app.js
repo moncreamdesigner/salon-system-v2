@@ -259,6 +259,7 @@ state.homepageSettings = {
   salons: { ...(state.homepageSettings?.salons || {}) },
   results: { ...structuredClone(defaultState.homepageSettings.results), ...(state.homepageSettings?.results || {}) }
 };
+stripLegacyEmbeddedImages(state);
 localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
 state.diagnosisTypes = Array.isArray(state.diagnosisTypes) && state.diagnosisTypes.length ? state.diagnosisTypes : [...defaultState.diagnosisTypes];
 normalizeStoredNames();
@@ -632,6 +633,35 @@ function saveState() {
   queueServerStateSave();
 }
 
+function stripLegacyEmbeddedImages(targetState = {}) {
+  const arrayKeys = new Set(["gallery", "images", "generalPhotos", "scopePhotos"]);
+  const valueKeys = new Set(["coverImage", "beforeImage", "afterImage"]);
+  let removed = 0;
+  const isEmbeddedImage = value => typeof value === "string" && /^data:image\//i.test(value.trim());
+  const walk = value => {
+    if (!value || typeof value !== "object") return;
+    Object.entries(value).forEach(([key, item]) => {
+      if (arrayKeys.has(key) && Array.isArray(item)) {
+        value[key] = item.map(entry => {
+          if (!isEmbeddedImage(entry)) return entry;
+          removed += 1;
+          return "";
+        });
+        if (key === "gallery") value[key] = value[key].filter(Boolean);
+        return;
+      }
+      if (valueKeys.has(key) && isEmbeddedImage(item)) {
+        value[key] = "";
+        removed += 1;
+        return;
+      }
+      walk(item);
+    });
+  };
+  walk(targetState);
+  return removed;
+}
+
 function serverStateData() {
   return {
     ...clearTransientState(state),
@@ -684,6 +714,7 @@ function applyServerData(data = {}) {
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
   const customerNamesChanged = normalizeCustomerNamesWithoutSurname(state);
+  const embeddedImagesRemoved = stripLegacyEmbeddedImages(state);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (storageError) {
@@ -704,7 +735,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged;
+  return customerNamesChanged || embeddedImagesRemoved > 0;
 }
 
 async function saveServerStateNow() {
@@ -6812,7 +6843,7 @@ function renderDiagnosisSummary(diagnosis) {
     ? types.map(type => `<span class="payment-history-chip">${type}</span>`).join("")
     : (note ? `<span class="payment-history-chip">${note}</span>` : `<span class="payment-history-chip">Онош сонгоогүй</span>`);
   const photoThumbs = (photos = [], label = "Оношилгооны зураг") => photos
-    .filter(photo => typeof photo === "string" && photo.startsWith("data:image/"))
+    .filter(photo => typeof photo === "string" && photo.trim())
     .map((photo, index) => `<button class="diagnosis-photo-thumb" type="button" aria-label="${label} ${index + 1} томоор харах"><img src="${photo}" alt="${label} ${index + 1}" loading="lazy"></button>`)
     .join("");
   const generalThumbs = photoThumbs(diagnosis.generalPhotos || [], "Үсний байрлал");
@@ -8034,13 +8065,22 @@ async function openDiagnosisCameraFullscreen(card, button) {
   const close = () => closeDiagnosisCameraOverlay();
   overlay.querySelector(".diagnosis-camera-close")?.addEventListener("click", close);
   overlay.querySelector(".diagnosis-camera-cancel")?.addEventListener("click", close);
-  overlay.querySelector(".diagnosis-camera-shoot")?.addEventListener("click", () => {
-    captureDiagnosisCamera(card, button, video);
-    close();
+  overlay.querySelector(".diagnosis-camera-shoot")?.addEventListener("click", async event => {
+    const shootButton = event.currentTarget;
+    shootButton.disabled = true;
+    shootButton.textContent = "Хадгалж байна...";
+    try {
+      await captureDiagnosisCamera(card, button, video);
+      close();
+    } catch (error) {
+      shootButton.disabled = false;
+      shootButton.textContent = "Зураг авах";
+      showToast(error.message || "Зураг хадгалагдсангүй");
+    }
   });
 }
 
-function captureDiagnosisCamera(card, button, sourceVideo = null) {
+async function captureDiagnosisCamera(card, button, sourceVideo = null) {
   const video = sourceVideo || card?.querySelector(".camera-video");
   const canvas = card?.querySelector(".camera-canvas");
   const label = card?.querySelector(".camera-preview-mini em");
@@ -8071,7 +8111,10 @@ function captureDiagnosisCamera(card, button, sourceVideo = null) {
     sy = (sourceHeight - sh) / 2;
   }
   if (config.mode !== "native") context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  button.dataset.photo = canvas.toDataURL("image/jpeg", config.quality);
+  const photoFile = await new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(new File([blob], `diagnosis-${Date.now()}.webp`, { type: "image/webp" })) : reject(new Error("Зураг бэлтгэгдсэнгүй")), "image/webp", config.quality);
+  });
+  button.dataset.photo = await uploadBranchImage(photoFile);
   card.classList.add("captured");
   card.classList.remove("legacy-photo");
   button.classList.add("active");
