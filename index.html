@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607191030">
+  <link rel="stylesheet" href="styles.css?v=202607191145">
 </head>
 <body>
   <div class="app-shell">
@@ -146,14 +146,14 @@
               <label>Утас<input class="input" id="branchPhone" inputmode="numeric" maxlength="8" required placeholder="80024373"></label>
               <label>Хаяг<input class="input" id="branchAddress" required placeholder="Салбарын дэлгэрэнгүй хаяг"></label>
               <label>Google Maps холбоос<input class="input" id="branchMapUrl" type="url" placeholder="https://maps.google.com/..."></label>
-              <label class="branch-media-field">Cover зураг
+              <div class="branch-media-field branch-form-field"><span class="branch-field-label">Cover зураг</span>
                 <span class="branch-upload-row"><input class="input" id="branchCoverImage" readonly placeholder="Cover зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="branchCoverUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
                 <span class="branch-media-preview" id="branchCoverPreview"></span>
-              </label>
-              <label class="branch-media-field">Slider зургууд
+              </div>
+              <div class="branch-media-field branch-form-field"><span class="branch-field-label">Slider зургууд</span>
                 <span class="branch-upload-row"><span class="branch-upload-note">Олон зураг сонгож болно.</span><label class="secondary-btn branch-file-btn">Зураг нэмэх<input id="branchGalleryUpload" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden></label></span>
                 <span class="branch-gallery-list" id="branchGalleryList"></span>
-              </label>
+              </div>
               <div class="form-actions">
                 <button class="primary-btn" type="submit" id="branchSubmit">Хадгалах</button>
               </div>
@@ -926,14 +926,14 @@
               <div class="homepage-form-head"><div><h2>Үр дүн нэмэх</h2><p>Хоёр зураг оруулна. Хэрэглэгчийн хуудсанд slider хэлбэрээр харагдана.</p></div></div>
               <label>Гарчиг<input class="input" id="homepageResultTitle" maxlength="140" required></label>
               <label>Үр дүнгийн хугацаа<input class="input" id="homepageResultDuration" maxlength="80" placeholder="3 сарын үр дүн"></label>
-              <label class="homepage-result-image-field">Эхний зураг
+              <div class="homepage-result-image-field"><span class="homepage-field-label">Эхний зураг</span>
                 <span class="branch-upload-row"><input class="input" id="homepageResultImageOne" readonly placeholder="Зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="homepageResultImageOneUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
                 <span class="branch-media-preview homepage-result-preview" id="homepageResultImageOnePreview"></span>
-              </label>
-              <label class="homepage-result-image-field">Хоёр дахь зураг
+              </div>
+              <div class="homepage-result-image-field"><span class="homepage-field-label">Хоёр дахь зураг</span>
                 <span class="branch-upload-row"><input class="input" id="homepageResultImageTwo" readonly placeholder="Зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="homepageResultImageTwoUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
                 <span class="branch-media-preview homepage-result-preview" id="homepageResultImageTwoPreview"></span>
-              </label>
+              </div>
               <label class="homepage-wide-field">Тайлбар<textarea class="input homepage-textarea small" id="homepageResultDescription"></textarea></label>
               <label class="homepage-wide-field">Web холбоос<input class="input" id="homepageResultWebUrl" type="text" inputmode="url" maxlength="500" placeholder="www.moncream.mn"></label>
               <label>Төлөв<select class="input" id="homepageResultPublished"><option value="true">Нийтэлсэн</option><option value="false">Нуусан</option></select></label>
