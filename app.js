@@ -20,6 +20,7 @@ let serverSaveTimer = null;
 let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
+let localStateMutationVersion = 0;
 
 const defaultState = {
   salons: [
@@ -612,6 +613,7 @@ function clearCustomerUiState(customer) {
 }
 
 function saveState() {
+  localStateMutationVersion += 1;
   const createdAt = auditNowText();
   state.audit.forEach(item => {
     if (!Object.prototype.hasOwnProperty.call(item, "createdAt")) item.createdAt = createdAt;
@@ -723,7 +725,10 @@ async function saveServerStateNow() {
 function queueServerStateSave(delay = 450) {
   if (!serverStorageReady) return;
   clearTimeout(serverSaveTimer);
-  serverSaveTimer = setTimeout(saveServerStateNow, delay);
+  serverSaveTimer = setTimeout(() => {
+    serverSaveTimer = null;
+    void saveServerStateNow();
+  }, delay);
 }
 
 function hideServerLogin() {
@@ -773,8 +778,9 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
   overlay.querySelector("#serverLoginMessage").textContent = message;
 }
 
-async function synchronizeServerState() {
+async function synchronizeServerState(expectedLocalVersion = null) {
   const remote = await serverApi("state.php");
+  if (expectedLocalVersion !== null && expectedLocalVersion !== localStateMutationVersion) return false;
   serverStorageRevision = Number(remote.revision || 0);
   if (remote.empty) {
     serverStorageReady = true;
@@ -826,10 +832,11 @@ const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers",
 
 async function refreshServerStateForView(viewName = activeView) {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return;
-  if (!serverStorageReady || serverRefreshInFlight || serverSaveInFlight || serverSavePending) return;
+  if (!serverStorageReady || serverRefreshInFlight || serverSaveTimer || serverSaveInFlight || serverSavePending) return;
+  const refreshVersion = localStateMutationVersion;
   serverRefreshInFlight = true;
   try {
-    const changed = await synchronizeServerState();
+    const changed = await synchronizeServerState(refreshVersion);
     if (!changed || activeView !== viewName) return;
     rerenderAll();
     if (activeView !== "performance") renderInfoHeader(activeView);
@@ -9327,7 +9334,8 @@ function renderHomepageSettings() {
   if (dragHintCss) dragHintCss.value = settings.catalog.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS;
   renderHomepageSalonSettings();
   renderHomepageResults();
-  setHomepageSettingsTab(activeHomepageSettingsTab);
+  document.getElementById("homepageCatalogPanel")?.classList.remove("hidden");
+  document.getElementById("homepageResultsPanel")?.classList.remove("hidden");
   enhanceNativeSelects(["homepageResultPublished", "homepageCatalogDragHintEnabled"]);
 }
 

@@ -21,6 +21,18 @@
   line-height: 0;
 }
 
+#flipOuter::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 112px;
+  background: #171514;
+  pointer-events: auto;
+}
+
 #flipOuter iframe {
   width: var(--flip-width,100%) !important;
   height: var(--flip-height,700px) !important;

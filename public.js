@@ -46,6 +46,8 @@ let selectedSalonId = null;
 let selectedDate = "";
 let selectedTime = "";
 let weekOffset = 0;
+let bookingSubmissionSucceeded = false;
+let publicToastTimer = null;
 let activeHeroSlide = 0;
 let heroTimer = null;
 
@@ -95,11 +97,17 @@ async function loadPublicData() {
   publicSettings = mergePublicSettings(publicState.homepageSettings);
 }
 
-function showPublicToast(message) {
+function showPublicToast(message, tone = "") {
   const toast = document.getElementById("publicToast");
+  if (!toast) return;
+  clearTimeout(publicToastTimer);
   toast.textContent = message;
+  toast.classList.toggle("success", tone === "success");
   toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 2200);
+  publicToastTimer = setTimeout(() => {
+    toast.classList.remove("show", "success");
+    publicToastTimer = null;
+  }, tone === "success" ? 3600 : 2600);
 }
 
 function setPublicView(name) {
@@ -237,6 +245,7 @@ function renderSalonDetail(salonId) {
   selectedDate = "";
   selectedTime = "";
   weekOffset = 0;
+  bookingSubmissionSucceeded = false;
   activeHeroSlide = 0;
   const config = salonConfig(salon);
   const weekdaySchedule = salonSchedule(salon, new Date(2026, 6, 13));
@@ -353,7 +362,7 @@ function renderBookingComposer(salon) {
     <section class="booking-card"><h3>ЦАГ СОНГОХ</h3>${!selectedDate ? '<div class="empty-public">Энэ долоо хоногт захиалах боломжтой өдөр алга.</div>' : holiday ? '<div class="empty-public">Энэ өдөр салбар амарна.</div>' : `<div class="time-grid">${times.map(time => `<button class="time-option ${selectedTime === time ? "active" : ""}" type="button" data-booking-time="${time}" ${timeDisabled(time) ? "disabled" : ""}>${time}</button>`).join("")}</div>`}</section>
     <section class="booking-card"><h3>УТАСНЫ ДУГААР</h3><input class="phone-input" id="publicBookingPhone" inputmode="numeric" maxlength="8" placeholder="XXXXXXXX"><p class="booking-help">Захиалга баталгаажуулахад бид тантай холбогдоно.</p></section>
     ${selectedDate ? `<div class="booking-summary">${selectedDateObject.getMonth() + 1}-р сарын ${selectedDateObject.getDate()}, ${mongolianDays[selectedDateObject.getDay()]}${selectedTime ? ` • ${selectedTime}` : ""}</div>` : ""}
-    <button class="booking-submit" id="publicBookingSubmit" type="button">Захиалга илгээх</button>`;
+    <button class="booking-submit${bookingSubmissionSucceeded ? " success" : ""}" id="publicBookingSubmit" type="button" ${bookingSubmissionSucceeded ? "disabled" : ""}>${bookingSubmissionSucceeded ? "Амжилттай" : "Захиалга илгээх"}</button>`;
 }
 
 async function submitPublicBooking() {
@@ -382,9 +391,9 @@ async function submitPublicBooking() {
     } catch (storageError) {}
   }
   if (!(publicState.bookings || []).some(item => Number(item.id) === Number(booking.id))) publicState.bookings.unshift(booking);
-  selectedTime = "";
+  bookingSubmissionSucceeded = true;
   renderBookingComposer(salon);
-  showPublicToast("Захиалга хүлээгдэж буй төлөвтэй бүртгэгдлээ");
+  showPublicToast("Захиалга амжилттай илгээгдлээ", "success");
 }
 
 function resultPosts() {
@@ -457,11 +466,11 @@ function bindPublicEvents() {
     if (salon) return renderSalonDetail(salon.dataset.salonOpen);
     if (event.target.closest("#salonBack")) return renderSalonDirectory();
     const week = event.target.closest("[data-week]");
-    if (week) { weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (week) { weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     const date = event.target.closest("[data-booking-date]");
-    if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; bookingSubmissionSucceeded = false; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     const time = event.target.closest("[data-booking-time]");
-    if (time) { selectedTime = time.dataset.bookingTime; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (time) { selectedTime = time.dataset.bookingTime; bookingSubmissionSucceeded = false; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     if (event.target.closest("#publicBookingSubmit")) return submitPublicBooking();
     const resultSlideControl = event.target.closest("[data-result-slide-action], [data-result-slide-to]");
     if (resultSlideControl) {
