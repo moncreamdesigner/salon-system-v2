@@ -276,6 +276,7 @@ button { cursor: pointer; }
 }
 
 @media (min-width: 960px) {
+  .salon-hero-slide img { object-position: center 65%; }
   .salon-detail-body { width: min(100%, 920px); }
   .salon-contact-list {
     grid-template-columns: 1.25fr .72fr 1.45fr 1.15fr;
