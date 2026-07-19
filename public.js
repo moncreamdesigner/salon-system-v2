@@ -430,6 +430,8 @@ function safeResultRichText(value = "") {
     if (["SCRIPT", "STYLE", "IFRAME", "OBJECT"].includes(tag)) return element.remove();
     const color = String(tag === "FONT" ? element.getAttribute("color") || "" : element.style.color || "").trim();
     const safeColor = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{3,20})$/i.test(color) ? color : "";
+    const bold = /^(bold|[6-9]00)$/i.test(String(element.style.fontWeight || ""));
+    const italic = String(element.style.fontStyle || "").toLowerCase() === "italic";
     if (tag === "FONT") {
       const span = document.createElement("span");
       if (safeColor) span.style.color = safeColor;
@@ -439,6 +441,16 @@ function safeResultRichText(value = "") {
     if (!allowed.has(tag)) return element.replaceWith(...element.childNodes);
     [...element.attributes].forEach(attribute => element.removeAttribute(attribute.name));
     if (tag === "SPAN" && safeColor) element.style.color = safeColor;
+    if (bold && !["B", "STRONG"].includes(tag)) {
+      const strong = document.createElement("strong");
+      strong.append(...element.childNodes);
+      element.append(strong);
+    }
+    if (italic && !["I", "EM"].includes(tag)) {
+      const emphasis = document.createElement("em");
+      emphasis.append(...element.childNodes);
+      element.append(emphasis);
+    }
   });
   return template.innerHTML.trim();
 }

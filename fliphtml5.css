@@ -5,6 +5,18 @@
   box-shadow: none;
 }
 
+.public-app.catalog-mode::after {
+  content: "";
+  position: fixed;
+  z-index: 9000;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 118px;
+  background: #171514;
+  pointer-events: auto;
+}
+
 .catalog-mode .public-logo-head { display: none; }
 .catalog-mode #catalogView,
 .catalog-stage { min-height: 700px; padding: 0; background: #171514; }

@@ -4183,6 +4183,10 @@ tr:last-child td {
   font-weight: 700;
 }
 
+.status-text.gray {
+  color: #8b908b;
+}
+
 .status-text.inactive,
 .status-text.red {
   color: #d40020;

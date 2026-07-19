@@ -2743,7 +2743,7 @@ function bookingStatusText(status) {
 
 function bookingStatusTone(status) {
   if (status === "confirmed") return "green";
-  if (status === "rejected") return "red";
+  if (status === "rejected") return "gray";
   return "pink";
 }
 
@@ -8882,6 +8882,8 @@ function renderBookings() {
     .filter(b => status === "all" || b.status === status)
     .slice()
     .sort((a, b) => {
+      const pendingOrder = Number(b.status === "pending") - Number(a.status === "pending");
+      if (pendingOrder) return pendingOrder;
       const dateTimeOrder = `${b.date || ""} ${b.time || ""}`.localeCompare(`${a.date || ""} ${a.time || ""}`);
       return dateTimeOrder || Number(b.id || 0) - Number(a.id || 0);
     });
@@ -9321,6 +9323,8 @@ function sanitizeHomepageRichText(value = "") {
       return;
     }
     const color = safeRichTextColor(tag === "FONT" ? element.getAttribute("color") : element.style.color);
+    const bold = /^(bold|[6-9]00)$/i.test(String(element.style.fontWeight || ""));
+    const italic = String(element.style.fontStyle || "").toLowerCase() === "italic";
     if (tag === "FONT") {
       const span = document.createElement("span");
       if (color) span.style.color = color;
@@ -9334,6 +9338,16 @@ function sanitizeHomepageRichText(value = "") {
     }
     [...element.attributes].forEach(attribute => element.removeAttribute(attribute.name));
     if (tag === "SPAN" && color) element.style.color = color;
+    if (bold && !["B", "STRONG"].includes(tag)) {
+      const strong = document.createElement("strong");
+      strong.append(...element.childNodes);
+      element.append(strong);
+    }
+    if (italic && !["I", "EM"].includes(tag)) {
+      const emphasis = document.createElement("em");
+      emphasis.append(...element.childNodes);
+      element.append(emphasis);
+    }
   });
   return template.innerHTML.trim();
 }
@@ -9368,6 +9382,7 @@ function applyHomepageResultEditorCommand(command, value = null) {
     selection.removeAllRanges();
     selection.addRange(homepageResultEditorRange);
   }
+  document.execCommand("styleWithCSS", false, false);
   document.execCommand(command, false, value);
   captureHomepageResultEditorRange();
 }
