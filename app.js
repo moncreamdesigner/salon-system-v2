@@ -335,6 +335,7 @@ let activeProductGroup = "gift";
 let activeDatabaseTab = "import";
 let activeHomepageSettingsTab = "catalog";
 let homepageResultEditingId = null;
+let homepageResultEditorRange = null;
 let serviceEditingRef = null;
 let customerPage = 1;
 let holidayEditingId = null;
@@ -618,7 +619,12 @@ function saveState() {
   state.audit.forEach(item => {
     if (!Object.prototype.hasOwnProperty.call(item, "createdAt")) item.createdAt = createdAt;
   });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+  } catch (error) {
+    console.warn("Local storage save skipped", error);
+    if (["127.0.0.1", "localhost"].includes(window.location.hostname)) showToast("Browser-ийн хадгалах зай дүүрсэн байна");
+  }
   queueServerStateSave();
 }
 
@@ -3961,13 +3967,13 @@ function compressBranchImage(file) {
       const image = new Image();
       image.onerror = () => reject(new Error("Зургийн файл буруу байна"));
       image.onload = () => {
-        const maxSide = 1800;
+        const maxSide = 1600;
         const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
         canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/webp", 0.84));
+        resolve(canvas.toDataURL("image/webp", 0.82));
       };
       image.src = reader.result;
     };
@@ -3978,7 +3984,20 @@ function compressBranchImage(file) {
 async function uploadBranchImage(file) {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
   if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
-  return compressBranchImage(file);
+  const compressed = await compressBranchImage(file);
+  if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return compressed;
+  const blob = await fetch(compressed).then(response => response.blob());
+  const form = new FormData();
+  form.append("image", blob, `${Date.now()}.webp`);
+  const response = await fetch("api/upload.php", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-Requested-With": "KhalgaiSalon" },
+    body: form
+  });
+  const result = await response.json().catch(() => ({ ok: false, message: "Зураг upload хийсэнгүй" }));
+  if (!response.ok || !result.ok || !result.url) throw new Error(result.message || "Зураг upload хийсэнгүй");
+  return result.url;
 }
 
 function renderBranches() {
@@ -9286,13 +9305,83 @@ function renderHomepageResultImageDraft() {
   });
 }
 
+function safeRichTextColor(value = "") {
+  const color = String(value || "").trim();
+  return /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{3,20})$/i.test(color) ? color : "";
+}
+
+function sanitizeHomepageRichText(value = "") {
+  const template = document.createElement("template");
+  template.innerHTML = String(value || "");
+  const allowed = new Set(["B", "STRONG", "I", "EM", "UL", "OL", "LI", "P", "DIV", "BR", "SPAN"]);
+  [...template.content.querySelectorAll("*")].reverse().forEach(element => {
+    const tag = element.tagName;
+    if (["SCRIPT", "STYLE", "IFRAME", "OBJECT"].includes(tag)) {
+      element.remove();
+      return;
+    }
+    const color = safeRichTextColor(tag === "FONT" ? element.getAttribute("color") : element.style.color);
+    if (tag === "FONT") {
+      const span = document.createElement("span");
+      if (color) span.style.color = color;
+      span.append(...element.childNodes);
+      element.replaceWith(span);
+      return;
+    }
+    if (!allowed.has(tag)) {
+      element.replaceWith(...element.childNodes);
+      return;
+    }
+    [...element.attributes].forEach(attribute => element.removeAttribute(attribute.name));
+    if (tag === "SPAN" && color) element.style.color = color;
+  });
+  return template.innerHTML.trim();
+}
+
+function homepageRichTextPlain(value = "") {
+  const container = document.createElement("div");
+  container.innerHTML = value;
+  return String(container.textContent || "").trim();
+}
+
+function setHomepageResultDescription(value = "") {
+  const editor = document.getElementById("homepageResultDescription");
+  if (!editor) return;
+  editor.innerHTML = sanitizeHomepageRichText(value);
+  homepageResultEditorRange = null;
+}
+
+function captureHomepageResultEditorRange() {
+  const editor = document.getElementById("homepageResultDescription");
+  const selection = window.getSelection();
+  if (!editor || !selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (editor.contains(range.commonAncestorContainer)) homepageResultEditorRange = range.cloneRange();
+}
+
+function applyHomepageResultEditorCommand(command, value = null) {
+  const editor = document.getElementById("homepageResultDescription");
+  if (!editor) return;
+  editor.focus();
+  if (homepageResultEditorRange) {
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(homepageResultEditorRange);
+  }
+  document.execCommand(command, false, value);
+  captureHomepageResultEditorRange();
+}
+
 function resetHomepageResultForm() {
   homepageResultEditingId = null;
   document.getElementById("homepageResultForm")?.reset();
   ["homepageResultImageOne", "homepageResultImageTwo"].forEach(id => { const field = document.getElementById(id); if (field) field.value = ""; });
+  setHomepageResultDescription("");
   renderHomepageResultImageDraft();
   const published = document.getElementById("homepageResultPublished");
   if (published) published.value = "true";
+  const textColor = document.getElementById("homepageResultTextColor");
+  if (textColor) textColor.value = "#666666";
   document.getElementById("homepageResultSubmit").textContent = "Нэмэх";
   document.getElementById("homepageResultCancel").classList.add("hidden");
   enhanceNativeSelects(["homepageResultPublished"]);
@@ -9390,13 +9479,15 @@ function saveHomepageResult(event) {
   const images = [formValue("homepageResultImageOne"), formValue("homepageResultImageTwo")];
   const rawWebUrl = formValue("homepageResultWebUrl");
   const webUrl = normalizeExternalUrl(rawWebUrl);
+  const descriptionHtml = sanitizeHomepageRichText(document.getElementById("homepageResultDescription")?.innerHTML || "");
   const payload = {
     title: formValue("homepageResultTitle"),
     duration: formValue("homepageResultDuration"),
     images,
     beforeImage: images[0],
     afterImage: images[1],
-    description: formValue("homepageResultDescription"),
+    description: homepageRichTextPlain(descriptionHtml),
+    descriptionHtml,
     webUrl,
     published: document.getElementById("homepageResultPublished")?.value !== "false"
   };
@@ -9426,7 +9517,7 @@ function editHomepageResult(id) {
   document.getElementById("homepageResultDuration").value = post.duration || "";
   document.getElementById("homepageResultImageOne").value = images[0];
   document.getElementById("homepageResultImageTwo").value = images[1];
-  document.getElementById("homepageResultDescription").value = post.description || "";
+  setHomepageResultDescription(post.descriptionHtml || htmlSafe(post.description || "").replace(/\n/g, "<br>"));
   document.getElementById("homepageResultWebUrl").value = post.webUrl || "";
   document.getElementById("homepageResultPublished").value = String(post.published !== false);
   renderHomepageResultImageDraft();
@@ -10837,6 +10928,15 @@ function bindEvents() {
   document.getElementById("homepageSalonForm")?.addEventListener("submit", saveHomepageSalons);
   document.getElementById("homepageResultForm")?.addEventListener("submit", saveHomepageResult);
   document.getElementById("homepageResultCancel")?.addEventListener("click", resetHomepageResultForm);
+  const resultEditor = document.getElementById("homepageResultDescription");
+  ["keyup", "mouseup", "input", "focus"].forEach(name => resultEditor?.addEventListener(name, captureHomepageResultEditorRange));
+  document.querySelectorAll("[data-result-editor-command]").forEach(button => {
+    button.addEventListener("mousedown", event => event.preventDefault());
+    button.addEventListener("click", () => applyHomepageResultEditorCommand(button.dataset.resultEditorCommand));
+  });
+  document.getElementById("homepageResultTextColor")?.addEventListener("change", event => {
+    applyHomepageResultEditorCommand("foreColor", event.target.value);
+  });
   [["homepageResultImageOneUpload", "homepageResultImageOne"], ["homepageResultImageTwoUpload", "homepageResultImageTwo"]].forEach(([uploadId, valueId]) => {
     document.getElementById(uploadId)?.addEventListener("change", async event => {
       const file = event.target.files?.[0];

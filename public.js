@@ -421,6 +421,28 @@ function resultWebUrl(value) {
   }
 }
 
+function safeResultRichText(value = "") {
+  const template = document.createElement("template");
+  template.innerHTML = String(value || "");
+  const allowed = new Set(["B", "STRONG", "I", "EM", "UL", "OL", "LI", "P", "DIV", "BR", "SPAN"]);
+  [...template.content.querySelectorAll("*")].reverse().forEach(element => {
+    const tag = element.tagName;
+    if (["SCRIPT", "STYLE", "IFRAME", "OBJECT"].includes(tag)) return element.remove();
+    const color = String(tag === "FONT" ? element.getAttribute("color") || "" : element.style.color || "").trim();
+    const safeColor = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{3,20})$/i.test(color) ? color : "";
+    if (tag === "FONT") {
+      const span = document.createElement("span");
+      if (safeColor) span.style.color = safeColor;
+      span.append(...element.childNodes);
+      return element.replaceWith(span);
+    }
+    if (!allowed.has(tag)) return element.replaceWith(...element.childNodes);
+    [...element.attributes].forEach(attribute => element.removeAttribute(attribute.name));
+    if (tag === "SPAN" && safeColor) element.style.color = safeColor;
+  });
+  return template.innerHTML.trim();
+}
+
 function renderResults() {
   document.getElementById("resultFeed").innerHTML = resultPosts().map(post => {
     const images = resultImages(post);
@@ -432,7 +454,7 @@ function renderResults() {
         <button class="result-slide-arrow previous" type="button" data-result-slide-action="previous" aria-label="Өмнөх зураг"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button>
         <button class="result-slide-arrow next" type="button" data-result-slide-action="next" aria-label="Дараагийн зураг"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
       </div>
-      <div class="result-card-copy"><p>${safeText(post.description || "")}</p>${webUrl ? `<a class="result-web-link" href="${safeText(webUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Бүтээгдэхүүний дэлгэрэнгүй холбоос"><img src="assets/icon-market.svg?v=202607191030" alt=""><span>${safeText(webUrl.replace(/^https?:\/\//i, "").replace(/\/$/, ""))}</span></a>` : ""}</div>
+      <div class="result-card-copy"><div class="result-description">${post.descriptionHtml ? safeResultRichText(post.descriptionHtml) : safeText(post.description || "")}</div>${webUrl ? `<a class="result-web-link" href="${safeText(webUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Бүтээгдэхүүний дэлгэрэнгүй холбоос"><img src="assets/icon-market.svg?v=202607191030" alt=""><span>${safeText(webUrl.replace(/^https?:\/\//i, "").replace(/\/$/, ""))}</span></a>` : ""}</div>
     </article>`;
   }).join("") || '<div class="empty-public">Үр дүн оруулаагүй байна.</div>';
 }

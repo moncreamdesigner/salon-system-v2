@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607202145">
+  <link rel="stylesheet" href="styles.css?v=202607202330">
 </head>
 <body>
   <div class="app-shell">
@@ -934,7 +934,17 @@
                 <span class="branch-upload-row"><input class="input" id="homepageResultImageTwo" readonly placeholder="Зураг сонгоогүй"><label class="secondary-btn branch-file-btn">Зураг сонгох<input id="homepageResultImageTwoUpload" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></span>
                 <span class="branch-media-preview homepage-result-preview" id="homepageResultImageTwoPreview"></span>
               </div>
-              <label class="homepage-wide-field">Тайлбар<textarea class="input homepage-textarea small" id="homepageResultDescription"></textarea></label>
+              <div class="homepage-wide-field homepage-rich-field">
+                <span class="homepage-field-label">Тайлбар</span>
+                <div class="homepage-rich-toolbar" role="toolbar" aria-label="Тайлбарын формат">
+                  <button type="button" data-result-editor-command="bold" aria-label="Тод болгох" title="Тод"><strong>B</strong></button>
+                  <button type="button" data-result-editor-command="italic" aria-label="Налуу болгох" title="Налуу"><em>I</em></button>
+                  <button type="button" data-result-editor-command="insertUnorderedList" aria-label="Bullet жагсаалт" title="Bullet жагсаалт">• Жагсаалт</button>
+                  <label class="homepage-rich-color" title="Текстийн өнгө"><span>Өнгө</span><input id="homepageResultTextColor" type="color" value="#666666" aria-label="Текстийн өнгө"></label>
+                  <button type="button" data-result-editor-command="removeFormat" aria-label="Формат арилгах" title="Формат арилгах">Формат арилгах</button>
+                </div>
+                <div class="homepage-rich-editor" id="homepageResultDescription" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Үр дүнгийн тайлбар бичнэ үү"></div>
+              </div>
               <label class="homepage-wide-field">Web холбоос<input class="input" id="homepageResultWebUrl" type="text" inputmode="url" maxlength="500" placeholder="www.moncream.mn"></label>
               <div class="homepage-result-publish-row homepage-wide-field">
                 <label>Төлөв<select class="input" id="homepageResultPublished"><option value="true">Нийтэлсэн</option><option value="false">Нуусан</option></select></label>
@@ -1189,7 +1199,7 @@
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
   <script src="fliphtml5.js?v=202607201730"></script>
-  <script src="app.js?v=202607202145"></script>
+  <script src="app.js?v=202607202330"></script>
 </body>
 </html>
 
