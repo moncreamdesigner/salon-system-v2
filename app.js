@@ -238,7 +238,7 @@ state.homepageSettings = {
     const stored = state.homepageSettings?.catalog || {};
     const legacyCode = String(stored.flipHtml5Code || stored.customViewerHtml || "");
     return {
-      flipHtml5Code: /\[fliph5\s/i.test(legacyCode) ? legacyCode : DEFAULT_CATALOG_VIEWER_HTML,
+      flipHtml5Code: (legacyCode && legacyCode.trim()) ? legacyCode : DEFAULT_CATALOG_VIEWER_HTML,
       dragHintEnabled: stored.dragHintEnabled !== false,
       dragHintHtml: stored.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
       dragHintCss: stored.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS
@@ -9183,7 +9183,7 @@ function homepageSettings() {
     ...structuredClone(defaultState.homepageSettings),
     ...(state.homepageSettings || {}),
     catalog: {
-      flipHtml5Code: /\[fliph5\s/i.test(storedFlipCode) ? storedFlipCode : DEFAULT_CATALOG_VIEWER_HTML,
+      flipHtml5Code: (storedFlipCode && storedFlipCode.trim()) ? storedFlipCode : DEFAULT_CATALOG_VIEWER_HTML,
       dragHintEnabled: storedCatalog.dragHintEnabled !== false,
       dragHintHtml: storedCatalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
       dragHintCss: storedHintCss
