@@ -3126,6 +3126,7 @@ input[type="date"].input {
 .branch-media-preview button,
 .branch-gallery-item button { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.94); color: #d44; }
 .branch-form-grid .form-actions { grid-column: 1 / -1; }
+.branch-form-cancel { width: 40px; min-width: 40px; padding: 0; font-size: 17px; }
 
 @media (max-width: 1100px) {
   .branch-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

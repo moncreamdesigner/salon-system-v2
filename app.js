@@ -4068,6 +4068,7 @@ function renderBranches() {
 
 function openBranchForm(id) {
   const branch = state.salons.find(item => Number(item.id) === Number(id));
+  if (branch && !requireEditCode()) return;
   branchEditingId = branch ? branch.id : null;
   ensureBranchStatusField();
   document.getElementById("branchSubmit").textContent = branch ? "Хадгалах" : "Хадгалах";
@@ -4082,6 +4083,7 @@ function openBranchForm(id) {
   document.querySelector(".branch-status-field")?.classList.toggle("hidden", !branch);
   const status = document.getElementById("branchStatus");
   if (status) status.value = branch?.active === false ? "inactive" : "active";
+  document.getElementById("branchCancel")?.classList.toggle("hidden", !branch);
   document.getElementById("branchForm")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -4091,6 +4093,7 @@ function closeBranchForm() {
   branchGalleryDraft = [];
   renderBranchMediaDraft();
   document.querySelector(".branch-status-field")?.classList.add("hidden");
+  document.getElementById("branchCancel")?.classList.add("hidden");
 }
 
 function closeHolidayForm() {
@@ -10890,6 +10893,7 @@ function bindEvents() {
   });
 
   document.getElementById("branchForm")?.addEventListener("submit", saveBranch);
+  document.getElementById("branchCancel")?.addEventListener("click", closeBranchForm);
   document.getElementById("branchPageSettingsForm")?.addEventListener("submit", saveBranchPageSettings);
   document.getElementById("branchPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
