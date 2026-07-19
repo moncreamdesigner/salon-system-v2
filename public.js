@@ -393,7 +393,6 @@ async function submitPublicBooking() {
   if (!(publicState.bookings || []).some(item => Number(item.id) === Number(booking.id))) publicState.bookings.unshift(booking);
   bookingSubmissionSucceeded = true;
   renderBookingComposer(salon);
-  showPublicToast("Захиалга амжилттай илгээгдлээ", "success");
 }
 
 function resultPosts() {

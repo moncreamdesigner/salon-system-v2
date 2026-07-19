@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607201730">
+  <link rel="stylesheet" href="styles.css?v=202607202145">
 </head>
 <body>
   <div class="app-shell">
@@ -936,8 +936,10 @@
               </div>
               <label class="homepage-wide-field">Тайлбар<textarea class="input homepage-textarea small" id="homepageResultDescription"></textarea></label>
               <label class="homepage-wide-field">Web холбоос<input class="input" id="homepageResultWebUrl" type="text" inputmode="url" maxlength="500" placeholder="www.moncream.mn"></label>
-              <label>Төлөв<select class="input" id="homepageResultPublished"><option value="true">Нийтэлсэн</option><option value="false">Нуусан</option></select></label>
-              <div class="homepage-result-actions"><button class="primary-btn" id="homepageResultSubmit" type="submit">Нэмэх</button><button class="secondary-btn hidden" id="homepageResultCancel" type="button">Болих</button></div>
+              <div class="homepage-result-publish-row homepage-wide-field">
+                <label>Төлөв<select class="input" id="homepageResultPublished"><option value="true">Нийтэлсэн</option><option value="false">Нуусан</option></select></label>
+                <div class="homepage-result-actions"><button class="primary-btn" id="homepageResultSubmit" type="submit">Нэмэх</button><button class="secondary-btn hidden" id="homepageResultCancel" type="button">Болих</button></div>
+              </div>
             </form>
             <div class="homepage-result-list" id="homepageResultList"></div>
           </div>
@@ -1187,7 +1189,7 @@
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
   <script src="fliphtml5.js?v=202607201730"></script>
-  <script src="app.js?v=202607202030"></script>
+  <script src="app.js?v=202607202145"></script>
 </body>
 </html>
 

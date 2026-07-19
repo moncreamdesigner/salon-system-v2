@@ -9307,6 +9307,12 @@ function renderHomepageResults() {
     <span>${htmlSafe([post.duration, post.published === false ? "Нуусан" : "Нийтэлсэн"].filter(Boolean).join(" • "))}</span>
     <div class="table-actions"><button class="secondary-btn icon-action" type="button" data-homepage-result-edit="${post.id}" aria-label="Үр дүн засах" title="Засах">${editIcon()}</button><button class="danger-btn icon-danger" type="button" data-homepage-result-delete="${post.id}" aria-label="Үр дүн устгах">${trashIcon()}</button></div>
   </article>`).join("") || `<div class="empty-state">Үр дүн оруулаагүй байна</div>`;
+  list.querySelectorAll("[data-homepage-result-edit]").forEach(button => {
+    button.addEventListener("click", () => editHomepageResult(button.dataset.homepageResultEdit));
+  });
+  list.querySelectorAll("[data-homepage-result-delete]").forEach(button => {
+    button.addEventListener("click", () => deleteHomepageResult(button.dataset.homepageResultDelete));
+  });
 }
 
 function resetHomepageCatalogCodeFields() {
@@ -9428,6 +9434,19 @@ function editHomepageResult(id) {
   document.getElementById("homepageResultSubmit").textContent = "Хадгалах";
   document.getElementById("homepageResultCancel").classList.remove("hidden");
   document.getElementById("homepageResultTitle").focus();
+}
+
+function deleteHomepageResult(id) {
+  if (!requireDeleteCode()) return;
+  const settings = homepageSettings();
+  const previousLength = settings.results.posts.length;
+  settings.results.posts = settings.results.posts.filter(item => Number(item.id) !== Number(id));
+  if (settings.results.posts.length === previousLength) return showToast("Устгах үр дүн олдсонгүй");
+  if (Number(homepageResultEditingId) === Number(id)) resetHomepageResultForm();
+  saveState();
+  renderHomepageResults();
+  renderInfoHeader(activeView);
+  showToast("Үр дүн устлаа");
 }
 
 function databaseBackups() {
@@ -10831,19 +10850,6 @@ function bindEvents() {
       }
       event.target.value = "";
     });
-  });
-  document.getElementById("homepageResultList")?.addEventListener("click", event => {
-    const editButton = event.target.closest("[data-homepage-result-edit]");
-    const deleteButton = event.target.closest("[data-homepage-result-delete]");
-    if (editButton) editHomepageResult(editButton.dataset.homepageResultEdit);
-    if (deleteButton) {
-      if (!requireDeleteCode()) return;
-      homepageSettings().results.posts = homepageSettings().results.posts.filter(item => Number(item.id) !== Number(deleteButton.dataset.homepageResultDelete));
-      saveState();
-      renderHomepageResults();
-      renderInfoHeader(activeView);
-      showToast("Үр дүн устлаа");
-    }
   });
   document.getElementById("diagnosisCaptureMode")?.addEventListener("change", toggleDiagnosisCaptureSizeSetting);
   document.getElementById("diagnosisTypeForm")?.addEventListener("submit", saveDiagnosisType);

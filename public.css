@@ -114,7 +114,7 @@ button { cursor: pointer; }
 .salon-slide-media .salon-cover-placeholder { width: 62%; height: auto; object-fit: contain; opacity: .72; }
 .salon-slide-content { padding: 20px 4px 2px; text-align: left; }
 .salon-slide-headline { margin: 0; font-family: "Montserrat", sans-serif; color: #202220; font-size: 13px; font-weight: 500; line-height: 1.5; text-transform: uppercase; }
-.salon-slide-name { margin: 9px 0 0; font-family: "Philosopher", serif; color: var(--green-dark); font-size: 30px; font-weight: 700; letter-spacing: 0; line-height: 1.08; text-transform: uppercase; }
+.salon-slide-name { margin: 9px 0 0; font-family: "Philosopher", serif; color: var(--green-dark); font-size: 25px; font-weight: 700; letter-spacing: 0; line-height: 1.08; text-transform: uppercase; }
 .salon-slide-more { min-height: 43px; display: block; margin: 17px 0 0 auto; padding: 0 22px; border: 0; border-radius: 22px; background: var(--green); color: #fff; font-size: 12px; font-weight: 600; }
 .salon-slide-more span { margin-left: 5px; }
 .salon-slider-dots { min-height: 26px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 18px; }
@@ -134,7 +134,7 @@ button { cursor: pointer; }
 .salon-cover img, .salon-hero-slide img { width: 100%; height: 100%; object-fit: cover; }
 .salon-cover-placeholder { width: 56%; opacity: .7; }
 .salon-hero-slide .salon-cover-placeholder { width:56%; height:auto; object-fit:contain; opacity:.72; }
-.salon-detail-title { margin: 6px 0 9px; font-family: "Philosopher", serif; color: var(--green-dark); font-size: 30px; font-weight: 700; line-height: 1.1; text-transform: uppercase; }
+.salon-detail-title { margin: 6px 0 9px; font-family: "Philosopher", serif; color: var(--green-dark); font-size: 25px; font-weight: 700; line-height: 1.1; text-transform: uppercase; }
 
 .salon-detail-back { position: absolute; z-index: 5; top: 18px; left: 18px; width: 42px; height: 42px; display:grid; place-items:center; padding:0; border:1px solid rgba(120,164,80,.26); border-radius: 50%; background: rgba(255,255,255,.94); color: var(--green-dark); box-shadow:0 6px 18px rgba(42,57,33,.14); backdrop-filter:blur(7px); }
 .salon-detail-back svg { width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }

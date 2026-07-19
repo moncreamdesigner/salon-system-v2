@@ -4455,6 +4455,9 @@ tr:last-child td {
 .homepage-salon-title strong { display: block; color: var(--text); font-size: 13px; }
 .homepage-salon-title span { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
 .homepage-result-actions { min-height: 44px; display: flex; align-items: center; gap: 8px; }
+.homepage-result-publish-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.homepage-result-publish-row > label { min-width: 0; }
+.homepage-result-publish-row .homepage-result-actions { align-self: end; }
 .homepage-result-image-field { min-width: 0; display: grid; align-self: start; gap: 6px; }
 .homepage-result-preview { width: 132px; height: 96px; margin-top: 2px; }
 .homepage-result-toolbar { display: flex; align-items: end; gap: 10px; margin: 22px 0 8px; padding-top: 18px; border-top: 1px solid var(--line); }
