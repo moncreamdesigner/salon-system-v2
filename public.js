@@ -57,7 +57,7 @@ function mergePublicSettings(settings = {}) {
     ...structuredClone(publicDefaultSettings),
     ...structuredClone(settings || {}),
     catalog: {
-      flipHtml5Code: /\[fliph5\s/i.test(storedFlipCode) ? storedFlipCode : window.KhalgaiFlipHtml5.DEFAULT_CODE,
+      flipHtml5Code: (storedFlipCode && storedFlipCode.trim()) ? storedFlipCode : window.KhalgaiFlipHtml5.DEFAULT_CODE,
       dragHintEnabled: storedCatalog.dragHintEnabled !== false,
       dragHintHtml: storedCatalog.dragHintHtml || window.KhalgaiFlipHtml5.DEFAULT_HINT_HTML,
       dragHintCss: storedHintCss

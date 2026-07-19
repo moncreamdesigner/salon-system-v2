@@ -131,12 +131,32 @@ selector {
     return `<!doctype html><html><head><meta charset="utf-8"><base href="${baseUrl}"><style>html,body{width:100%;height:100%;margin:0;overflow:visible;background:transparent}body{display:flex;align-items:center;justify-content:center}.drag-hint-content{max-width:100%;max-height:100%}${css}</style></head><body><div class="drag-hint-content">${html}</div></body></html>`;
   }
 
+  function buildIframeHtml(config) {
+    return `<iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" width="${htmlSafe(config.width)}" height="${htmlSafe(config.height)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe>`;
+  }
+
+  // Хэрэглэгчийн оруулсан кодыг эх төрөлх байдлаар нь харуулна: [fliph5 ...] shortcode-ыг iframe-ээр орлуулж,
+  // <script ... embed.js></script>-г iframe-ээр орлуулна. Бусад HTML/CSS хэвээр үлдэнэ.
+  function transformCode(code, config) {
+    let output = String(code || "");
+    // 1) [fliph5 ...] shortcode → iframe
+    output = output.replace(/\[fliph5\s+[^\]]+\]/gi, buildIframeHtml(config));
+    // 2) <script src="...online.fliphtml5.com/ACCOUNT/BOOK/embed.js"></script> → iframe
+    output = output.replace(/<script[^>]*src=["']https?:\/\/online\.fliphtml5\.com\/[^"']*embed\.js["'][^>]*>\s*<\/script>/gi, buildIframeHtml(config));
+    // Хэрэв ямар ч тэмдэглэгээ илэрсэнгүй бөгөөд iframe ч байхгүй бол iframe-ийг нэмж өгнө
+    if (!/\[fliph5\s/i.test(String(code || "")) && !/online\.fliphtml5\.com\/[^"'\s]+\/[^"'\s]+\/embed\.js/i.test(String(code || "")) && !/<iframe[^>]*online\.fliphtml5\.com/i.test(output)) {
+      output += buildIframeHtml(config);
+    }
+    return output;
+  }
+
   function render(stage, catalog = {}) {
     if (!stage) return;
-    const code = String(catalog.flipHtml5Code || DEFAULT_CODE);
+    const rawCode = String(catalog.flipHtml5Code || "").trim();
+    const code = rawCode || DEFAULT_CODE;
     const config = flipConfig(code);
     const hint = catalog.dragHintEnabled === false ? "" : `<iframe class="catalog-drag-hint-frame" id="catalogDragHintFrame" title="Хуудсыг чирэх заавар" sandbox=""></iframe>`;
-    stage.innerHTML = `<div id="flipOuter" style="--flip-width:${htmlSafe(config.width)};--flip-height:${htmlSafe(config.height)}"><iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe></div>${hint}`;
+    stage.innerHTML = `${transformCode(code, config)}${hint}`;
     const hintFrame = document.getElementById("catalogDragHintFrame");
     if (hintFrame) hintFrame.srcdoc = hintDocument(catalog);
   }
