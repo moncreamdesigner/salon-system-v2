@@ -85,8 +85,33 @@ selector {
     return /^(?:\d+(?:\.\d+)?)(?:px|%|vh|vw|rem|em)$/.test(candidate) ? candidate : fallback;
   }
 
+  // FlipHTML5 short embed code: <script src="https://online.fliphtml5.com/ACCOUNT/BOOK/embed.js"></script>
+  function scriptEmbedAttributes(code) {
+    const match = String(code || "").match(/online\.fliphtml5\.com\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\/embed\.js/i);
+    if (!match) return null;
+    return { id: `${match[1]}#${match[2]}`, width: "100%", height: "700px", title: "Халгай клиник салон" };
+  }
+
+  // FlipHTML5 iframe embed: <iframe src="https://online.fliphtml5.com/ACCOUNT/BOOK/" ...></iframe>
+  function iframeEmbedAttributes(code) {
+    const match = String(code || "").match(/online\.fliphtml5\.com\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\//i);
+    if (!match) return null;
+    const heightMatch = String(code).match(/height=["']?([\d]+(?:px|%|vh)?)["']?/i);
+    const widthMatch = String(code).match(/width=["']?([\d]+(?:px|%|vw)?)["']?/i);
+    return {
+      id: `${match[1]}#${match[2]}`,
+      width: widthMatch ? widthMatch[1] : "100%",
+      height: heightMatch ? heightMatch[1] : "700px",
+      title: "Халгай клиник салон"
+    };
+  }
+
   function flipConfig(code) {
-    const attributes = shortcodeAttributes(code) || shortcodeAttributes(DEFAULT_CODE);
+    const attributes =
+      shortcodeAttributes(code) ||
+      scriptEmbedAttributes(code) ||
+      iframeEmbedAttributes(code) ||
+      shortcodeAttributes(DEFAULT_CODE);
     const id = String(attributes?.id || "tbyony#sieu");
     const [accountRaw, bookRaw] = id.split("#");
     const account = String(accountRaw || "tbyony").replace(/[^a-zA-Z0-9_-]/g, "") || "tbyony";
