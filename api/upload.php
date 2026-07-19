@@ -39,13 +39,25 @@ if (!isset($allowed[$mime])) {
     json_response(['ok' => false, 'message' => 'JPEG, PNG эсвэл WebP зураг сонгоно уу.'], 415);
 }
 
-$uploadRoot = realpath(__DIR__ . '/..');
-if ($uploadRoot === false) {
-    json_response(['ok' => false, 'message' => 'Хадгалах фолдер олдсонгүй.'], 500);
+$scope = (string)($_POST['scope'] ?? 'public');
+if (!in_array($scope, ['public', 'private'], true)) {
+    json_response(['ok' => false, 'message' => 'Зургийн хадгалалтын төрөл буруу байна.'], 422);
 }
-$uploadsDir = $uploadRoot . DIRECTORY_SEPARATOR . 'uploads';
-if (!is_dir($uploadsDir) && !@mkdir($uploadsDir, 0775, true) && !is_dir($uploadsDir)) {
-    json_response(['ok' => false, 'message' => 'Uploads фолдер үүсгэж чадсангүй.'], 500);
+
+$publicRoot = realpath(__DIR__ . '/..');
+if ($publicRoot === false) {
+    json_response(['ok' => false, 'message' => 'Системийн үндсэн фолдер олдсонгүй.'], 500);
+}
+$configuredStorage = trim((string)getenv('KHALGAI_MEDIA_STORAGE_DIR'));
+$storageRoot = $configuredStorage !== ''
+    ? rtrim($configuredStorage, DIRECTORY_SEPARATOR)
+    : dirname($publicRoot) . DIRECTORY_SEPARATOR . 'khalgai-media-storage';
+$uploadsDir = $storageRoot . DIRECTORY_SEPARATOR . $scope;
+if (!is_dir($uploadsDir) && !@mkdir($uploadsDir, 0750, true) && !is_dir($uploadsDir)) {
+    json_response(['ok' => false, 'message' => 'Deploy-оос тусдаа зургийн хадгалалт үүсгэж чадсангүй.'], 500);
+}
+if (!is_file($storageRoot . DIRECTORY_SEPARATOR . '.htaccess')) {
+    @file_put_contents($storageRoot . DIRECTORY_SEPARATOR . '.htaccess', "Require all denied\nDeny from all\n");
 }
 
 $extension = $allowed[$mime];
@@ -56,4 +68,5 @@ if (!@move_uploaded_file($tmpPath, $destination)) {
 }
 @chmod($destination, 0644);
 
-json_response(['ok' => true, 'url' => 'uploads/' . $basename, 'filename' => $basename, 'mime' => $mime, 'size' => filesize($destination) ?: 0]);
+$mediaUrl = 'api/media.php?scope=' . rawurlencode($scope) . '&file=' . rawurlencode($basename);
+json_response(['ok' => true, 'url' => $mediaUrl, 'filename' => $basename, 'scope' => $scope, 'mime' => $mime, 'size' => filesize($destination) ?: 0]);

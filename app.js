@@ -4016,7 +4016,7 @@ function compressBranchImage(file) {
   });
 }
 
-async function uploadBranchImage(file) {
+async function uploadBranchImage(file, scope = "public") {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
   if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
   const compressed = await compressBranchImage(file);
@@ -4024,6 +4024,7 @@ async function uploadBranchImage(file) {
   const blob = await fetch(compressed).then(response => response.blob());
   const form = new FormData();
   form.append("image", blob, `${Date.now()}.webp`);
+  form.append("scope", scope === "private" ? "private" : "public");
   const response = await fetch("api/upload.php", {
     method: "POST",
     credentials: "same-origin",
@@ -8114,7 +8115,7 @@ async function captureDiagnosisCamera(card, button, sourceVideo = null) {
   const photoFile = await new Promise((resolve, reject) => {
     canvas.toBlob(blob => blob ? resolve(new File([blob], `diagnosis-${Date.now()}.webp`, { type: "image/webp" })) : reject(new Error("Зураг бэлтгэгдсэнгүй")), "image/webp", config.quality);
   });
-  button.dataset.photo = await uploadBranchImage(photoFile);
+  button.dataset.photo = await uploadBranchImage(photoFile, "private");
   card.classList.add("captured");
   card.classList.remove("legacy-photo");
   button.classList.add("active");
