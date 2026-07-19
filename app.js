@@ -4398,7 +4398,10 @@ function renderHolidaySettings() {
     if (!dateInput.value) dateInput.value = todayText();
   }
   if (!list) return;
-  const holidays = [...state.holidays].sort((a, b) => `${a.date}${a.salon}`.localeCompare(`${b.date}${b.salon}`));
+  const holidays = state.holidays
+    .filter(holiday => canAccessSalon(holiday.salon))
+    .slice()
+    .sort((a, b) => `${a.date}${a.salon}`.localeCompare(`${b.date}${b.salon}`));
   list.innerHTML = holidays.map(holiday => `
     <div class="holiday-item">
       <div>
@@ -4422,7 +4425,7 @@ function renderHolidaySettings() {
 
 function editHoliday(id) {
   const holiday = state.holidays.find(item => Number(item.id) === Number(id));
-  if (!holiday) return;
+  if (!holiday || !canAccessSalon(holiday.salon)) return showToast("Өөр салбарын амралтын өдрийг засах эрхгүй");
   holidayEditingId = holiday.id;
   const dateInput = document.getElementById("holidayDate");
   const nameInput = document.getElementById("holidayName");
@@ -4502,6 +4505,10 @@ function saveHoliday(event) {
     showToast("Салбар сонгоно уу");
     return;
   }
+  if (selectedSalons.some(salon => !canAccessSalon(salon))) {
+    showToast("Зөвхөн өөрийн салбарын амралтын өдрийг тохируулна");
+    return;
+  }
   if (!date || !name) return;
   if (isPastDate(date)) {
     showToast("Өнгөрсөн өдөр амралт нэмэх боломжгүй");
@@ -4529,6 +4536,8 @@ function saveHoliday(event) {
 }
 
 function deleteHoliday(id) {
+  const holiday = state.holidays.find(item => Number(item.id) === Number(id));
+  if (!holiday || !canAccessSalon(holiday.salon)) return showToast("Өөр салбарын амралтын өдрийг устгах эрхгүй");
   if (!requireDeleteCode()) return;
   state.holidays = state.holidays.filter(item => Number(item.id) !== Number(id));
   state.audit.unshift({ title: "holiday_deleted", meta: "Менежер • амралтын өдөр устгасан" });
@@ -7732,6 +7741,7 @@ function bindInlinePaymentForms(customer) {
           time: currentTimeText(),
           customer: customer.name,
           phone: customer.phone,
+          roleId: role.id,
           roleName: role.name,
           rolePosition: role.position || "",
           amount,
@@ -9043,23 +9053,74 @@ function renderServices() {
   updateServiceTotal();
 }
 
+function voucherLogRoleKey(log = {}) {
+  if (log.roleId !== undefined && log.roleId !== null && String(log.roleId) !== "") {
+    return `id:${String(log.roleId)}`;
+  }
+  const snapshot = `${String(log.roleName || "").trim().toLowerCase()}\u0000${String(log.rolePosition || "").trim().toLowerCase()}`;
+  return `legacy:${encodeURIComponent(snapshot)}`;
+}
+
+function ensureVoucherLogRoleIds() {
+  let changed = false;
+  state.voucherLogs.forEach(log => {
+    if (log.roleId !== undefined && log.roleId !== null && String(log.roleId) !== "") return;
+    const role = state.voucherRoles.find(item =>
+      String(item.name || "").trim().toLowerCase() === String(log.roleName || "").trim().toLowerCase() &&
+      String(item.position || "").trim().toLowerCase() === String(log.rolePosition || "").trim().toLowerCase()
+    );
+    if (!role) return;
+    log.roleId = role.id;
+    changed = true;
+  });
+  return changed;
+}
+
+function voucherRoleFilterEntries() {
+  const entries = state.voucherRoles.map(role => ({
+    value: `id:${role.id}`,
+    label: `${role.name}${role.position ? ` · ${role.position}` : ""}`
+  }));
+  const seen = new Set(entries.map(entry => entry.value));
+  state.voucherLogs
+    .slice()
+    .sort((a, b) => `${b.date || ""}${b.time || ""}`.localeCompare(`${a.date || ""}${a.time || ""}`))
+    .forEach(log => {
+      const value = voucherLogRoleKey(log);
+      if (seen.has(value)) return;
+      const baseLabel = `${log.roleName || "Нэргүй эрх"}${log.rolePosition ? ` · ${log.rolePosition}` : ""}`;
+      entries.push({ value, label: `${baseLabel} · ${value.startsWith("id:") ? "Устгасан" : "Түүхэн"}` });
+      seen.add(value);
+    });
+  return entries;
+}
+
+function nextVoucherRoleId() {
+  const ids = [
+    ...state.voucherRoles.map(role => Number(role.id) || 0),
+    ...state.voucherLogs.map(log => Number(log.roleId) || 0)
+  ];
+  return Math.max(0, ...ids) + 1;
+}
+
 function renderVouchers() {
   const roleRows = document.getElementById("voucherRoleRows");
   const logRows = document.getElementById("voucherLogRows");
   const pagination = document.getElementById("voucherPagination");
   if (!roleRows || !logRows) return;
+  if (ensureVoucherLogRoleIds()) saveState();
   const roleSubmit = document.getElementById("voucherRoleSubmit");
   if (roleSubmit) roleSubmit.textContent = voucherRoleEditingId ? "Шинэчлэх" : "Нэмэх";
   const roleFilterSelect = document.getElementById("voucherRoleFilter");
   const selectedRoleFilter = roleFilterSelect?.value || "";
+  const roleFilterEntries = voucherRoleFilterEntries();
   if (roleFilterSelect) {
+    const validSelectedRoleFilter = roleFilterEntries.some(entry => entry.value === selectedRoleFilter) ? selectedRoleFilter : "";
     roleFilterSelect.innerHTML = `
       <option value="">Бүх роль</option>
-      ${state.voucherRoles.map(role => {
-        const label = `${role.name}${role.position ? ` · ${role.position}` : ""}`;
-        return `<option value="${role.id}" ${String(role.id) === String(selectedRoleFilter) ? "selected" : ""}>${label}</option>`;
-      }).join("")}
+      ${roleFilterEntries.map(entry => `<option value="${htmlSafe(entry.value)}" ${entry.value === validSelectedRoleFilter ? "selected" : ""}>${htmlSafe(entry.label)}</option>`).join("")}
     `;
+    roleFilterSelect.value = validSelectedRoleFilter;
     if (!roleFilterSelect.id) roleFilterSelect.id = "voucherRoleFilter";
     enhanceNativeSelects(["voucherRoleFilter"]);
   }
@@ -9081,14 +9142,11 @@ function renderVouchers() {
   const customerFilter = document.getElementById("voucherCustomerFilter")?.value.trim().toLowerCase() || "";
   const phoneFilter = document.getElementById("voucherPhoneFilter")?.value.trim() || "";
   const roleFilter = document.getElementById("voucherRoleFilter")?.value || "";
-  const roleFilterData = state.voucherRoles.find(role => String(role.id) === String(roleFilter));
-  const roleFilterName = roleFilterData?.name?.toLowerCase() || "";
-  const roleFilterPosition = roleFilterData?.position?.toLowerCase() || "";
   const logs = state.voucherLogs
     .filter(item => !dateFilter || item.date === dateFilter)
     .filter(item => !customerFilter || item.customer.toLowerCase().includes(customerFilter))
     .filter(item => !phoneFilter || item.phone.includes(phoneFilter))
-    .filter(item => !roleFilter || item.roleName.toLowerCase() === roleFilterName || item.rolePosition.toLowerCase() === roleFilterPosition)
+    .filter(item => !roleFilter || voucherLogRoleKey(item) === roleFilter)
     .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
   const pageSize = 100;
   const pageCount = Math.max(1, Math.ceil(logs.length / pageSize));
@@ -10998,7 +11056,7 @@ function bindEvents() {
       if (role) Object.assign(role, { name, position });
       voucherRoleEditingId = null;
     } else {
-      state.voucherRoles.unshift({ id: nextId(state.voucherRoles), name, position });
+      state.voucherRoles.unshift({ id: nextVoucherRoleId(), name, position });
     }
     saveState();
     event.target.reset();
