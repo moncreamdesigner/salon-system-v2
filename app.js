@@ -236,9 +236,15 @@ state.homepageSettings = {
   ...(state.homepageSettings || {}),
   catalog: (() => {
     const stored = state.homepageSettings?.catalog || {};
-    const legacyCode = String(stored.flipHtml5Code || stored.customViewerHtml || "");
+    const hasSavedCode = Object.prototype.hasOwnProperty.call(stored, "flipHtml5Code");
+    const hasLegacyCode = Object.prototype.hasOwnProperty.call(stored, "customViewerHtml");
+    const savedCode = hasSavedCode
+      ? String(stored.flipHtml5Code ?? "")
+      : hasLegacyCode
+        ? String(stored.customViewerHtml ?? "")
+        : DEFAULT_CATALOG_VIEWER_HTML;
     return {
-      flipHtml5Code: (legacyCode && legacyCode.trim()) ? legacyCode : DEFAULT_CATALOG_VIEWER_HTML,
+      flipHtml5Code: savedCode,
       dragHintEnabled: stored.dragHintEnabled !== false,
       dragHintHtml: stored.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
       dragHintCss: stored.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS
@@ -2705,7 +2711,7 @@ function bookingStatusText(status) {
 function bookingStatusTone(status) {
   if (status === "confirmed") return "green";
   if (status === "rejected") return "red";
-  return "pending";
+  return "pink";
 }
 
 function bookingStatusLabel(status) {
@@ -3937,23 +3943,13 @@ function compressBranchImage(file) {
 async function uploadBranchImage(file) {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
   if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
-  const offlineHost = !location.hostname || ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
-  if (offlineHost) return compressBranchImage(file);
-  try {
-    const body = new FormData();
-    body.append("image", file);
-    const response = await fetch(`${SERVER_API_BASE}/upload.php`, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "KhalgaiSalon" }, body });
-    const result = await response.json().catch(() => ({ ok: false }));
-    if (response.ok && result.ok && result.url) return result.url;
-    if (response.status === 401) throw new Error("Зураг оруулахын тулд системд нэвтэрсэн байх шаардлагатай");
-    if (result && result.message) throw new Error(result.message);
-    throw new Error("Зураг upload хийсэнгүй");
-  } catch (error) {
-    // Сүүлийн боломж — сервер амжилтгүй бол data URL хэлбэрээр state-д хадгална.
-    if (error && error.message && /нэвтэрсэн/.test(error.message)) throw error;
-    console.warn("uploadBranchImage fallback →", error);
-    return compressBranchImage(file);
-  }
+  if (["localhost", "127.0.0.1"].includes(location.hostname)) return compressBranchImage(file);
+  const body = new FormData();
+  body.append("image", file);
+  const response = await fetch(`${SERVER_API_BASE}/upload.php`, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "KhalgaiSalon" }, body });
+  const result = await response.json().catch(() => ({ ok: false }));
+  if (!response.ok || !result.ok) throw new Error(result.message || "Зураг upload хийсэнгүй");
+  return result.url;
 }
 
 function renderBranches() {
@@ -9187,13 +9183,19 @@ function deleteGiftCard(id) {
 
 function homepageSettings() {
   const storedCatalog = state.homepageSettings?.catalog || {};
-  const storedFlipCode = String(storedCatalog.flipHtml5Code || storedCatalog.customViewerHtml || "");
+  const hasStoredFlipCode = Object.prototype.hasOwnProperty.call(storedCatalog, "flipHtml5Code");
+  const hasLegacyFlipCode = Object.prototype.hasOwnProperty.call(storedCatalog, "customViewerHtml");
+  const storedFlipCode = hasStoredFlipCode
+    ? String(storedCatalog.flipHtml5Code ?? "")
+    : hasLegacyFlipCode
+      ? String(storedCatalog.customViewerHtml ?? "")
+      : DEFAULT_CATALOG_VIEWER_HTML;
   const storedHintCss = String(storedCatalog.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS).replace(/#(?:68bd63|7da64b|789f4a)/gi, "#78a450");
   state.homepageSettings = {
     ...structuredClone(defaultState.homepageSettings),
     ...(state.homepageSettings || {}),
     catalog: {
-      flipHtml5Code: (storedFlipCode && storedFlipCode.trim()) ? storedFlipCode : DEFAULT_CATALOG_VIEWER_HTML,
+      flipHtml5Code: storedFlipCode,
       dragHintEnabled: storedCatalog.dragHintEnabled !== false,
       dragHintHtml: storedCatalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
       dragHintCss: storedHintCss
@@ -9297,7 +9299,7 @@ function renderHomepageSettings() {
   const dragHintEnabled = document.getElementById("homepageCatalogDragHintEnabled");
   const dragHintHtml = document.getElementById("homepageCatalogDragHintHtml");
   const dragHintCss = document.getElementById("homepageCatalogDragHintCss");
-  if (viewerHtml) viewerHtml.value = settings.catalog.flipHtml5Code || DEFAULT_CATALOG_VIEWER_HTML;
+  if (viewerHtml) viewerHtml.value = settings.catalog.flipHtml5Code ?? DEFAULT_CATALOG_VIEWER_HTML;
   if (dragHintEnabled) dragHintEnabled.value = settings.catalog.dragHintEnabled === false ? "false" : "true";
   if (dragHintHtml) dragHintHtml.value = settings.catalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML;
   if (dragHintCss) dragHintCss.value = settings.catalog.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS;
@@ -9310,7 +9312,7 @@ function renderHomepageSettings() {
 function saveHomepageCatalog(event) {
   event.preventDefault();
   const settings = homepageSettings();
-  settings.catalog.flipHtml5Code = formValue("homepageCatalogViewerHtml") || DEFAULT_CATALOG_VIEWER_HTML;
+  settings.catalog.flipHtml5Code = formValue("homepageCatalogViewerHtml");
   settings.catalog.dragHintEnabled = formValue("homepageCatalogDragHintEnabled") !== "false";
   settings.catalog.dragHintHtml = formValue("homepageCatalogDragHintHtml") || DEFAULT_CATALOG_DRAG_HINT_HTML;
   settings.catalog.dragHintCss = formValue("homepageCatalogDragHintCss") || DEFAULT_CATALOG_DRAG_HINT_CSS;

@@ -85,33 +85,9 @@ selector {
     return /^(?:\d+(?:\.\d+)?)(?:px|%|vh|vw|rem|em)$/.test(candidate) ? candidate : fallback;
   }
 
-  // FlipHTML5 short embed code: <script src="https://online.fliphtml5.com/ACCOUNT/BOOK/embed.js"></script>
-  function scriptEmbedAttributes(code) {
-    const match = String(code || "").match(/online\.fliphtml5\.com\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\/embed\.js/i);
-    if (!match) return null;
-    return { id: `${match[1]}#${match[2]}`, width: "100%", height: "700px", title: "Халгай клиник салон" };
-  }
-
-  // FlipHTML5 iframe embed: <iframe src="https://online.fliphtml5.com/ACCOUNT/BOOK/" ...></iframe>
-  function iframeEmbedAttributes(code) {
-    const match = String(code || "").match(/online\.fliphtml5\.com\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\//i);
-    if (!match) return null;
-    const heightMatch = String(code).match(/height=["']?([\d]+(?:px|%|vh)?)["']?/i);
-    const widthMatch = String(code).match(/width=["']?([\d]+(?:px|%|vw)?)["']?/i);
-    return {
-      id: `${match[1]}#${match[2]}`,
-      width: widthMatch ? widthMatch[1] : "100%",
-      height: heightMatch ? heightMatch[1] : "700px",
-      title: "Халгай клиник салон"
-    };
-  }
-
   function flipConfig(code) {
-    const attributes =
-      shortcodeAttributes(code) ||
-      scriptEmbedAttributes(code) ||
-      iframeEmbedAttributes(code) ||
-      shortcodeAttributes(DEFAULT_CODE);
+    const attributes = shortcodeAttributes(code);
+    if (!attributes) return null;
     const id = String(attributes?.id || "tbyony#sieu");
     const [accountRaw, bookRaw] = id.split("#");
     const account = String(accountRaw || "tbyony").replace(/[^a-zA-Z0-9_-]/g, "") || "tbyony";
@@ -131,32 +107,18 @@ selector {
     return `<!doctype html><html><head><meta charset="utf-8"><base href="${baseUrl}"><style>html,body{width:100%;height:100%;margin:0;overflow:visible;background:transparent}body{display:flex;align-items:center;justify-content:center}.drag-hint-content{max-width:100%;max-height:100%}${css}</style></head><body><div class="drag-hint-content">${html}</div></body></html>`;
   }
 
-  function buildIframeHtml(config) {
-    return `<iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" width="${htmlSafe(config.width)}" height="${htmlSafe(config.height)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe>`;
-  }
-
-  // Хэрэглэгчийн оруулсан кодыг эх төрөлх байдлаар нь харуулна: [fliph5 ...] shortcode-ыг iframe-ээр орлуулж,
-  // <script ... embed.js></script>-г iframe-ээр орлуулна. Бусад HTML/CSS хэвээр үлдэнэ.
-  function transformCode(code, config) {
-    let output = String(code || "");
-    // 1) [fliph5 ...] shortcode → iframe
-    output = output.replace(/\[fliph5\s+[^\]]+\]/gi, buildIframeHtml(config));
-    // 2) <script src="...online.fliphtml5.com/ACCOUNT/BOOK/embed.js"></script> → iframe
-    output = output.replace(/<script[^>]*src=["']https?:\/\/online\.fliphtml5\.com\/[^"']*embed\.js["'][^>]*>\s*<\/script>/gi, buildIframeHtml(config));
-    // Хэрэв ямар ч тэмдэглэгээ илэрсэнгүй бөгөөд iframe ч байхгүй бол iframe-ийг нэмж өгнө
-    if (!/\[fliph5\s/i.test(String(code || "")) && !/online\.fliphtml5\.com\/[^"'\s]+\/[^"'\s]+\/embed\.js/i.test(String(code || "")) && !/<iframe[^>]*online\.fliphtml5\.com/i.test(output)) {
-      output += buildIframeHtml(config);
-    }
-    return output;
-  }
-
   function render(stage, catalog = {}) {
     if (!stage) return;
-    const rawCode = String(catalog.flipHtml5Code || "").trim();
-    const code = rawCode || DEFAULT_CODE;
+    const code = Object.prototype.hasOwnProperty.call(catalog, "flipHtml5Code")
+      ? String(catalog.flipHtml5Code ?? "")
+      : DEFAULT_CODE;
     const config = flipConfig(code);
+    if (!config) {
+      stage.replaceChildren();
+      return;
+    }
     const hint = catalog.dragHintEnabled === false ? "" : `<iframe class="catalog-drag-hint-frame" id="catalogDragHintFrame" title="Хуудсыг чирэх заавар" sandbox=""></iframe>`;
-    stage.innerHTML = `${transformCode(code, config)}${hint}`;
+    stage.innerHTML = `<div id="flipOuter" style="--flip-width:${htmlSafe(config.width)};--flip-height:${htmlSafe(config.height)}"><iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe></div>${hint}`;
     const hintFrame = document.getElementById("catalogDragHintFrame");
     if (hintFrame) hintFrame.srcdoc = hintDocument(catalog);
   }

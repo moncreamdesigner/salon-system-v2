@@ -51,13 +51,19 @@ let heroTimer = null;
 
 function mergePublicSettings(settings = {}) {
   const storedCatalog = settings.catalog || {};
-  const storedFlipCode = String(storedCatalog.flipHtml5Code || storedCatalog.customViewerHtml || "");
+  const hasStoredFlipCode = Object.prototype.hasOwnProperty.call(storedCatalog, "flipHtml5Code");
+  const hasLegacyFlipCode = Object.prototype.hasOwnProperty.call(storedCatalog, "customViewerHtml");
+  const storedFlipCode = hasStoredFlipCode
+    ? String(storedCatalog.flipHtml5Code ?? "")
+    : hasLegacyFlipCode
+      ? String(storedCatalog.customViewerHtml ?? "")
+      : window.KhalgaiFlipHtml5.DEFAULT_CODE;
   const storedHintCss = String(storedCatalog.dragHintCss || window.KhalgaiFlipHtml5.DEFAULT_HINT_CSS).replace(/#(?:68bd63|7da64b|789f4a)/gi, "#78a450");
   return {
     ...structuredClone(publicDefaultSettings),
     ...structuredClone(settings || {}),
     catalog: {
-      flipHtml5Code: (storedFlipCode && storedFlipCode.trim()) ? storedFlipCode : window.KhalgaiFlipHtml5.DEFAULT_CODE,
+      flipHtml5Code: storedFlipCode,
       dragHintEnabled: storedCatalog.dragHintEnabled !== false,
       dragHintHtml: storedCatalog.dragHintHtml || window.KhalgaiFlipHtml5.DEFAULT_HINT_HTML,
       dragHintCss: storedHintCss
@@ -324,7 +330,7 @@ function renderBookingComposer(salon) {
   const timeDisabled = time => timeIsPast(selectedDateObject, time) || slotFull(salon, selectedDate, time);
   if (selectedTime && (!times.includes(selectedTime) || timeDisabled(selectedTime))) selectedTime = "";
   composer.innerHTML = `<section class="booking-card">
-      <h3>ӨГНӨӨ СОНГОХ</h3>
+      <h3>ӨДӨР СОНГОХ</h3>
       <div class="week-head"><button class="week-nav-button" type="button" data-week="prev" aria-label="Өмнөх долоо хоног" ${weekOffset <= 0 ? "disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button><strong>${selectedDateObject.getMonth() + 1}-Р САР</strong><button class="week-nav-button" type="button" data-week="next" aria-label="Дараагийн долоо хоног"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button></div>
       <div class="date-strip">${dates.map(date => { const value = dateText(date); const disabled = dateUnavailable(salon, date); return `<button class="date-option ${value === selectedDate ? "active" : ""}" type="button" data-booking-date="${value}" ${disabled ? "disabled" : ""}><small>${weekdays[date.getDay()]}</small>${date.getDate()}</button>`; }).join("")}</div>
     </section>
@@ -342,23 +348,14 @@ async function submitPublicBooking() {
   if ((publicState.bookings || []).some(item => item.phone === phone && item.date === selectedDate && item.status !== "cancelled")) return showPublicToast("Энэ дугаараас тухайн өдөр цаг захиалсан байна");
   if (slotFull(salon, selectedDate, selectedTime)) return showPublicToast("Сонгосон цаг дүүрсэн байна");
   const booking = { id: Date.now(), salon: salon.name, date: selectedDate, time: selectedTime, phone, source: "customer", status: "pending" };
-  let serverAccepted = false;
-  let serverMessage = "";
   try {
     const response = await fetch("api/public.php", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "KhalgaiSalon" }, body: JSON.stringify({ booking }) });
-    const result = await response.json().catch(() => null);
-    if (response.ok && result && result.ok) {
-      booking.id = result.booking?.id || booking.id;
-      if (result.booking?.createdAt) booking.createdAt = result.booking.createdAt;
-      serverAccepted = true;
-    } else if (result && result.message) {
-      serverMessage = String(result.message);
-    }
+    if (!response.ok) throw new Error("Local mode");
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.message || "Захиалга илгээсэнгүй");
+    booking.id = result.booking?.id || booking.id;
   } catch (error) {
-    serverMessage = "";
-  }
-  if (!serverAccepted) {
-    if (serverMessage) return showPublicToast(serverMessage);
+    if (location.hostname !== "127.0.0.1" && location.hostname !== "localhost") return showPublicToast(error.message || "Захиалга илгээсэнгүй");
     publicState.bookings = Array.isArray(publicState.bookings) ? publicState.bookings : [];
     publicState.bookings.unshift(booking);
     try {
