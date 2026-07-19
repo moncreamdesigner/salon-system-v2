@@ -2705,7 +2705,7 @@ function bookingStatusText(status) {
 function bookingStatusTone(status) {
   if (status === "confirmed") return "green";
   if (status === "rejected") return "red";
-  return "pink";
+  return "pending";
 }
 
 function bookingStatusLabel(status) {

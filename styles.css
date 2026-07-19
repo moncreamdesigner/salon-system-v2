@@ -3553,8 +3553,19 @@ input[type="date"].input {
   margin-right: 5px;
 }
 
-.status-text.inactive {
+.status-text.inactive,
+.status-text.red,
+.status-text.pink {
   color: #d40020;
+}
+
+.status-text.pending {
+  color: #c98a12;
+  font-weight: 500;
+}
+
+.status-text.green {
+  color: var(--accent);
 }
 
 #holidayForm {
@@ -4127,6 +4138,11 @@ tr:last-child td {
 .status-text.inactive,
 .status-text.red {
   color: #d40020;
+}
+
+.status-text.pending {
+  color: #c98a12;
+  font-weight: 500;
 }
 
 .stack-list,
@@ -8824,3 +8840,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     width: 100%;
   }
 }
+
+/* Цаг захиалга — 'Батлах' товчийг ногоон загварчилах */
+.table-actions .secondary-btn.booking-confirm,
+.secondary-btn.booking-confirm {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.table-actions .secondary-btn.booking-confirm:hover,
+.secondary-btn.booking-confirm:hover {
+  border-color: var(--accent-dark);
+  background: var(--accent-dark);
+  color: #fff;
+}
+
+
