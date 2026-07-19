@@ -1,3 +1,6 @@
 khalgai-private/
 api/config.local.php
 *.log
+uploads/*
+!uploads/.gitkeep
+!uploads/.htaccess
