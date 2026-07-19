@@ -8661,3 +8661,166 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     grid-column: 2;
   }
 }
+
+/* ============================================================
+   FlipHTML5 каталог тохиргоо (admin) — эмх цэгцтэй харагдац
+   ============================================================ */
+.homepage-settings-shell {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.homepage-settings-tabs {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.homepage-settings-panel {
+  width: 100%;
+}
+
+.homepage-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 900px;
+}
+
+.homepage-form-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.homepage-form-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.homepage-form-head p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.homepage-code-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.homepage-wide-field {
+  width: 100%;
+}
+
+.homepage-code-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.homepage-code-head > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.homepage-code-head strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.homepage-code-head span {
+  color: #6b7280;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.homepage-inline-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: #374151;
+  min-width: 160px;
+}
+
+.homepage-inline-select .input {
+  min-width: 160px;
+}
+
+.homepage-settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  width: 100%;
+}
+
+.homepage-code-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 12px;
+  font-family: 'Consolas', 'Menlo', 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.homepage-code-textarea.large {
+  min-height: 180px;
+}
+
+.homepage-code-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.homepage-code-grid > label {
+  min-width: 0;
+}
+
+.homepage-settings-form .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+@media (max-width: 720px) {
+  .homepage-code-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .homepage-code-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .homepage-inline-select {
+    width: 100%;
+  }
+}
