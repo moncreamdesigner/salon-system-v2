@@ -70,7 +70,9 @@ const defaultState = {
       flipHtml5Code: DEFAULT_CATALOG_VIEWER_HTML,
       dragHintEnabled: true,
       dragHintHtml: DEFAULT_CATALOG_DRAG_HINT_HTML,
-      dragHintCss: DEFAULT_CATALOG_DRAG_HINT_CSS
+      dragHintCss: DEFAULT_CATALOG_DRAG_HINT_CSS,
+      adCoverDesktop: 0,
+      adCoverMobile: 0
     },
     booking: {
       directoryHeadline: "ТА ӨӨРТ ОЙР САЛБАРТАА ЦАГ ЗАХИАЛААРАЙ"
@@ -249,7 +251,9 @@ state.homepageSettings = {
       flipHtml5Code: savedCode,
       dragHintEnabled: stored.dragHintEnabled !== false,
       dragHintHtml: stored.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
-      dragHintCss: stored.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS
+      dragHintCss: stored.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS,
+      adCoverDesktop: Math.max(0, Math.min(300, Number(stored.adCoverDesktop) || 0)),
+      adCoverMobile: Math.max(0, Math.min(300, Number(stored.adCoverMobile) || 0))
     };
   })(),
   salons: { ...(state.homepageSettings?.salons || {}) },
@@ -9248,7 +9252,9 @@ function homepageSettings() {
       flipHtml5Code: storedFlipCode,
       dragHintEnabled: storedCatalog.dragHintEnabled !== false,
       dragHintHtml: storedCatalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML,
-      dragHintCss: storedHintCss
+      dragHintCss: storedHintCss,
+      adCoverDesktop: Math.max(0, Math.min(300, Number(storedCatalog.adCoverDesktop) || 0)),
+      adCoverMobile: Math.max(0, Math.min(300, Number(storedCatalog.adCoverMobile) || 0))
     },
     booking: {
       ...structuredClone(defaultState.homepageSettings.booking),
@@ -9424,10 +9430,14 @@ function resetHomepageCatalogCodeFields() {
   const hintEnabled = document.getElementById("homepageCatalogDragHintEnabled");
   const hintHtml = document.getElementById("homepageCatalogDragHintHtml");
   const hintCss = document.getElementById("homepageCatalogDragHintCss");
+  const adCoverDesktop = document.getElementById("homepageCatalogAdCoverDesktop");
+  const adCoverMobile = document.getElementById("homepageCatalogAdCoverMobile");
   if (html) html.value = DEFAULT_CATALOG_VIEWER_HTML;
   if (hintEnabled) hintEnabled.value = "true";
   if (hintHtml) hintHtml.value = DEFAULT_CATALOG_DRAG_HINT_HTML;
   if (hintCss) hintCss.value = DEFAULT_CATALOG_DRAG_HINT_CSS;
+  if (adCoverDesktop) adCoverDesktop.value = "0";
+  if (adCoverMobile) adCoverMobile.value = "0";
   enhanceNativeSelects(["homepageCatalogDragHintEnabled"]);
   showToast("FlipHTML5 болон icon-ы эх код сэргээгдлээ. Хадгалах товч дарж баталгаажуулна уу");
 }
@@ -9438,10 +9448,14 @@ function renderHomepageSettings() {
   const dragHintEnabled = document.getElementById("homepageCatalogDragHintEnabled");
   const dragHintHtml = document.getElementById("homepageCatalogDragHintHtml");
   const dragHintCss = document.getElementById("homepageCatalogDragHintCss");
+  const adCoverDesktop = document.getElementById("homepageCatalogAdCoverDesktop");
+  const adCoverMobile = document.getElementById("homepageCatalogAdCoverMobile");
   if (viewerHtml) viewerHtml.value = settings.catalog.flipHtml5Code ?? DEFAULT_CATALOG_VIEWER_HTML;
   if (dragHintEnabled) dragHintEnabled.value = settings.catalog.dragHintEnabled === false ? "false" : "true";
   if (dragHintHtml) dragHintHtml.value = settings.catalog.dragHintHtml || DEFAULT_CATALOG_DRAG_HINT_HTML;
   if (dragHintCss) dragHintCss.value = settings.catalog.dragHintCss || DEFAULT_CATALOG_DRAG_HINT_CSS;
+  if (adCoverDesktop) adCoverDesktop.value = String(settings.catalog.adCoverDesktop || 0);
+  if (adCoverMobile) adCoverMobile.value = String(settings.catalog.adCoverMobile || 0);
   renderHomepageSalonSettings();
   renderHomepageResults();
   document.getElementById("homepageCatalogPanel")?.classList.remove("hidden");
@@ -9456,6 +9470,8 @@ function saveHomepageCatalog(event) {
   settings.catalog.dragHintEnabled = formValue("homepageCatalogDragHintEnabled") !== "false";
   settings.catalog.dragHintHtml = formValue("homepageCatalogDragHintHtml") || DEFAULT_CATALOG_DRAG_HINT_HTML;
   settings.catalog.dragHintCss = formValue("homepageCatalogDragHintCss") || DEFAULT_CATALOG_DRAG_HINT_CSS;
+  settings.catalog.adCoverDesktop = Math.max(0, Math.min(300, Number(formValue("homepageCatalogAdCoverDesktop")) || 0));
+  settings.catalog.adCoverMobile = Math.max(0, Math.min(300, Number(formValue("homepageCatalogAdCoverMobile")) || 0));
   saveState();
   renderInfoHeader(activeView);
   showToast("Каталогийн тохиргоо хадгалагдлаа");
@@ -10949,8 +10965,10 @@ function bindEvents() {
     button.addEventListener("mousedown", event => event.preventDefault());
     button.addEventListener("click", () => applyHomepageResultEditorCommand(button.dataset.resultEditorCommand));
   });
-  document.getElementById("homepageResultTextColor")?.addEventListener("change", event => {
-    applyHomepageResultEditorCommand("foreColor", event.target.value);
+  const applyResultColor = document.getElementById("homepageResultApplyColor");
+  applyResultColor?.addEventListener("mousedown", event => event.preventDefault());
+  applyResultColor?.addEventListener("click", () => {
+    applyHomepageResultEditorCommand("foreColor", document.getElementById("homepageResultTextColor")?.value || "#666666");
   });
   [["homepageResultImageOneUpload", "homepageResultImageOne"], ["homepageResultImageTwoUpload", "homepageResultImageTwo"]].forEach(([uploadId, valueId]) => {
     document.getElementById(uploadId)?.addEventListener("change", async event => {

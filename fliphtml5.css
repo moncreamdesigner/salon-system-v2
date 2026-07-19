@@ -5,14 +5,13 @@
   box-shadow: none;
 }
 
-.public-app.catalog-mode::after {
-  content: "";
+.catalog-ad-cover {
   position: fixed;
   z-index: 9000;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 118px;
+  height: var(--catalog-ad-cover-desktop, 0px);
   background: #171514;
   pointer-events: auto;
 }
@@ -31,18 +30,6 @@
   overflow: hidden;
   font-size: 0;
   line-height: 0;
-}
-
-#flipOuter::after {
-  content: "";
-  position: absolute;
-  z-index: 4;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 112px;
-  background: #171514;
-  pointer-events: auto;
 }
 
 #flipOuter iframe {
@@ -70,6 +57,7 @@
 }
 
 @media (max-width: 767px) {
+  .catalog-ad-cover { height: var(--catalog-ad-cover-mobile, 0px); }
   .catalog-mode #catalogView,
   .catalog-stage {
     height: calc(100dvh - var(--public-nav-height) - env(safe-area-inset-bottom)) !important;

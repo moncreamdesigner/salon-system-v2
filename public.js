@@ -68,7 +68,9 @@ function mergePublicSettings(settings = {}) {
       flipHtml5Code: storedFlipCode,
       dragHintEnabled: storedCatalog.dragHintEnabled !== false,
       dragHintHtml: storedCatalog.dragHintHtml || window.KhalgaiFlipHtml5.DEFAULT_HINT_HTML,
-      dragHintCss: storedHintCss
+      dragHintCss: storedHintCss,
+      adCoverDesktop: Math.max(0, Math.min(300, Number(storedCatalog.adCoverDesktop) || 0)),
+      adCoverMobile: Math.max(0, Math.min(300, Number(storedCatalog.adCoverMobile) || 0))
     },
     booking: {
       ...structuredClone(publicDefaultSettings.booking),

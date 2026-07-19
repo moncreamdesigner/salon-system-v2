@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607210015">
+  <link rel="stylesheet" href="styles.css?v=202607210130">
 </head>
 <body>
   <div class="app-shell">
@@ -897,6 +897,11 @@
                   <button class="secondary-btn" id="homepageCatalogCodeReset" type="button">Эх код сэргээх</button>
                 </div>
                 <label>Shortcode / embed код<textarea class="input homepage-code-textarea large" id="homepageCatalogViewerHtml" spellcheck="false"></textarea></label>
+                <div class="homepage-code-grid">
+                  <label>Desktop banner хаалт (px)<input class="input" id="homepageCatalogAdCoverDesktop" type="number" min="0" max="300" step="1" placeholder="0"></label>
+                  <label>Mobile banner хаалт (px)<input class="input" id="homepageCatalogAdCoverMobile" type="number" min="0" max="300" step="1" placeholder="0"></label>
+                </div>
+                <span class="homepage-code-note">0 бол хаалтгүй. Төхөөрөмж тус бүрд banner-ийн өндрийг px-ээр тохируулна.</span>
               </section>
               <section class="homepage-code-settings homepage-wide-field">
                 <div class="homepage-code-head">
@@ -941,6 +946,7 @@
                   <button type="button" data-result-editor-command="italic" aria-label="Налуу болгох" title="Налуу"><em>I</em></button>
                   <button type="button" data-result-editor-command="insertUnorderedList" aria-label="Bullet жагсаалт" title="Bullet жагсаалт">• Жагсаалт</button>
                   <label class="homepage-rich-color" title="Текстийн өнгө"><span>Өнгө</span><input id="homepageResultTextColor" type="color" value="#666666" aria-label="Текстийн өнгө"></label>
+                  <button class="homepage-rich-apply-color" id="homepageResultApplyColor" type="button">Болсон</button>
                   <button type="button" data-result-editor-command="removeFormat" aria-label="Формат арилгах" title="Формат арилгах">Формат арилгах</button>
                 </div>
                 <div class="homepage-rich-editor" id="homepageResultDescription" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Үр дүнгийн тайлбар бичнэ үү"></div>
@@ -1198,8 +1204,8 @@
   </div>
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
-  <script src="fliphtml5.js?v=202607201730"></script>
-  <script src="app.js?v=202607210015"></script>
+  <script src="fliphtml5.js?v=202607210130"></script>
+  <script src="app.js?v=202607210130"></script>
 </body>
 </html>
 

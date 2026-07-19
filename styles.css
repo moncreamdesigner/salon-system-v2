@@ -4449,6 +4449,7 @@ tr:last-child td {
 .homepage-code-head strong { display: block; color: var(--text); font-size: 13px; }
 .homepage-code-head span { display: block; max-width: 760px; margin-top: 5px; color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.55; }
 .homepage-code-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.homepage-code-note { display:block; color:var(--muted); font-size:11px; font-weight:400; line-height:1.5; }
 .homepage-code-textarea { min-height: 180px; padding: 12px; resize: vertical; font-family: Consolas,"Courier New",monospace; font-size: 11px; font-weight: 400; line-height: 1.55; tab-size: 2; white-space: pre; }
 .homepage-code-textarea.large { min-height: 220px; }
 .homepage-inline-select { width: 170px; flex: 0 0 auto; }
@@ -4466,6 +4467,8 @@ tr:last-child td {
 .homepage-rich-toolbar { min-height: 42px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px; border: 1px solid var(--line); border-bottom: 0; border-radius: 9px 9px 0 0; background: #f8faf7; }
 .homepage-rich-toolbar button { min-width: 38px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; border: 1px solid #d8ddd6; border-radius: 7px; background: #fff; color: var(--text); font-size: 12px; }
 .homepage-rich-toolbar button:hover { border-color: var(--green); color: var(--green); }
+.homepage-rich-toolbar .homepage-rich-apply-color { border-color:var(--green); background:var(--green); color:#fff; }
+.homepage-rich-toolbar .homepage-rich-apply-color:hover { color:#fff; filter:brightness(.97); }
 .homepage-rich-color { height: 32px; display: inline-flex !important; grid-template-columns: auto auto; align-items: center; gap: 7px !important; padding: 0 8px; border: 1px solid #d8ddd6; border-radius: 7px; background: #fff; color: var(--text) !important; font-size: 11px !important; cursor: pointer; }
 .homepage-rich-color input { width: 24px; height: 22px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .homepage-rich-editor { min-height: 112px; padding: 12px 14px; border: 1px solid #cfd7cd; border-radius: 0 0 9px 9px; background: #fff; color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.6; outline: none; overflow-wrap: anywhere; }

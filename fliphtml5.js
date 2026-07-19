@@ -133,7 +133,12 @@ selector {
     const customStyleTag = customCss ? `<style class="catalog-custom-style">${customCss}</style>` : "";
     const inlineStyle = outerInlineStyle(code);
     const hint = catalog.dragHintEnabled === false ? "" : `<iframe class="catalog-drag-hint-frame" id="catalogDragHintFrame" title="Хуудсыг чирэх заавар" sandbox=""></iframe>`;
-    stage.innerHTML = `${customStyleTag}<div id="flipOuter" style="${htmlSafe(inlineStyle)};--flip-width:${htmlSafe(config.width)};--flip-height:${htmlSafe(config.height)}"><iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe></div>${hint}`;
+    const adCoverDesktop = Math.max(0, Math.min(300, Number(catalog.adCoverDesktop) || 0));
+    const adCoverMobile = Math.max(0, Math.min(300, Number(catalog.adCoverMobile) || 0));
+    const adCover = adCoverDesktop || adCoverMobile
+      ? `<div class="catalog-ad-cover" style="--catalog-ad-cover-desktop:${adCoverDesktop}px;--catalog-ad-cover-mobile:${adCoverMobile}px" aria-hidden="true"></div>`
+      : "";
+    stage.innerHTML = `${customStyleTag}<div id="flipOuter" style="${htmlSafe(inlineStyle)};--flip-width:${htmlSafe(config.width)};--flip-height:${htmlSafe(config.height)}"><iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe></div>${adCover}${hint}`;
     const hintFrame = document.getElementById("catalogDragHintFrame");
     if (hintFrame) hintFrame.srcdoc = hintDocument(catalog);
   }
