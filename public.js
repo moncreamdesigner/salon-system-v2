@@ -310,9 +310,10 @@ function dateText(date) {
 function weekDates() {
   const base = new Date();
   base.setHours(0, 0, 0, 0);
+  const visibleDayCount = window.matchMedia("(min-width: 960px)").matches ? 14 : 7;
   const daysFromMonday = (base.getDay() + 6) % 7;
-  base.setDate(base.getDate() - daysFromMonday + weekOffset * 7);
-  return Array.from({ length: 7 }, (_, index) => { const date = new Date(base); date.setDate(base.getDate() + index); return date; });
+  base.setDate(base.getDate() - daysFromMonday + weekOffset * visibleDayCount);
+  return Array.from({ length: visibleDayCount }, (_, index) => { const date = new Date(base); date.setDate(base.getDate() + index); return date; });
 }
 
 function timeOptions(salon, date) {
@@ -378,9 +379,8 @@ function renderBookingComposer(salon) {
       <div class="date-strip">${dates.map(date => { const value = dateText(date); const disabled = dateUnavailable(salon, date); return `<button class="date-option ${value === selectedDate ? "active" : ""}" type="button" data-booking-date="${value}" ${disabled ? "disabled" : ""}><small>${weekdays[date.getDay()]}</small>${date.getDate()}</button>`; }).join("")}</div>
     </section>
     <section class="booking-card"><h3>ЦАГ СОНГОХ</h3>${!selectedDate ? '<div class="empty-public">Энэ долоо хоногт захиалах боломжтой өдөр алга.</div>' : holiday ? '<div class="empty-public">Энэ өдөр салбар амарна.</div>' : `<div class="time-grid">${times.map(time => `<button class="time-option ${selectedTime === time ? "active" : ""}" type="button" data-booking-time="${time}" ${timeDisabled(time) ? "disabled" : ""}>${time}</button>`).join("")}</div>`}</section>
-    <section class="booking-card"><h3>УТАСНЫ ДУГААР</h3><input class="phone-input" id="publicBookingPhone" inputmode="numeric" maxlength="8" placeholder="XXXXXXXX"><p class="booking-help">Захиалга баталгаажуулахад бид тантай холбогдоно.</p></section>
     ${selectedDate ? `<div class="booking-summary">${selectedDateObject.getMonth() + 1}-р сарын ${selectedDateObject.getDate()}, ${mongolianDays[selectedDateObject.getDay()]}${selectedTime ? ` • ${selectedTime}` : ""}</div>` : ""}
-    <button class="booking-submit${bookingSubmissionSucceeded ? " success" : ""}" id="publicBookingSubmit" type="button" ${bookingSubmissionSucceeded ? "disabled" : ""}>${bookingSubmissionSucceeded ? "Амжилттай" : "Захиалга илгээх"}</button>`;
+    <section class="booking-card booking-phone-card"><h3>УТАСНЫ ДУГААР</h3><div class="booking-phone-action"><div class="booking-phone-field"><input class="phone-input" id="publicBookingPhone" inputmode="numeric" maxlength="8" placeholder="XXXXXXXX"><p class="booking-help">Захиалга баталгаажуулахад бид тантай холбогдоно.</p></div><button class="booking-submit${bookingSubmissionSucceeded ? " success" : ""}" id="publicBookingSubmit" type="button" ${bookingSubmissionSucceeded ? "disabled" : ""}>${bookingSubmissionSucceeded ? "Амжилттай" : "Захиалга илгээх"}</button></div></section>`;
 }
 
 async function submitPublicBooking() {
