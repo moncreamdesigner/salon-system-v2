@@ -1150,6 +1150,7 @@ function migrateSalonSchedules() {
 }
 
 function selectedScheduleSalonName() {
+  if (isSalonAccount()) return activeAccount.salon;
   return document.getElementById("scheduleSalon")?.value || state.salons[0]?.name || "";
 }
 
@@ -1216,9 +1217,12 @@ function renderSchedulePreview() {
 function renderScheduleSettings(selectedName = selectedScheduleSalonName()) {
   const scheduleSalon = document.getElementById("scheduleSalon");
   if (!scheduleSalon) return;
-  const selectedSalon = state.salons.some(salon => salon.name === selectedName) ? selectedName : state.salons[0]?.name || "";
-  scheduleSalon.innerHTML = state.salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("");
+  const salons = accountSalons();
+  const requestedSalon = isSalonAccount() ? activeAccount.salon : selectedName;
+  const selectedSalon = salons.some(salon => salon.name === requestedSalon) ? requestedSalon : salons[0]?.name || "";
+  scheduleSalon.innerHTML = salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("");
   scheduleSalon.value = selectedSalon;
+  scheduleSalon.disabled = isSalonAccount();
   const config = scheduleConfig(scheduleSalon.value);
   document.getElementById("scheduleWorkStart").value = config.workStart;
   document.getElementById("scheduleWorkEnd").value = config.workEnd;
@@ -1247,8 +1251,10 @@ function setScheduleSection(name = "holidays") {
 function saveScheduleSettings() {
   const scheduleSalon = document.getElementById("scheduleSalon");
   if (!scheduleSalon) return;
-  const salon = state.salons.find(item => item.name === scheduleSalon.value);
+  const salonName = isSalonAccount() ? activeAccount.salon : scheduleSalon.value;
+  const salon = state.salons.find(item => item.name === salonName);
   if (!salon) return;
+  if (!canAccessSalon(salon.name)) return showToast("Зөвхөн өөрийн салбарын хуваарийг засна");
   salon.schedule = {
     workStart: document.getElementById("scheduleWorkStart").value || "09:00",
     workEnd: document.getElementById("scheduleWorkEnd").value || "19:00",
@@ -1820,8 +1826,11 @@ function giftCardCanEdit(card) {
 function populateHumanResourceSalonSelect(selected = "") {
   const select = document.getElementById("hrStaffSalon");
   if (!select) return;
-  select.innerHTML = state.salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("");
-  select.value = state.salons.some(salon => salon.name === selected) ? selected : state.salons[0]?.name || "";
+  const salons = accountSalons();
+  const requestedSalon = isSalonAccount() ? activeAccount.salon : selected;
+  select.innerHTML = salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("");
+  select.value = salons.some(salon => salon.name === requestedSalon) ? requestedSalon : salons[0]?.name || "";
+  select.disabled = isSalonAccount();
 }
 
 function customerTypeOptions(selected = "") {
@@ -2149,15 +2158,15 @@ function kassConflictMessage(conflict, salon, staff) {
 }
 
 function populateKassSelects() {
-  const salons = isSalonAccount() ? state.salons.filter(salon => salon.name === activeAccount.salon) : state.salons;
+  const salons = accountSalons();
   const salon = document.getElementById("kassSalon");
   const staff = document.getElementById("kassStaff");
   const filter = document.getElementById("kassSalonFilter");
   const staffFilter = document.getElementById("kassStaffFilter");
   const currentSalonValue = isSalonAccount() ? activeAccount.salon : (salon?.value || salons[0]?.name || "");
   const staffList = isSalonAccount()
-    ? state.staff.filter(staffItem => staffItem.salon === activeAccount.salon)
-    : state.staff.filter(staffItem => !currentSalonValue || staffItem.salon === currentSalonValue);
+    ? accountStaff({ activeOnly: true })
+    : accountStaff({ activeOnly: true }).filter(staffItem => !currentSalonValue || staffItem.salon === currentSalonValue);
   const formSalonOptions = salons.map(salonItem => `<option value="${salonItem.name}">${salonItem.name}</option>`).join("");
   const filterSalonOptions = `${isSalonAccount() ? "" : `<option value="">Бүх салбар</option>`}${formSalonOptions}`;
   const staffOptions = staffList.map(staff => `<option value="${staff.name}">${staff.name}</option>`).join("");
@@ -2165,7 +2174,7 @@ function populateKassSelects() {
   const staffValue = staff?.value || staffList[0]?.name || "";
   const filterValue = isSalonAccount() ? activeAccount.salon : (filter?.value || "");
   const staffFilterValue = staffFilter?.value || "";
-  const filterStaffList = state.staff.filter(item => !filterValue || item.salon === filterValue);
+  const filterStaffList = accountStaff({ activeOnly: true }).filter(item => !filterValue || item.salon === filterValue);
   if (salon) {
     salon.innerHTML = formSalonOptions;
     salon.value = salons.some(item => item.name === salonValue) ? salonValue : salons[0]?.name || "";
@@ -2386,9 +2395,9 @@ function saveKassSchedule(event) {
     showToast("Өөр салбарын хуваарь нэмэх боломжгүй");
     return;
   }
-  const allowedStaff = isSalonAccount() ? state.staff.filter(item => item.salon === activeAccount.salon) : state.staff;
+  const allowedStaff = accountStaff({ activeOnly: true }).filter(item => item.salon === salon);
   if (!allowedStaff.some(item => item.name === staff)) {
-    showToast("Энэ ажилтан тухайн салбарт харагдахгүй");
+    showToast("Идэвхтэй ажилтан сонгоно уу");
     return;
   }
   if (endDate < startDate) {
@@ -3826,11 +3835,12 @@ function rerenderAll() {
 
 function setView(name) {
   releaseDiagnosisCameraSession();
+  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsGeneral", "audit"];
   const requestedScheduleSection = name === "settingsHolidays" ? "holidays" : null;
   if (name === "settingsHolidays") name = "settingsSchedule";
   if (retiredViews.has(name)) name = "bookings";
-  if (name === "settingsUsers" && !isAdminAccount()) {
-    showToast("Хэрэглэгчийн эрхийг зөвхөн админ удирдана");
+  if (adminViews.includes(name) && !isAdminAccount()) {
+    showToast("Админ хэсэгт нэвтрэх эрхгүй байна");
     name = "bookings";
   }
   const previousView = activeView;
@@ -3846,7 +3856,6 @@ function setView(name) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
   document.querySelectorAll(".nav-subitem").forEach(item => item.classList.toggle("active", item.dataset.view === name));
-  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsGeneral", "audit"];
   const isSettingsView = adminViews.includes(name);
   document.getElementById("settingsToggle")?.classList.toggle("active", isSettingsView);
   document.getElementById("settingsSubmenu")?.classList.toggle("open", isSettingsView);
@@ -3902,7 +3911,7 @@ function resetIncomingViewState(name) {
     state.selectedCustomerId = null;
   }
   if (name === "bookings") {
-    resetValues({ bookingSearch: "", bookingSalonFilter: "all", bookingDateFilter: "", bookingStatusFilter: "all" });
+    resetValues({ bookingSearch: "", bookingSalonFilter: isSalonAccount() ? activeAccount.salon : "all", bookingDateFilter: "", bookingStatusFilter: "all" });
     bookingPage = 1;
   }
   if (name === "kass") {
@@ -3955,17 +3964,21 @@ function renderSalons() {
   if (assignSalon) assignSalon.innerHTML = salonOptions;
   const bookingSalonMenu = document.querySelector("#bookingSalonDropdown .custom-select-menu");
   if (bookingSalonMenu) {
+    const salons = accountSalons();
     const filter = document.getElementById("bookingSalonFilter");
-    const selectedValue = filter?.value || "all";
-    const validValue = selectedValue === "all" || state.salons.some(salon => salon.name === selectedValue) ? selectedValue : "all";
+    const selectedValue = isSalonAccount() ? activeAccount.salon : (filter?.value || "all");
+    const validValue = selectedValue === "all" || salons.some(salon => salon.name === selectedValue) ? selectedValue : (isSalonAccount() ? activeAccount.salon : "all");
     if (filter) filter.value = validValue;
     bookingSalonMenu.innerHTML = `
-      <button type="button" data-value="all" class="${validValue === "all" ? "active" : ""}">Бүх салбар</button>
-      ${state.salons.map(s => `<button type="button" data-value="${s.name}" class="${validValue === s.name ? "active" : ""}">${s.name}</button>`).join("")}
+      ${isSalonAccount() ? "" : `<button type="button" data-value="all" class="${validValue === "all" ? "active" : ""}">Бүх салбар</button>`}
+      ${salons.map(s => `<button type="button" data-value="${s.name}" class="${validValue === s.name ? "active" : ""}">${s.name}</button>`).join("")}
     `;
     const selectedOption = [...bookingSalonMenu.querySelectorAll("button[data-value]")].find(option => option.dataset.value === validValue);
     const triggerText = document.querySelector("#bookingSalonDropdown .custom-select-trigger span");
     if (triggerText && selectedOption) triggerText.textContent = selectedOption.textContent;
+    const trigger = document.querySelector("#bookingSalonDropdown .custom-select-trigger");
+    if (trigger) trigger.disabled = isSalonAccount();
+    document.getElementById("bookingSalonDropdown")?.classList.toggle("locked", isSalonAccount());
   }
 }
 
@@ -4124,6 +4137,22 @@ function isAdminAccount() {
   return activeAccount.role === "admin";
 }
 
+function accountSalons() {
+  if (!isSalonAccount()) return state.salons;
+  return state.salons.filter(salon => salon.name === activeAccount.salon);
+}
+
+function accountStaff({ activeOnly = false } = {}) {
+  return state.staff.filter(staff =>
+    (!activeOnly || staff.status !== "inactive") &&
+    (!isSalonAccount() || staff.salon === activeAccount.salon)
+  );
+}
+
+function canAccessSalon(salonName = "") {
+  return !isSalonAccount() || salonName === activeAccount.salon;
+}
+
 function accountRoleLabel(role) {
   return ({ admin: "Админ", manager: "Менежер", salon: "Салбарын эрх" })[role] || "Хэрэглэгч";
 }
@@ -4144,7 +4173,11 @@ function applyActiveAccount(account = {}) {
   if (name) name.textContent = activeAccount.displayName || accountRoleLabel(activeAccount.role);
   if (scope) scope.textContent = activeAccount.role === "salon" ? activeAccount.salon : `${accountRoleLabel(activeAccount.role)} • Бүх салбар`;
   document.querySelectorAll("[data-admin-only]").forEach(item => item.classList.toggle("hidden", !isAdminAccount()));
-  if (!isAdminAccount() && activeView === "settingsUsers") activeView = "bookings";
+  ["kassRevenueSalon", "performanceSalon", "scheduleSalon"].forEach(id => {
+    const field = document.getElementById(id);
+    if (field) delete field.dataset.ready;
+  });
+  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
 }
 
 function systemUserRoleLabel(role) {
@@ -5396,7 +5429,7 @@ function performanceFilters() {
     to: toValue || "9999-12-31",
     fromValue,
     toValue,
-    salon: document.getElementById("performanceSalon")?.value || "all"
+    salon: isSalonAccount() ? activeAccount.salon : (document.getElementById("performanceSalon")?.value || "all")
   };
 }
 
@@ -5628,8 +5661,11 @@ function renderPerformance() {
     }
     month.dataset.ready = "1";
   }
-  const selectedSalon = salon.value || "all";
-  salon.innerHTML = `<option value="all">Бүх салбар</option>${state.salons.map(item => `<option value="${item.name}" ${item.name === selectedSalon ? "selected" : ""}>${item.name}</option>`).join("")}`;
+  const salons = accountSalons();
+  const selectedSalon = isSalonAccount() ? activeAccount.salon : (salon.value || "all");
+  salon.innerHTML = `${isSalonAccount() ? "" : `<option value="all">Бүх салбар</option>`}${salons.map(item => `<option value="${item.name}" ${item.name === selectedSalon ? "selected" : ""}>${item.name}</option>`).join("")}`;
+  salon.value = selectedSalon;
+  salon.disabled = isSalonAccount();
   const report = buildPerformanceReport();
   rows.innerHTML = report.rows.map(row => `
     <tr>
@@ -8600,7 +8636,7 @@ function renderHumanResources() {
   if (!rows) return;
   populateHumanResourceSalonSelect(document.getElementById("hrStaffSalon")?.value);
   enhanceNativeSelects(["hrStaffSalon", "hrStaffPosition", "hrStaffStatus"]);
-  rows.innerHTML = state.staff.map(staff => `
+  rows.innerHTML = accountStaff().map(staff => `
     <tr>
       <td><strong>${staff.name}</strong></td>
       <td>${staff.phone || ""}</td>
@@ -8831,7 +8867,7 @@ function saveHumanResourceStaff(event) {
   const payload = {
     name,
     phone,
-    salon: formValue("hrStaffSalon") || state.salons[0]?.name || "",
+    salon: isSalonAccount() ? activeAccount.salon : (formValue("hrStaffSalon") || state.salons[0]?.name || ""),
     position: formValue("hrStaffPosition") || "Массажист",
     bonusCommission: Number(formValue("hrStaffBonus")) || 0,
     kassCommission: Number(formValue("hrStaffKass")) || 0,
@@ -8841,6 +8877,7 @@ function saveHumanResourceStaff(event) {
   };
   if (humanResourceEditingId) {
     const staff = state.staff.find(item => item.id === humanResourceEditingId);
+    if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтны мэдээллийг засах эрхгүй");
     if (staff) Object.assign(staff, payload);
     state.audit.unshift({ title: "staff_updated", meta: `Менежер • ${name}` });
     showToast("Ажилтан шинэчлэгдлээ");
@@ -8859,7 +8896,7 @@ function saveHumanResourceStaff(event) {
 
 function editHumanResourceStaff(id) {
   const staff = state.staff.find(item => item.id === id);
-  if (!staff) return;
+  if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтны мэдээллийг засах эрхгүй");
   humanResourceEditingId = id;
   document.getElementById("hrStaffName").value = staff.name || "";
   document.getElementById("hrStaffPhone").value = staff.phone || "";
@@ -8876,7 +8913,7 @@ function editHumanResourceStaff(id) {
 
 function toggleHumanResourceStatus(id) {
   const staff = state.staff.find(item => item.id === id);
-  if (!staff) return;
+  if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтны төлөвийг засах эрхгүй");
   staff.status = staff.status === "inactive" ? "active" : "inactive";
   state.audit.unshift({ title: "staff_status_updated", meta: `Менежер • ${staff.name} • ${humanResourceStatusText(staff.status)}` });
   saveState();
@@ -8887,8 +8924,9 @@ function toggleHumanResourceStatus(id) {
 }
 
 function deleteHumanResourceStaff(id) {
-  if (!requireDeleteCode()) return;
   const staff = state.staff.find(item => item.id === id);
+  if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтныг устгах эрхгүй");
+  if (!requireDeleteCode()) return;
   state.staff = state.staff.filter(item => item.id !== id);
   if (humanResourceEditingId === id) resetHumanResourceForm();
   state.audit.unshift({ title: "staff_deleted", meta: `Менежер • ${staff?.name || id}` });
@@ -8923,7 +8961,7 @@ function renderStaff() {
 function renderBookings() {
   const q = document.getElementById("bookingSearch")?.value || "";
   const status = document.getElementById("bookingStatusFilter")?.value || "all";
-  const salon = document.getElementById("bookingSalonFilter")?.value || "all";
+  const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("bookingSalonFilter")?.value || "all");
   const date = document.getElementById("bookingDateFilter")?.value || "";
   const pagination = document.getElementById("bookingPagination");
   const bookings = state.bookings
@@ -10293,7 +10331,7 @@ function openCatalogModal() {
 
 function updateBookingStatus(id, status) {
   const booking = state.bookings.find(item => Number(item.id) === Number(id));
-  if (!booking) return;
+  if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг өөрчлөх эрхгүй");
   booking.status = status;
   state.audit.unshift({ title: "booking_status_updated", meta: `Админ • ${booking.phone} • ${bookingStatusText(status)}` });
   saveState();
@@ -10320,8 +10358,9 @@ function requireEditCode() {
 }
 
 function deleteBooking(id) {
-  if (!requireDeleteCode()) return;
   const booking = state.bookings.find(item => Number(item.id) === Number(id));
+  if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг устгах эрхгүй");
+  if (!requireDeleteCode()) return;
   state.bookings = state.bookings.filter(item => Number(item.id) !== Number(id));
   if (booking) {
     state.audit.unshift({ title: "booking_deleted", meta: `Админ • ${booking.phone} • ${booking.date} ${booking.time}` });
@@ -10395,6 +10434,10 @@ function clearBookingFilters() {
   document.getElementById("bookingSearch").value = "";
   document.getElementById("bookingDateFilter").value = "";
   resetCustomSelect("bookingSalonDropdown", "bookingSalonFilter");
+  if (isSalonAccount()) {
+    document.getElementById("bookingSalonFilter").value = activeAccount.salon;
+    renderSalons();
+  }
   resetCustomSelect("bookingStatusDropdown", "bookingStatusFilter");
   bookingPage = 1;
   renderBookings();
@@ -10444,7 +10487,7 @@ function enhanceNativeSelect(select) {
   }
   const selectedOption = select.options[select.selectedIndex] || select.options[0];
   const wrapper = document.createElement("div");
-  wrapper.className = "custom-select native-select-proxy";
+  wrapper.className = `custom-select native-select-proxy${select.disabled ? " locked" : ""}`;
   wrapper.innerHTML = `
     <button class="custom-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
       <span>${selectedOption?.textContent || ""}</span>
@@ -10452,6 +10495,8 @@ function enhanceNativeSelect(select) {
     <div class="custom-select-menu" role="listbox"></div>
   `;
   const menu = wrapper.querySelector(".custom-select-menu");
+  const trigger = wrapper.querySelector(".custom-select-trigger");
+  trigger.disabled = select.disabled;
   Array.from(select.options).forEach(option => {
     const item = document.createElement("button");
     item.type = "button";
@@ -10468,12 +10513,13 @@ function enhanceNativeSelect(select) {
     });
     menu.appendChild(item);
   });
-  wrapper.querySelector(".custom-select-trigger").addEventListener("click", () => {
+  trigger.addEventListener("click", () => {
+    if (select.disabled) return;
     document.querySelectorAll(".custom-select.open").forEach(item => {
       if (item !== wrapper) item.classList.remove("open");
     });
     const isOpen = wrapper.classList.toggle("open");
-    wrapper.querySelector(".custom-select-trigger").setAttribute("aria-expanded", String(isOpen));
+    trigger.setAttribute("aria-expanded", String(isOpen));
   });
   select.classList.add("native-select-hidden");
   select.insertAdjacentElement("afterend", wrapper);
@@ -10485,6 +10531,8 @@ function syncNativeSelectProxy(select) {
     ? select.nextElementSibling
     : null;
   if (!proxy) return;
+  proxy.classList.toggle("locked", select.disabled);
+  proxy.querySelector(".custom-select-trigger").disabled = select.disabled;
   const selectedOption = select.options[select.selectedIndex] || select.options[0];
   proxy.querySelector(".custom-select-trigger span").textContent = selectedOption?.textContent || "";
   proxy.querySelectorAll(".custom-select-menu button").forEach(button => {
@@ -10584,19 +10632,21 @@ function bookedCountForSlot(salonName, date, time, editingId) {
 }
 
 function bookingSlotMarkup(index, values, editing = false) {
-  const selectedSalon = values.salon || state.salons[0]?.name || "";
+  const salons = accountSalons();
+  const requestedSalon = isSalonAccount() ? activeAccount.salon : values.salon;
+  const selectedSalon = salons.some(salon => salon.name === requestedSalon) ? requestedSalon : salons[0]?.name || "";
   const selectedDate = values.date || todayText();
   const selectedTime = values.time || bookingOptionsForSalon(selectedSalon)[0] || "";
   return `
     <div class="booking-slot-row${index > 0 ? " extra-slot-row" : ""}" data-slot-index="${index}">
       <label>Салон
         <input type="hidden" class="booking-salon" id="bookingSalon${index}" value="${selectedSalon}">
-        <div class="custom-select" data-input="bookingSalon${index}">
-          <button class="custom-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <div class="custom-select${isSalonAccount() ? " locked" : ""}" data-input="bookingSalon${index}">
+          <button class="custom-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" ${isSalonAccount() ? "disabled" : ""}>
             <span>${selectedSalon}</span>
           </button>
           <div class="custom-select-menu" role="listbox">
-            ${state.salons.map(s => `<button type="button" data-value="${s.name}" class="${s.name === selectedSalon ? "active" : ""}">${s.name}</button>`).join("")}
+            ${salons.map(s => `<button type="button" data-value="${s.name}" class="${s.name === selectedSalon ? "active" : ""}">${s.name}</button>`).join("")}
           </div>
         </div>
       </label>
@@ -10708,9 +10758,10 @@ function setBookingSlotCount(targetCount, editId) {
 
 function openBookingModal(editId) {
   const editing = state.bookings.find(item => Number(item.id) === Number(editId));
+  if (editing && !canAccessSalon(editing.salon)) return showToast("Өөр салбарын цагийг засах эрхгүй");
   const minDate = todayText();
   const selectedDate = editing && !isPastDate(editing.date) ? editing.date : minDate;
-  const selectedSalon = editing?.salon || state.salons[0]?.name || "";
+  const selectedSalon = isSalonAccount() ? activeAccount.salon : (editing?.salon || state.salons[0]?.name || "");
   const selectedTime = editing?.time || bookingOptionsForSalon(selectedSalon)[0] || "";
   const slot = document.getElementById("bookingInlineSlot");
   slot.innerHTML = `
@@ -10781,6 +10832,10 @@ function openBookingModal(editId) {
       time: row.querySelector(".booking-time").value,
       row
     }));
+    if (slotValues.some(item => !canAccessSalon(item.salon))) {
+      showToast("Зөвхөн өөрийн салбарт цаг бүртгэнэ");
+      return;
+    }
     const emptySlot = slotValues.find(item => !item.time);
     if (emptySlot) {
       showToast("Сул цаг сонгоно уу");
