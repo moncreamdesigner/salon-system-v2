@@ -109,7 +109,23 @@ function setPublicView(name) {
   document.querySelectorAll("[data-public-target]").forEach(button => button.classList.toggle("active", button.dataset.publicTarget === activePublicView));
   if (activePublicView === "booking") renderSalonDirectory();
   if (activePublicView === "results") renderResults();
+  void refreshActivePublicView(activePublicView);
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+let publicRefreshInFlight = false;
+async function refreshActivePublicView(viewName = activePublicView) {
+  if (publicRefreshInFlight || ["localhost", "127.0.0.1"].includes(location.hostname)) return;
+  publicRefreshInFlight = true;
+  try {
+    await loadPublicData();
+    if (activePublicView !== viewName) return;
+    if (viewName === "catalog") renderCatalog();
+    if (viewName === "booking") renderSalonDirectory();
+    if (viewName === "results") renderResults();
+  } finally {
+    publicRefreshInFlight = false;
+  }
 }
 
 function safeText(value = "") {
@@ -495,3 +511,8 @@ async function initializePublicApp() {
 }
 
 initializePublicApp();
+
+window.addEventListener("focus", () => void refreshActivePublicView(activePublicView));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void refreshActivePublicView(activePublicView);
+});

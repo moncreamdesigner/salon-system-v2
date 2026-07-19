@@ -19,6 +19,7 @@ let serverStorageRevision = 0;
 let serverSaveTimer = null;
 let serverSaveInFlight = false;
 let serverSavePending = false;
+let serverRefreshInFlight = false;
 
 const defaultState = {
   salons: [
@@ -779,7 +780,7 @@ async function synchronizeServerState() {
     serverStorageReady = true;
     await saveServerStateNow();
     showToast("Одоогийн мэдээллийг server database-д хадгаллаа");
-    return;
+    return false;
   }
   const localJson = stableJsonStringify(serverStateData());
   const remoteJson = stableJsonStringify(remote.data || {});
@@ -787,9 +788,10 @@ async function synchronizeServerState() {
     const customerNamesChanged = applyServerData(remote.data || {});
     serverStorageReady = true;
     if (customerNamesChanged) await saveServerStateNow();
-    return;
+    return true;
   }
   serverStorageReady = true;
+  return false;
 }
 
 async function initializeServerStorage() {
@@ -817,6 +819,24 @@ async function initializeServerStorage() {
     }
     console.error("Server storage unavailable", error);
     showServerLogin(error.message || "Server database тохиргоо хийгдээгүй байна");
+  }
+}
+
+const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers", "giftCards", "groups", "audit", "dashboard", "performance"]);
+
+async function refreshServerStateForView(viewName = activeView) {
+  if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return;
+  if (!serverStorageReady || serverRefreshInFlight || serverSaveInFlight || serverSavePending) return;
+  serverRefreshInFlight = true;
+  try {
+    const changed = await synchronizeServerState();
+    if (!changed || activeView !== viewName) return;
+    rerenderAll();
+    if (activeView !== "performance") renderInfoHeader(activeView);
+  } catch (error) {
+    console.error("Server refresh failed", error);
+  } finally {
+    serverRefreshInFlight = false;
   }
 }
 
@@ -2715,7 +2735,7 @@ function bookingStatusTone(status) {
 }
 
 function bookingStatusLabel(status) {
-  return `<span class="status-text ${bookingStatusTone(status)}">${bookingStatusText(status)}</span>`;
+  return `<span class="status-text ${bookingStatusTone(status)}${status === "pending" ? " pending" : ""}">${bookingStatusText(status)}</span>`;
 }
 
 function bookingSourceText(source, status) {
@@ -3815,6 +3835,7 @@ function setView(name) {
   if (name === "profile") renderProfile();
   if (name !== "performance") renderInfoHeader(name);
   document.getElementById("sidebar").classList.remove("open");
+  void refreshServerStateForView(name);
 }
 
 function resetIncomingViewState(name) {
@@ -3886,10 +3907,17 @@ function renderSalons() {
   if (assignSalon) assignSalon.innerHTML = salonOptions;
   const bookingSalonMenu = document.querySelector("#bookingSalonDropdown .custom-select-menu");
   if (bookingSalonMenu) {
+    const filter = document.getElementById("bookingSalonFilter");
+    const selectedValue = filter?.value || "all";
+    const validValue = selectedValue === "all" || state.salons.some(salon => salon.name === selectedValue) ? selectedValue : "all";
+    if (filter) filter.value = validValue;
     bookingSalonMenu.innerHTML = `
-      <button type="button" data-value="all" class="active">Бүх салбар</button>
-      ${state.salons.map(s => `<button type="button" data-value="${s.name}">${s.name}</button>`).join("")}
+      <button type="button" data-value="all" class="${validValue === "all" ? "active" : ""}">Бүх салбар</button>
+      ${state.salons.map(s => `<button type="button" data-value="${s.name}" class="${validValue === s.name ? "active" : ""}">${s.name}</button>`).join("")}
     `;
+    const selectedOption = [...bookingSalonMenu.querySelectorAll("button[data-value]")].find(option => option.dataset.value === validValue);
+    const triggerText = document.querySelector("#bookingSalonDropdown .custom-select-trigger span");
+    if (triggerText && selectedOption) triggerText.textContent = selectedOption.textContent;
   }
 }
 
@@ -3943,13 +3971,7 @@ function compressBranchImage(file) {
 async function uploadBranchImage(file) {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
   if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
-  if (["localhost", "127.0.0.1"].includes(location.hostname)) return compressBranchImage(file);
-  const body = new FormData();
-  body.append("image", file);
-  const response = await fetch(`${SERVER_API_BASE}/upload.php`, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "KhalgaiSalon" }, body });
-  const result = await response.json().catch(() => ({ ok: false }));
-  if (!response.ok || !result.ok) throw new Error(result.message || "Зураг upload хийсэнгүй");
-  return result.url;
+  return compressBranchImage(file);
 }
 
 function renderBranches() {
@@ -8852,7 +8874,7 @@ function renderBookings() {
       <td>${bookingStatusLabel(booking.status)}</td>
       <td>
         <div class="table-actions">
-          ${booking.status === "pending" ? `<button class="secondary-btn booking-confirm" data-id="${booking.id}">Батлах</button>` : ""}
+          ${booking.status === "pending" ? `<button class="primary-btn booking-confirm" data-id="${booking.id}">Батлах</button>` : ""}
           <button class="secondary-btn icon-action booking-edit" data-id="${booking.id}" aria-label="Засах">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 17.5V20h2.5L17.1 9.4l-2.5-2.5L4 17.5Zm12-12 2.5 2.5 1.1-1.1a1.8 1.8 0 0 0 0-2.5 1.8 1.8 0 0 0-2.5 0L16 5.5Z"></path>
@@ -9381,6 +9403,7 @@ function saveHomepageResult(event) {
 }
 
 function editHomepageResult(id) {
+  if (!requireEditCode()) return;
   const post = homepageSettings().results.posts.find(item => Number(item.id) === Number(id));
   if (!post) return;
   homepageResultEditingId = Number(id);
@@ -10124,7 +10147,9 @@ function setupCustomSelect() {
     if (!dropdown || !input) return;
     const trigger = dropdown.querySelector(".custom-select-trigger");
     const triggerText = trigger.querySelector("span");
-    const options = dropdown.querySelectorAll(".custom-select-menu button");
+    const menu = dropdown.querySelector(".custom-select-menu");
+    if (dropdown.dataset.bound === "true" || !menu) return;
+    dropdown.dataset.bound = "true";
 
     trigger.addEventListener("click", () => {
       document.querySelectorAll(".panel-head-actions .custom-select.open").forEach(item => {
@@ -10134,16 +10159,16 @@ function setupCustomSelect() {
       trigger.setAttribute("aria-expanded", String(isOpen));
     });
 
-    options.forEach(option => {
-      option.addEventListener("click", () => {
-        input.value = option.dataset.value;
-        triggerText.textContent = option.textContent;
-        options.forEach(item => item.classList.toggle("active", item === option));
-        dropdown.classList.remove("open");
-        trigger.setAttribute("aria-expanded", "false");
-        bookingPage = 1;
-        renderBookings();
-      });
+    menu.addEventListener("click", event => {
+      const option = event.target.closest("button[data-value]");
+      if (!option || !menu.contains(option)) return;
+      input.value = option.dataset.value;
+      triggerText.textContent = option.textContent;
+      menu.querySelectorAll("button[data-value]").forEach(item => item.classList.toggle("active", item === option));
+      dropdown.classList.remove("open");
+      trigger.setAttribute("aria-expanded", "false");
+      bookingPage = 1;
+      renderBookings();
     });
 
     document.addEventListener("click", event => {
@@ -10804,6 +10829,7 @@ function bindEvents() {
     const deleteButton = event.target.closest("[data-homepage-result-delete]");
     if (editButton) editHomepageResult(editButton.dataset.homepageResultEdit);
     if (deleteButton) {
+      if (!requireDeleteCode()) return;
       homepageSettings().results.posts = homepageSettings().results.posts.filter(item => Number(item.id) !== Number(deleteButton.dataset.homepageResultDelete));
       saveState();
       renderHomepageResults();
@@ -11125,3 +11151,13 @@ function init() {
 
 init();
 initializeServerStorage();
+
+window.addEventListener("focus", () => {
+  if (AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
+});
+window.setInterval(() => {
+  if (!document.hidden && AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
+}, 10000);

@@ -4179,6 +4179,10 @@ tr:last-child td {
   color: #d40020;
 }
 
+.status-text.pending {
+  font-weight: 700;
+}
+
 .status-text.inactive,
 .status-text.red {
   color: #d40020;

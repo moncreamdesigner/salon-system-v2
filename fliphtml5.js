@@ -107,6 +107,18 @@ selector {
     return `<!doctype html><html><head><meta charset="utf-8"><base href="${baseUrl}"><style>html,body{width:100%;height:100%;margin:0;overflow:visible;background:transparent}body{display:flex;align-items:center;justify-content:center}.drag-hint-content{max-width:100%;max-height:100%}${css}</style></head><body><div class="drag-hint-content">${html}</div></body></html>`;
   }
 
+  function customStyles(code) {
+    return [...String(code || "").matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+      .map(match => match[1])
+      .join("\n")
+      .replace(/<\/style/gi, "<\\/style");
+  }
+
+  function outerInlineStyle(code) {
+    const tag = String(code || "").match(/<div\b[^>]*\bid=["']flipOuter["'][^>]*>/i)?.[0] || "";
+    return tag.match(/\bstyle=["']([^"']*)["']/i)?.[1] || "";
+  }
+
   function render(stage, catalog = {}) {
     if (!stage) return;
     const code = Object.prototype.hasOwnProperty.call(catalog, "flipHtml5Code")
@@ -117,8 +129,11 @@ selector {
       stage.replaceChildren();
       return;
     }
+    const customCss = customStyles(code);
+    const customStyleTag = customCss ? `<style class="catalog-custom-style">${customCss}</style>` : "";
+    const inlineStyle = outerInlineStyle(code);
     const hint = catalog.dragHintEnabled === false ? "" : `<iframe class="catalog-drag-hint-frame" id="catalogDragHintFrame" title="Хуудсыг чирэх заавар" sandbox=""></iframe>`;
-    stage.innerHTML = `<div id="flipOuter" style="--flip-width:${htmlSafe(config.width)};--flip-height:${htmlSafe(config.height)}"><iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe></div>${hint}`;
+    stage.innerHTML = `${customStyleTag}<div id="flipOuter" style="${htmlSafe(inlineStyle)};--flip-width:${htmlSafe(config.width)};--flip-height:${htmlSafe(config.height)}"><iframe src="${htmlSafe(config.src)}" title="${htmlSafe(config.title)}" loading="eager" scrolling="no" frameborder="0" allow="fullscreen" allowfullscreen></iframe></div>${hint}`;
     const hintFrame = document.getElementById("catalogDragHintFrame");
     if (hintFrame) hintFrame.srcdoc = hintDocument(catalog);
   }
