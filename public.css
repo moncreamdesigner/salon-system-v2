@@ -289,20 +289,90 @@ button { cursor: pointer; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: 16px;
+    padding: 20px;
+    border: 1px solid #e5e9e1;
+    border-radius: 26px;
+    background: #f7f9f5;
   }
-  #bookingComposer .booking-card { margin-top: 0; }
+  #bookingComposer .booking-card {
+    margin-top: 0;
+    padding: 22px 24px;
+    border: 1px solid #e3e8df;
+    border-radius: 18px;
+    box-shadow: none;
+  }
+  #bookingComposer .booking-card h3 { margin-bottom: 16px; letter-spacing: .02em; }
   #bookingComposer .booking-card:first-child { grid-column: 1 / -1; }
   #bookingComposer .booking-card:nth-of-type(2),
   #bookingComposer .booking-phone-card,
   #bookingComposer .booking-summary { grid-column: 1 / -1; }
-  #bookingComposer .date-strip { grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 3px; }
-  #bookingComposer .time-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #bookingComposer .date-strip { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+  #bookingComposer .date-option {
+    min-height: 64px;
+    gap: 5px;
+    border: 1px solid #e7eae4;
+    border-radius: 12px;
+    background: #fff;
+    font-size: 16px;
+  }
+  #bookingComposer .date-option:hover:not(:disabled):not(.active),
+  #bookingComposer .time-option:hover:not(:disabled):not(.active) { border-color: rgba(120,164,80,.55); background: #f6faf2; }
+  #bookingComposer .date-option.active { border-color: var(--green); background: var(--green); }
+  #bookingComposer .time-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 9px; }
+  #bookingComposer .time-option {
+    height: 48px;
+    border: 1px solid #e7eae4;
+    border-radius: 10px;
+    background: #fff;
+  }
+  #bookingComposer .time-option.active { border-color: var(--green); background: var(--green); }
+  #bookingComposer .booking-phone-card { padding-top: 18px; padding-bottom: 18px; }
   #bookingComposer .booking-summary { width: fit-content; margin: 2px auto; }
   #bookingComposer .booking-phone-action {
-    width: min(100%, 720px);
+    width: min(100%, 760px);
     margin: 0 auto;
-    grid-template-columns: minmax(0, 1fr) 220px;
+    grid-template-columns: minmax(0, 1fr) 230px;
     align-items: start;
   }
+  #bookingComposer .phone-input { height: 54px; border-radius: 14px; font-size: 16px; }
+  #bookingComposer .booking-help { margin-top: 8px; }
+  #bookingComposer .booking-submit { height: 54px; border-radius: 14px; font-size: 15px; }
   #bookingComposer .booking-submit { margin: 0; }
+
+  .result-logo-head { padding-top: 30px; padding-bottom: 24px; }
+  .result-feed {
+    width: min(calc(100% - 48px), 1180px);
+    margin: 0 auto;
+    padding: 0 0 54px;
+    gap: 28px;
+  }
+  .result-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.18fr) minmax(340px, .82fr);
+    grid-template-rows: auto 1fr;
+    border-radius: 24px;
+    box-shadow: 0 14px 38px rgba(50,61,43,.09);
+  }
+  .result-card-head {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 30px 32px 14px;
+  }
+  .result-card-head h2 { font-size: 30px; line-height: 1.18; }
+  .result-card-head .result-duration { margin-top: 9px; }
+  .result-slider {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    height: clamp(470px, 42vw, 600px);
+    border-radius: 23px 0 0 23px;
+  }
+  .result-card-copy {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: stretch;
+    padding: 10px 32px 30px;
+  }
+  .result-description { font-size: 14px; line-height: 1.72; }
+  .result-description li + li { margin-top: 6px; }
+  .result-web-link { margin-top: 18px; }
 }
