@@ -276,7 +276,8 @@ button { cursor: pointer; }
 }
 
 @media (min-width: 960px) {
-  .salon-hero-slide img { object-position: center 78% !important; }
+  .salon-slide-media img,
+  .salon-hero-slide img { object-position: center bottom !important; }
   .salon-detail-body { width: min(100%, 920px); }
   .salon-contact-list {
     grid-template-columns: 1.25fr .72fr 1.45fr 1.15fr;
@@ -366,6 +367,7 @@ button { cursor: pointer; }
     height: clamp(470px, 42vw, 600px);
     border-radius: 23px 0 0 23px;
   }
+  .result-slide > img { object-fit: contain; object-position: center center; background: #fff; }
   .result-card-copy {
     grid-column: 2;
     grid-row: 2;
