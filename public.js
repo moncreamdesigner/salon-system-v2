@@ -342,14 +342,23 @@ async function submitPublicBooking() {
   if ((publicState.bookings || []).some(item => item.phone === phone && item.date === selectedDate && item.status !== "cancelled")) return showPublicToast("Энэ дугаараас тухайн өдөр цаг захиалсан байна");
   if (slotFull(salon, selectedDate, selectedTime)) return showPublicToast("Сонгосон цаг дүүрсэн байна");
   const booking = { id: Date.now(), salon: salon.name, date: selectedDate, time: selectedTime, phone, source: "customer", status: "pending" };
+  let serverAccepted = false;
+  let serverMessage = "";
   try {
     const response = await fetch("api/public.php", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "KhalgaiSalon" }, body: JSON.stringify({ booking }) });
-    if (!response.ok) throw new Error("Local mode");
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.message || "Захиалга илгээсэнгүй");
-    booking.id = result.booking?.id || booking.id;
+    const result = await response.json().catch(() => null);
+    if (response.ok && result && result.ok) {
+      booking.id = result.booking?.id || booking.id;
+      if (result.booking?.createdAt) booking.createdAt = result.booking.createdAt;
+      serverAccepted = true;
+    } else if (result && result.message) {
+      serverMessage = String(result.message);
+    }
   } catch (error) {
-    if (location.hostname !== "127.0.0.1" && location.hostname !== "localhost") return showPublicToast(error.message || "Захиалга илгээсэнгүй");
+    serverMessage = "";
+  }
+  if (!serverAccepted) {
+    if (serverMessage) return showPublicToast(serverMessage);
     publicState.bookings = Array.isArray(publicState.bookings) ? publicState.bookings : [];
     publicState.bookings.unshift(booking);
     try {

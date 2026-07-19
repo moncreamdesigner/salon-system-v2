@@ -3937,13 +3937,23 @@ function compressBranchImage(file) {
 async function uploadBranchImage(file) {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
   if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
-  if (["localhost", "127.0.0.1"].includes(location.hostname)) return compressBranchImage(file);
-  const body = new FormData();
-  body.append("image", file);
-  const response = await fetch(`${SERVER_API_BASE}/upload.php`, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "KhalgaiSalon" }, body });
-  const result = await response.json().catch(() => ({ ok: false }));
-  if (!response.ok || !result.ok) throw new Error(result.message || "Зураг upload хийсэнгүй");
-  return result.url;
+  const offlineHost = !location.hostname || ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
+  if (offlineHost) return compressBranchImage(file);
+  try {
+    const body = new FormData();
+    body.append("image", file);
+    const response = await fetch(`${SERVER_API_BASE}/upload.php`, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "KhalgaiSalon" }, body });
+    const result = await response.json().catch(() => ({ ok: false }));
+    if (response.ok && result.ok && result.url) return result.url;
+    if (response.status === 401) throw new Error("Зураг оруулахын тулд системд нэвтэрсэн байх шаардлагатай");
+    if (result && result.message) throw new Error(result.message);
+    throw new Error("Зураг upload хийсэнгүй");
+  } catch (error) {
+    // Сүүлийн боломж — сервер амжилтгүй бол data URL хэлбэрээр state-д хадгална.
+    if (error && error.message && /нэвтэрсэн/.test(error.message)) throw error;
+    console.warn("uploadBranchImage fallback →", error);
+    return compressBranchImage(file);
+  }
 }
 
 function renderBranches() {
