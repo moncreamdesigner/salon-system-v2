@@ -5854,7 +5854,7 @@ function renderPaymentMethodExtra(method = "card", item = {}) {
       <label class="inline-gift-card-field ${method === "gift_card" ? "" : "hidden"}">Картын дугаар
         <input class="input inline-payment-gift-card" type="text" value="${giftCardNumber}" placeholder="Картын дугаар">
       </label>
-      <div class="inline-payment-extra-note">${method === "gift_card" ? giftCardPaymentMessage(giftCardNumber) : method === "voucher" ? "Ваучерийн дүн хэрэглээнд тооцогдоно, бонус бодогдохгүй." : ""}</div>
+      ${method === "gift_card" ? `<div class="inline-payment-extra-note">${giftCardPaymentMessage(giftCardNumber)}</div>` : ""}
     </div>
   `;
 }
