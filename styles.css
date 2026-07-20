@@ -1440,10 +1440,16 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .kass-revenue-table {
-  min-width: 1180px;
+  min-width: 880px;
   table-layout: fixed;
   color: var(--text);
   font-family: inherit;
+}
+
+.kass-revenue-table th,
+.kass-revenue-table td {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .kass-revenue-table th:nth-child(1) { width: 10%; }
@@ -1455,6 +1461,18 @@ body.sidebar-collapsed .sidebar-logout {
 .kass-revenue-table th:nth-child(7) { width: 7%; }
 .kass-revenue-table th:nth-child(8) { width: 9%; text-align: right; }
 .kass-revenue-table td:last-child { text-align: right; }
+
+.kass-revenue-table.kass-revenue-own-salon {
+  min-width: 760px;
+}
+
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(1) { width: 11%; }
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(2) { width: 7%; }
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(3) { width: 13%; }
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(4) { width: 10%; }
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(5) { width: 38%; }
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(6) { width: 9%; }
+.kass-revenue-table.kass-revenue-own-salon th:nth-child(7) { width: 12%; text-align: right; }
 
 .kass-revenue-time {
   color: var(--muted);

@@ -2276,6 +2276,13 @@ function renderKassRevenue() {
   const rowsBox = document.getElementById("kassRevenueRows");
   if (!rowsBox) return;
   initializeKassRevenueFilters();
+  const showSalonColumn = ["admin", "manager"].includes(activeAccount.role);
+  const revenueTable = rowsBox.closest(".kass-revenue-table");
+  revenueTable?.classList.toggle("kass-revenue-own-salon", !showSalonColumn);
+  const headRow = document.getElementById("kassRevenueHeadRow");
+  if (headRow) {
+    headRow.innerHTML = `<th>Огноо</th><th>Цаг</th><th>Овог нэр</th><th>Утас</th><th>Авсан үйлчилгээ</th>${showSalonColumn ? "<th>Салбар</th>" : ""}<th>Төлбөр</th><th>Үнийн дүн</th>`;
+  }
   const from = document.getElementById("kassRevenueFrom")?.value || "";
   const to = document.getElementById("kassRevenueTo")?.value || "";
   const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("kassRevenueSalon")?.value || "");
@@ -2306,11 +2313,11 @@ function renderKassRevenue() {
       <td>${htmlSafe(row.customer)}</td>
       <td>${htmlSafe(row.phone)}</td>
       <td class="kass-revenue-service-cell">${htmlSafe(row.service)}</td>
-      <td>${htmlSafe(row.salon)}</td>
+      ${showSalonColumn ? `<td>${htmlSafe(row.salon)}</td>` : ""}
       <td class="kass-revenue-payment-method">${htmlSafe(paymentMethodOptionsLabel(row.method) || row.method)}</td>
       <td><strong class="kass-revenue-amount">${money(row.amount)}</strong></td>
     </tr>
-  `).join("") || `<tr><td colspan="8" class="empty-state">Сонгосон хугацаанд орлого бүртгэгдээгүй</td></tr>`;
+  `).join("") || `<tr><td colspan="${showSalonColumn ? 8 : 7}" class="empty-state">Сонгосон хугацаанд орлого бүртгэгдээгүй</td></tr>`;
 
   const pagination = document.getElementById("kassRevenuePagination");
   if (pagination) {
