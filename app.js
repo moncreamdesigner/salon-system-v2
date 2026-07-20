@@ -343,6 +343,7 @@ let kassRevenuePage = 1;
 let activePerformanceTab = "revenue";
 let auditPage = 1;
 let bookingPage = 1;
+let bookingInlineEditingId = null;
 let voucherPage = 1;
 let giftCardPage = 1;
 let giftCardEditingId = null;
@@ -3966,6 +3967,7 @@ function resetIncomingViewState(name) {
   if (name === "bookings") {
     resetValues({ bookingSearch: "", bookingSalonFilter: isSalonAccount() ? activeAccount.salon : "all", bookingDateFilter: "", bookingStatusFilter: "all" });
     bookingPage = 1;
+    bookingInlineEditingId = null;
   }
   if (name === "kass") {
     resetValues({ kassFromFilter: "", kassToFilter: "", kassSalonFilter: "all", kassStaffFilter: "all" });
@@ -5585,6 +5587,7 @@ function performanceTransactions() {
     add({
       ...payload,
       staff: schedule.staff,
+      sourceType: payload.type,
       type: "kass"
     });
   };
@@ -5764,6 +5767,13 @@ function htmlSafe(value = "") {
   return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 }
 
+function performanceTransactionTypeLabel(item) {
+  const displayType = item.type === "kass" ? (item.sourceType || "kass") : item.type;
+  if (displayType === "course") return "Курсийн оролт";
+  if (displayType === "single") return "Нэг удаа";
+  return "Касс";
+}
+
 function openStaffPerformanceDetail(staffId) {
   const report = buildPerformanceReport();
   const row = report.rows.find(item => Number(item.staff.id) === Number(staffId));
@@ -5786,7 +5796,7 @@ function openStaffPerformanceDetail(staffId) {
   </style></head><body><main class="page"><section class="head"><div><h1>${htmlSafe(row.staff.name)}</h1><div class="muted">${htmlSafe(row.staff.position || "Ажилтан")} · Үндсэн салбар: ${htmlSafe(row.staff.salon || "-")}</div><div class="muted" style="margin-top:6px">${report.from} — ${report.to} · ${report.salon === "all" ? "Бүх салбар" : htmlSafe(report.salon)}</div></div><div class="actions"><button onclick="window.close()">Хаах</button><button class="primary" onclick="window.print()">Хэвлэх</button></div></section>
   <section class="metrics"><article class="metric"><span>Нэг удаа</span><strong>${row.singleCount}</strong></article><article class="metric"><span>Курсийн оролт</span><strong>${row.courseCount}</strong></article><article class="metric"><span>Касс</span><strong>${row.kassDays} өдөр</strong></article><article class="metric"><span>Нийт төлбөр</span><strong>${money(row.revenue)}</strong></article><article class="metric"><span>Нийт урамшуулал</span><strong>${money(row.commission)}</strong></article></section>
   <section class="panel"><h2>Салбараар</h2><table><thead><tr><th>Салбар</th><th>Ажил</th><th class="amount">Орлого</th><th class="amount">Урамшуулал</th></tr></thead><tbody>${Object.entries(branchTotals).map(([branch, value]) => `<tr><td>${htmlSafe(branch)} ${branch !== row.staff.salon ? '<span class="badge">Түр ажилласан</span>' : ""}</td><td>${value.count}</td><td class="amount">${money(value.revenue)}</td><td class="amount"><strong>${money(value.commission)}</strong></td></tr>`).join("") || '<tr><td colspan="4" class="empty">Гүйцэтгэл бүртгэгдээгүй</td></tr>'}</tbody></table></section>
-  <section class="panel"><h2>Гүйцэтгэлийн дэлгэрэнгүй</h2><table><thead><tr><th>Огноо</th><th>Салбар</th><th>Төрөл</th><th>Үйлчилгээ / хэрэглэгч</th><th class="amount">Төлбөр</th><th class="amount">Хувь</th><th class="amount">Урамшуулал</th></tr></thead><tbody>${row.transactions.map(item => `<tr><td>${item.date}</td><td>${htmlSafe(item.salon)} ${item.temporary ? '<span class="badge">Түр томилгоо</span>' : ""}</td><td>${item.type === "course" ? "Курсийн оролт" : item.type === "kass" ? "Касс" : "Нэг удаа"}</td><td>${htmlSafe(item.title)}${item.customer ? `<div class="muted">${htmlSafe(item.customer)}</div>` : ""}</td><td class="amount">${money(item.revenue)}</td><td class="amount">${item.rate}%</td><td class="amount"><strong>${money(item.commission)}</strong></td></tr>`).join("") || '<tr><td colspan="7" class="empty">Сонгосон хугацаанд гүйцэтгэл алга</td></tr>'}</tbody></table></section>
+  <section class="panel"><h2>Гүйцэтгэлийн дэлгэрэнгүй</h2><table><thead><tr><th>Огноо</th><th>Салбар</th><th>Төрөл</th><th>Үйлчилгээ / хэрэглэгч</th><th class="amount">Төлбөр</th><th class="amount">Хувь</th><th class="amount">Урамшуулал</th></tr></thead><tbody>${row.transactions.map(item => `<tr><td>${item.date}</td><td>${htmlSafe(item.salon)} ${item.temporary ? '<span class="badge">Түр томилгоо</span>' : ""}</td><td>${performanceTransactionTypeLabel(item)}</td><td>${htmlSafe(item.title)}${item.customer ? `<div class="muted">${htmlSafe(item.customer)}</div>` : ""}</td><td class="amount">${money(item.revenue)}</td><td class="amount">${item.rate}%</td><td class="amount"><strong>${money(item.commission)}</strong></td></tr>`).join("") || '<tr><td colspan="7" class="empty">Сонгосон хугацаанд гүйцэтгэл алга</td></tr>'}</tbody></table></section>
   <section class="panel"><h2>Түр томилгооны түүх</h2>${assignments.map(item => `<div class="assignment"><strong>${htmlSafe(item.from)} → ${htmlSafe(item.to)}</strong><span>${assignmentPeriodText(item)}</span><span class="muted">${htmlSafe(item.reason || "")}</span></div>`).join("") || '<div class="empty">Энэ хугацаанд түр томилгоо байхгүй</div>'}</section></main></body></html>`);
   detailWindow.document.close();
 }
@@ -9095,8 +9105,10 @@ function renderBookings() {
   const pageCount = Math.max(1, Math.ceil(bookings.length / pageSize));
   bookingPage = Math.min(Math.max(bookingPage, 1), pageCount);
   const pageRows = bookings.slice((bookingPage - 1) * pageSize, bookingPage * pageSize);
-  document.getElementById("bookingRows").innerHTML = pageRows.map((booking, index) => `
-    <tr>
+  document.getElementById("bookingRows").innerHTML = pageRows.map((booking, index) => {
+    const editingThisBooking = Number(bookingInlineEditingId) === Number(booking.id);
+    return `
+    <tr class="${editingThisBooking ? "booking-row-editing" : ""}">
       <td>${bookings.length - ((bookingPage - 1) * pageSize + index)}</td>
       <td>${booking.salon}</td>
       <td>${dateWithWeekday(booking.date)}</td>
@@ -9116,7 +9128,9 @@ function renderBookings() {
         </div>
       </td>
     </tr>
-  `).join("");
+    ${editingThisBooking ? `<tr class="booking-inline-edit-row"><td colspan="8"><div class="booking-row-edit-shell" id="bookingRowEditSlot"></div></td></tr>` : ""}
+  `;
+  }).join("");
 
   document.querySelectorAll(".booking-confirm").forEach(button => {
     button.addEventListener("click", () => updateBookingStatus(Number(button.dataset.id), "confirmed"));
@@ -9125,7 +9139,12 @@ function renderBookings() {
     button.addEventListener("click", () => deleteBooking(Number(button.dataset.id)));
   });
   document.querySelectorAll(".booking-edit").forEach(button => {
-    button.addEventListener("click", () => openBookingModal(Number(button.dataset.id)));
+    button.addEventListener("click", () => {
+      bookingInlineEditingId = Number(button.dataset.id);
+      closeBookingForm();
+      renderBookings();
+      openBookingModal(bookingInlineEditingId, document.getElementById("bookingRowEditSlot"));
+    });
   });
   if (pagination) {
     pagination.innerHTML = bookings.length > pageSize ? `
@@ -10920,14 +10939,15 @@ function setBookingSlotCount(targetCount, editId) {
   updateBookingSlotCount();
 }
 
-function openBookingModal(editId) {
+function openBookingModal(editId, targetSlot = null) {
   const editing = state.bookings.find(item => Number(item.id) === Number(editId));
   if (editing && !canAccessSalon(editing.salon)) return showToast("Өөр салбарын цагийг засах эрхгүй");
   const minDate = todayText();
   const selectedDate = editing && !isPastDate(editing.date) ? editing.date : minDate;
   const selectedSalon = isSalonAccount() ? activeAccount.salon : (editing?.salon || state.salons[0]?.name || "");
   const selectedTime = editing?.time || bookingOptionsForSalon(selectedSalon)[0] || "";
-  const slot = document.getElementById("bookingInlineSlot");
+  const slot = targetSlot || document.getElementById("bookingInlineSlot");
+  if (!slot) return;
   slot.innerHTML = `
     <form id="bookingForm" class="clean-form inline-booking-form">
       <div class="inline-form-head">
@@ -10937,7 +10957,7 @@ function openBookingModal(editId) {
         <div class="booking-slots" id="bookingSlots">
           ${bookingSlotMarkup(0, { salon: selectedSalon, date: selectedDate, time: selectedTime }, Boolean(editing))}
         </div>
-        ${editing ? `<span class="slot-stepper-placeholder"></span>` : `
+        ${editing ? "" : `
           <label class="slot-stepper-field">Слот
             <div class="slot-stepper" aria-label="Слотын тоо">
               <button class="secondary-btn slot-step-btn" id="bookingSlotMinus" type="button" aria-label="Слот хасах">−</button>
@@ -10951,6 +10971,7 @@ function openBookingModal(editId) {
         </label>
         <div class="inline-booking-actions">
           <button class="primary-btn" type="submit">${editing ? "Хадгалах" : "Цаг бүртгэх"}</button>
+          ${editing ? '<button class="secondary-btn" id="bookingEditCancel" type="button">Болих</button>' : ""}
         </div>
       </div>
     </form>
@@ -10981,6 +11002,10 @@ function openBookingModal(editId) {
   });
   document.getElementById("bookingPhone").addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
+  document.getElementById("bookingEditCancel")?.addEventListener("click", () => {
+    bookingInlineEditingId = null;
+    renderBookings();
   });
   document.getElementById("bookingForm").addEventListener("submit", event => {
     event.preventDefault();
@@ -11052,13 +11077,14 @@ function openBookingModal(editId) {
       state.audit.unshift({ title: "booking_created", meta: `Админ • ${phone} • ${slotValues.length} слот` });
     }
     saveState();
+    bookingInlineEditingId = null;
     openBookingModal();
     renderBookings();
     renderAudit();
     renderInfoHeader(activeView);
     showToast(editing ? "Цаг өөрчлөгдлөө" : "Цаг баталгаажлаа");
   });
-  slot.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (!editing) slot.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function bindEvents() {

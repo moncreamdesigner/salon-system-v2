@@ -4118,6 +4118,34 @@ input[type="date"].input {
   border-radius: 0;
 }
 
+.booking-table tr.booking-row-editing td {
+  border-top: 1px solid var(--accent);
+  border-bottom: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.booking-table tr.booking-row-editing td:first-child {
+  border-left: 1px solid var(--accent);
+}
+
+.booking-table tr.booking-row-editing td:last-child {
+  border-right: 1px solid var(--accent);
+}
+
+.booking-inline-edit-row td {
+  padding: 0 8px 10px;
+  border-bottom: 0;
+  background: var(--surface);
+}
+
+.booking-row-edit-shell {
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--surface);
+}
+
 #bookingInlineSlot:not(:empty) {
   margin-bottom: 0;
 }
