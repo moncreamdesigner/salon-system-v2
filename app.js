@@ -11560,8 +11560,13 @@ function initializeSidebarNavigation() {
   const hideHoverTooltip = () => hoverTooltip.classList.remove("visible");
   const showHoverTooltip = button => {
     if (!document.body.classList.contains("sidebar-collapsed")) return hideHoverTooltip();
+    const iconRect = button.querySelector(".nav-icon")?.getBoundingClientRect();
+    const rect = iconRect || button.getBoundingClientRect();
+    const pageZoom = Number.parseFloat(getComputedStyle(document.body).zoom) || 1;
     hoverTooltip.textContent = button.dataset.tooltip || "";
-    button.appendChild(hoverTooltip);
+    document.body.appendChild(hoverTooltip);
+    hoverTooltip.style.left = `${Math.round((rect.right + 6) / pageZoom)}px`;
+    hoverTooltip.style.top = `${Math.round((rect.top + rect.height / 2) / pageZoom)}px`;
     hoverTooltip.classList.add("visible");
   };
   document.querySelectorAll(".nav-item").forEach(button => {
