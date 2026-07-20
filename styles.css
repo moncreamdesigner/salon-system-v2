@@ -3772,6 +3772,7 @@ input[type="date"].input {
 }
 
 .gift-card-status.used,
+.gift-card-status.expired,
 .gift-card-status.inactive {
   color: var(--danger);
 }
@@ -6230,6 +6231,19 @@ tr:last-child td {
 
 .inline-payment-extra-note .danger {
   color: var(--danger);
+}
+
+.inline-payment-extra-note .success {
+  color: var(--accent-dark);
+}
+
+.inline-payment-gift-card.gift-card-valid {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.inline-payment-gift-card.gift-card-invalid {
+  border-color: var(--danger);
 }
 
 @media (max-width: 900px) {

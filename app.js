@@ -2005,6 +2005,8 @@ function humanResourceStatusText(status) {
 
 function giftCardStatus(card) {
   if (card.status === "inactive") return "inactive";
+  const expiryDate = serviceDateKey(card.expiryDate || "");
+  if (expiryDate && expiryDate < todayText()) return "expired";
   if (Number(card.remainingAmount) <= 0) return "used";
   if (Number(card.remainingAmount) < Number(card.amount)) return "partial";
   return "fresh";
@@ -2013,6 +2015,7 @@ function giftCardStatus(card) {
 function giftCardStatusText(card) {
   const status = giftCardStatus(card);
   if (status === "inactive") return "Идэвхгүй";
+  if (status === "expired") return "Хугацаа дууссан";
   if (status === "used") return "Дууссан";
   if (status === "partial") return "Ашиглаж байгаа";
   return "Идэвхтэй";
@@ -3279,7 +3282,7 @@ function infoForView(name) {
       ["Нийт", state.giftCards.length],
       ["Идэвхтэй", state.giftCards.filter(card => giftCardStatus(card) === "fresh").length],
       ["Ашиглаж байгаа", state.giftCards.filter(card => giftCardStatus(card) === "partial").length],
-      ["Дууссан", state.giftCards.filter(card => giftCardStatus(card) === "used").length]
+      ["Дууссан", state.giftCards.filter(card => ["used", "expired"].includes(giftCardStatus(card))).length]
     ]],
     settings: ["ТОХИРГОО", [
       ["Зургийн тоо", 5],
@@ -6133,11 +6136,14 @@ function findGiftCard(number = "") {
 
 function giftCardPaymentMessage(number = "") {
   const card = findGiftCard(number);
-  if (!String(number || "").trim()) return "";
-  if (!card) return `<span class="danger">Карт олдсонгүй</span>`;
-  if (giftCardStatus(card) === "inactive") return `<span class="danger">Идэвхгүй карт</span>`;
-  if (giftCardStatus(card) === "used" || Number(card.remainingAmount || 0) <= 0) return `<span class="danger">Үлдэгдэлгүй карт</span>`;
-  return `<span>Үлдэгдэл: <strong>${money(card.remainingAmount)}</strong> · Хэрэглээнд тооцогдоно, бонус бодогдохгүй.</span>`;
+  if (!String(number || "").trim()) return `<span>Картын дугаар оруулна уу</span>`;
+  if (!card) return `<span class="danger"><strong>Карт олдсонгүй</strong></span>`;
+  const status = giftCardStatus(card);
+  const expiry = card.expiryDate ? ` · Дуусах: ${card.expiryDate}` : "";
+  if (status === "inactive") return `<span class="danger"><strong>Идэвхгүй карт</strong> · Үлдэгдэл: ${money(card.remainingAmount)}${expiry}</span>`;
+  if (status === "expired") return `<span class="danger"><strong>Хугацаа дууссан</strong> · Үлдэгдэл: ${money(card.remainingAmount)}${expiry}</span>`;
+  if (status === "used" || Number(card.remainingAmount || 0) <= 0) return `<span class="danger"><strong>Үлдэгдэлгүй карт</strong>${expiry}</span>`;
+  return `<span class="success"><strong>Карт хүчинтэй</strong> · Үлдэгдэл: <strong>${money(card.remainingAmount)}</strong>${expiry}</span>`;
 }
 
 function renderPaymentMethodExtra(method = "card", item = {}) {
@@ -6155,7 +6161,7 @@ function renderPaymentMethodExtra(method = "card", item = {}) {
       <label class="inline-gift-card-field ${method === "gift_card" ? "" : "hidden"}">Картын дугаар
         <input class="input inline-payment-gift-card" type="text" value="${giftCardNumber}" placeholder="Картын дугаар">
       </label>
-      ${method === "gift_card" ? `<div class="inline-payment-extra-note">${giftCardPaymentMessage(giftCardNumber)}</div>` : ""}
+      <div class="inline-payment-extra-note ${method === "gift_card" ? "" : "hidden"}">${method === "gift_card" ? giftCardPaymentMessage(giftCardNumber) : ""}</div>
     </div>
   `;
 }
@@ -8032,6 +8038,7 @@ function bindInlinePaymentForms(customer) {
       form.querySelector(".inline-voucher-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-voucher-note-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-gift-card-field")?.classList.toggle("hidden", value !== "gift_card");
+      giftCardNote?.classList.toggle("hidden", value !== "gift_card");
       if (giftCardNote) {
         giftCardNote.innerHTML = value === "gift_card"
           ? giftCardPaymentMessage(giftCardInput?.value)
@@ -8039,6 +8046,10 @@ function bindInlinePaymentForms(customer) {
             ? "Ваучерийн дүн хэрэглээнд тооцогдоно, бонус бодогдохгүй."
             : "";
       }
+      const card = value === "gift_card" ? findGiftCard(giftCardInput?.value) : null;
+      const validCard = Boolean(card && ["fresh", "partial"].includes(giftCardStatus(card)) && Number(card.remainingAmount || 0) > 0);
+      giftCardInput?.classList.toggle("gift-card-valid", validCard);
+      giftCardInput?.classList.toggle("gift-card-invalid", value === "gift_card" && Boolean(giftCardInput.value.trim()) && !validCard);
     };
     method?.addEventListener("change", updatePaymentExtras);
     giftCardInput?.addEventListener("input", event => {
@@ -8099,7 +8110,7 @@ function bindInlinePaymentForms(customer) {
       if (methodSelect?.value === "gift_card") {
         const cardNumber = form.querySelector(".inline-payment-gift-card")?.value?.trim() || "";
         const card = findGiftCard(cardNumber);
-        if (!card || giftCardStatus(card) === "inactive" || giftCardStatus(card) === "used" || Number(card.remainingAmount || 0) <= 0) {
+        if (!card || !["fresh", "partial"].includes(giftCardStatus(card)) || Number(card.remainingAmount || 0) <= 0) {
           showToast("Ашиглах боломжтой бэлгийн карт оруулна уу");
           return;
         }
@@ -9674,7 +9685,7 @@ function renderGiftCards() {
       ? usage.map(item => `${item.date} · ${item.customer} · ${money(item.amount)}`).join("<br>")
       : "Ашиглалт байхгүй";
     return `
-      <tr class="${status === "used" || status === "inactive" ? "locked-row" : ""}">
+      <tr class="${["used", "expired", "inactive"].includes(status) ? "locked-row" : ""}">
         <td><strong>${card.cardNumber}</strong></td>
         <td><span class="gift-card-status ${status}">${giftCardStatusText(card)}</span></td>
         <td><strong>${money(card.amount)}</strong></td>
@@ -9684,7 +9695,7 @@ function renderGiftCards() {
         <td><span class="gift-card-usage">${usageText}</span></td>
         <td>
           <div class="table-actions">
-            <button class="secondary-btn gift-card-toggle" type="button" data-id="${card.id}" ${status === "used" ? "disabled" : ""}>${status === "inactive" ? "Идэвхжүүлэх" : "Идэвхгүй"}</button>
+            <button class="secondary-btn gift-card-toggle" type="button" data-id="${card.id}" ${["used", "expired"].includes(status) ? "disabled" : ""}>${status === "inactive" ? "Идэвхжүүлэх" : "Идэвхгүй"}</button>
             <button class="secondary-btn icon-action gift-card-edit" type="button" data-id="${card.id}" aria-label="Засах" ${editable ? "" : "disabled"}>${editIcon()}</button>
             <button class="danger-btn icon-danger gift-card-delete" type="button" data-id="${card.id}" aria-label="Устгах" ${editable ? "" : "disabled"}>${trashIcon()}</button>
           </div>
