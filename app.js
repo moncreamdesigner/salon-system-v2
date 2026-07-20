@@ -11669,7 +11669,7 @@ function initializeSidebarNavigation() {
   const compactViewport = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
   const desktopViewport = window.matchMedia("(min-width: 821px)").matches;
   const preference = localStorage.getItem(SIDEBAR_COMPACT_KEY);
-  document.body.classList.toggle("sidebar-collapsed", desktopViewport && (preference === "collapsed" || (compactViewport && preference !== "expanded")));
+  document.body.classList.toggle("sidebar-collapsed", desktopViewport && compactViewport && preference !== "expanded");
   window.addEventListener("resize", () => {
     hideHoverTooltip();
     if (window.matchMedia("(max-width: 820px)").matches) {
@@ -11677,8 +11677,8 @@ function initializeSidebarNavigation() {
       return;
     }
     const saved = localStorage.getItem(SIDEBAR_COMPACT_KEY);
-    const compact = window.matchMedia("(max-width: 1180px)").matches;
-    document.body.classList.toggle("sidebar-collapsed", saved === "collapsed" || (compact && saved !== "expanded"));
+    const compact = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
+    document.body.classList.toggle("sidebar-collapsed", compact && saved !== "expanded");
   });
 }
 
