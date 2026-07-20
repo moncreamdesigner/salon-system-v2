@@ -5563,12 +5563,13 @@ function performanceDemoData() {
 
 function performanceTransactions() {
   const transactions = [];
+  const kassEligiblePaymentMethods = new Set(["card", "qpay", "transfer", "cash", "loan_app"]);
   const add = payload => {
     const staff = state.staff.find(item => Number(item.id) === Number(payload.staffId) || item.name === payload.staff);
     if (!staff || !payload.date || !payload.salon) return;
     const revenue = Math.max(0, Number(payload.revenue || 0));
     const rate = payload.type === "kass"
-      ? Number(staff.kassCommission ?? 0)
+      ? Number(staff.kassCommission ?? 2)
       : Number(staff.bonusCommission ?? parseFloat(staff.commission) ?? 0);
     transactions.push({
       ...payload,
@@ -5591,6 +5592,44 @@ function performanceTransactions() {
       type: "kass"
     });
   };
+  const addKassPaymentsForService = ({ item, salon, date, title, customer }) => {
+    const sourceType = item.kind === "course" ? "course" : item.kind === "single" ? "single" : "kass";
+    const payments = Array.isArray(item.payments) ? item.payments : [];
+    if (payments.length) {
+      payments.forEach(payment => {
+        const method = payment.method || "card";
+        if (!kassEligiblePaymentMethods.has(method)) return;
+        const recordedAmount = Number(payment.amount || 0);
+        const paidAmount = payment.paidAmount !== undefined && payment.paidAmount !== null
+          ? Number(payment.paidAmount || 0)
+          : Math.max(0, recordedAmount - Number(payment.bonusAmount || 0));
+        if (paidAmount <= 0) return;
+        const createdAt = String(payment.createdAt || "");
+        addKassCommission({
+          date: payment.date || createdAt.slice(0, 10) || date,
+          salon,
+          type: sourceType,
+          title,
+          customer,
+          revenue: paidAmount,
+          paymentMethod: method
+        });
+      });
+      return;
+    }
+    const legacyMethod = item.paymentMethod || "card";
+    const legacyPaidAmount = servicePaidAmount(item);
+    if (!kassEligiblePaymentMethods.has(legacyMethod) || legacyPaidAmount <= 0) return;
+    addKassCommission({
+      date,
+      salon,
+      type: sourceType,
+      title,
+      customer,
+      revenue: legacyPaidAmount,
+      paymentMethod: legacyMethod
+    });
+  };
 
   state.customers.forEach(customer => {
     (customer.serviceHistory || []).forEach(item => {
@@ -5598,10 +5637,8 @@ function performanceTransactions() {
       const salon = item.salon || customer.salon || activeAccount.salon;
       const date = item.date || item.createdAt || customer.last || todayText();
       const title = item.title || item.service || "Үйлчилгээ";
+      addKassPaymentsForService({ item, salon, date, title: item.kind === "kass" ? kassRevenueServiceName(item) : title, customer: customer.name });
       if (item.kind === "kass" || item.kind === "product") {
-        const schedule = state.kassSchedules.find(entry => entry.date === date && entry.salon === salon);
-        const kassStaff = schedule?.staff || (item.staff !== "Касс" ? item.staff : "");
-        if (kassStaff) add({ staff: kassStaff, date, salon, type: "kass", title, customer: customer.name, revenue: serviceTotalAmount(item) });
         return;
       }
       if (item.kind === "course") {
@@ -5619,14 +5656,12 @@ function performanceTransactions() {
             revenue: basePerVisit + Number(visit.vipRoomFee || 0) + Number(visit.masterStaffFee || 0)
           };
           add(visitTransaction);
-          addKassCommission(visitTransaction);
         });
         return;
       }
       if (item.kind === "single" && item.staff) {
         const singleTransaction = { staff: item.staff, date, salon, type: "single", title, customer: customer.name, revenue: serviceTotalAmount(item) };
         add(singleTransaction);
-        addKassCommission(singleTransaction);
       }
     });
   });
@@ -5643,7 +5678,6 @@ function performanceTransactions() {
       revenue: Number(item.total || item.price || 0)
     };
     add(serviceTransaction);
-    addKassCommission(serviceTransaction);
   });
   return transactions;
 }
@@ -5768,6 +5802,8 @@ function htmlSafe(value = "") {
 }
 
 function performanceTransactionTypeLabel(item) {
+  if (item.type === "kass" && item.sourceType === "course") return "Курсийн төлбөр";
+  if (item.type === "kass" && item.sourceType === "single") return "Нэг удаагийн төлбөр";
   const displayType = item.type === "kass" ? (item.sourceType || "kass") : item.type;
   if (displayType === "course") return "Курсийн оролт";
   if (displayType === "single") return "Нэг удаа";
