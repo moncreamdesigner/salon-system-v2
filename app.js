@@ -5654,7 +5654,7 @@ function renderServiceDiagnosisHistory(item, historyIndex) {
         <div class="service-clinical-panel">
           <div class="service-clinical-head">
             <strong>Оношилгооны түүх</strong>
-            <button class="primary-btn service-diagnosis-add-toggle" type="button" data-history-index="${historyIndex}">${item.diagnosisAddOpen ? "Болих" : "Шинэ оношилгоо"}</button>
+            <button class="primary-btn service-diagnosis-add-toggle" type="button" data-history-index="${historyIndex}">${item.diagnosisAddOpen ? "Болих" : "Оношилгоо нэмэх"}</button>
           </div>
           ${item.diagnosisAddOpen ? `
             <form class="service-diagnosis-history-form" data-history-index="${historyIndex}" data-prefix="${prefix}">
@@ -5752,7 +5752,7 @@ function renderCustomerServiceHistory(customer) {
           </div>
         ` : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
-        ${isCourse ? `${renderServiceDiagnosisHistory(item, index)}${renderCourseSignature(item, index)}${renderCourseSlots(item, index)}` : ""}
+        ${isCourse ? `<div class="course-clinical-actions">${renderServiceDiagnosisHistory(item, index)}${renderCourseSignature(item, index)}</div>${renderCourseSlots(item, index)}` : ""}
         ${!isCourse && !isKass ? renderServiceDiagnosisHistory(item, index) : ""}
         ${customer.profileServiceEditingIndex === index ? "" : `
           <div class="profile-service-footer">
