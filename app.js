@@ -124,7 +124,7 @@ const defaultState = {
   customerTypes: ["Хэрэглэгч", "Тусгай хэрэглэгч", "Ажилтан"],
   customerTypeRules: {
     "Хэрэглэгч": { bonusPercent: 2, dynamic: true },
-    "Тусгай хэрэглэгч": { bonusPercent: 10, dynamic: true },
+    "Тусгай хэрэглэгч": { bonusPercent: 10, dynamic: false },
     "Ажилтан": { bonusPercent: 10, dynamic: false }
   },
   pricePolicy: {
@@ -233,7 +233,7 @@ state.customerTypes.forEach(type => {
     ...(state.customerTypeRules[type] || {})
   };
 });
-ensureEmployeeCustomerBonusRule(state);
+ensureFixedCustomerBonusRules(state);
 state.pricePolicy = {
   ...structuredClone(defaultState.pricePolicy),
   ...(state.pricePolicy || {})
@@ -865,7 +865,7 @@ function applyServerData(data = {}) {
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
   invalidatePersistedStateCache();
-  ensureEmployeeCustomerBonusRule(state);
+  const fixedBonusRulesChanged = ensureFixedCustomerBonusRules(state);
   applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
@@ -893,7 +893,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingPaymentsApplied;
+  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingPaymentsApplied || fixedBonusRulesChanged;
 }
 
 async function saveServerStateNow() {
@@ -2174,30 +2174,32 @@ function customerTypeRule(type) {
   return state.customerTypeRules[type];
 }
 
-function ensureEmployeeCustomerBonusRule(targetState) {
+function ensureFixedCustomerBonusRules(targetState) {
   if (!targetState) return false;
   let changed = false;
   targetState.customerTypes = Array.isArray(targetState.customerTypes) ? targetState.customerTypes : [];
-  if (!targetState.customerTypes.includes("Ажилтан")) {
-    targetState.customerTypes.push("Ажилтан");
-    changed = true;
-  }
   targetState.customerTypeRules = targetState.customerTypeRules && typeof targetState.customerTypeRules === "object"
     ? targetState.customerTypeRules
     : {};
-  const currentRule = targetState.customerTypeRules["Ажилтан"] || {};
-  if (Number(currentRule.bonusPercent) !== 10 || currentRule.dynamic !== false) changed = true;
-  targetState.customerTypeRules["Ажилтан"] = {
-    ...currentRule,
-    bonusPercent: 10,
-    dynamic: false
-  };
+  ["Тусгай хэрэглэгч", "Ажилтан"].forEach(type => {
+    if (!targetState.customerTypes.includes(type)) {
+      targetState.customerTypes.push(type);
+      changed = true;
+    }
+    const currentRule = targetState.customerTypeRules[type] || {};
+    if (Number(currentRule.bonusPercent) !== 10 || currentRule.dynamic !== false) changed = true;
+    targetState.customerTypeRules[type] = {
+      ...currentRule,
+      bonusPercent: 10,
+      dynamic: false
+    };
+  });
   targetState.customers = (Array.isArray(targetState.customers) ? targetState.customers : []).map(customer => {
-    if (customer.type !== "Ажилтан" || customer.bonus === "10%") return customer;
+    if (!["Тусгай хэрэглэгч", "Ажилтан"].includes(customer.type) || customer.bonus === "10%") return customer;
     changed = true;
     return { ...customer, bonus: "10%" };
   });
-  targetState.employeeCustomerBonusRuleV2 = true;
+  targetState.fixedCustomerBonusRulesV3 = true;
   return changed;
 }
 
@@ -2294,8 +2296,9 @@ function saveCustomerType(event) {
   event.preventDefault();
   const input = document.getElementById("customerTypeName");
   const name = input?.value.trim();
-  const bonusPercent = Number(formValue("customerTypeBonus"));
-  const dynamic = document.getElementById("customerTypeDynamic")?.value !== "false";
+  const fixedTenPercentType = ["Тусгай хэрэглэгч", "Ажилтан"].includes(name);
+  const bonusPercent = fixedTenPercentType ? 10 : Number(formValue("customerTypeBonus"));
+  const dynamic = fixedTenPercentType ? false : document.getElementById("customerTypeDynamic")?.value !== "false";
   if (!name) return;
   if (customerTypeEditingName && customerTypeEditingName !== name) {
     state.customerTypes = state.customerTypes.map(type => type === customerTypeEditingName ? name : type);
