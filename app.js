@@ -11560,9 +11560,10 @@ function initializeSidebarNavigation() {
   const hideHoverTooltip = () => hoverTooltip.classList.remove("visible");
   const showHoverTooltip = button => {
     if (!document.body.classList.contains("sidebar-collapsed")) return hideHoverTooltip();
-    const rect = button.getBoundingClientRect();
+    const iconRect = button.querySelector(".nav-icon")?.getBoundingClientRect();
+    const rect = iconRect || button.getBoundingClientRect();
     hoverTooltip.textContent = button.dataset.tooltip || "";
-    hoverTooltip.style.left = `${Math.round(rect.right + 8)}px`;
+    hoverTooltip.style.left = `${Math.round(rect.right + 6)}px`;
     hoverTooltip.style.top = `${Math.round(rect.top + rect.height / 2)}px`;
     hoverTooltip.classList.add("visible");
   };
