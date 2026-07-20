@@ -6219,7 +6219,7 @@ tr:last-child td {
   min-height: 40px;
   display: flex;
   align-items: center;
-  color: var(--muted);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -6230,11 +6230,11 @@ tr:last-child td {
 }
 
 .inline-payment-extra-note .danger {
-  color: var(--danger);
+  color: var(--text);
 }
 
 .inline-payment-extra-note .success {
-  color: var(--accent-dark);
+  color: var(--text);
 }
 
 .inline-payment-gift-card.gift-card-valid {
