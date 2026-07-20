@@ -82,9 +82,9 @@ button {
   left: 0;
   bottom: 0;
   width: var(--sidebar);
-  height: 34px;
+  height: 28px;
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: 0;
   border-radius: 0;
   background: transparent;
   color: var(--muted);
@@ -95,8 +95,8 @@ button {
 }
 
 .sidebar-collapse-btn:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: transparent;
+  color: var(--text);
 }
 
 .sidebar-collapse-btn::before {
@@ -319,8 +319,9 @@ body.sidebar-collapsed .sidebar-logout {
     position: sticky;
     left: auto;
     bottom: 0;
-    flex: 0 0 34px;
+    flex: 0 0 28px;
     width: 100%;
+    margin-top: 8px;
   }
 
   .sidebar {
