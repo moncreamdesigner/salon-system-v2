@@ -3021,7 +3021,6 @@ body.camera-overlay-open {
   border-color: var(--accent);
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .service-diagnosis-toggle i {
