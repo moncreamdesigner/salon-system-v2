@@ -5,6 +5,7 @@ const moneyInputValue = value => Number(value || 0) > 0 ? formatNumber(value) : 
 
 const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
+const PENDING_PAYMENT_MUTATIONS_KEY = "khalgai_salon_pending_payments_v1";
 const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
@@ -22,6 +23,8 @@ let serverSavePending = false;
 let serverRefreshInFlight = false;
 let localStateMutationVersion = 0;
 const pendingCustomerProfileUpdates = new Map();
+const pendingPaymentMutations = new Map();
+let serverSaveRetryDelay = 1000;
 const SIDEBAR_COMPACT_KEY = "khalgai_sidebar_compact_v1";
 
 const defaultState = {
@@ -681,6 +684,120 @@ function stableJsonStringify(value) {
   return JSON.stringify(stableJsonValue(value));
 }
 
+function entityId(prefix = "item") {
+  const randomPart = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${randomPart}`;
+}
+
+function persistPendingPaymentMutations() {
+  try {
+    const values = Array.from(pendingPaymentMutations.values());
+    if (values.length) localStorage.setItem(PENDING_PAYMENT_MUTATIONS_KEY, JSON.stringify(values));
+    else localStorage.removeItem(PENDING_PAYMENT_MUTATIONS_KEY);
+  } catch (error) {
+    console.warn("Pending payment storage skipped", error);
+  }
+}
+
+function loadPendingPaymentMutations() {
+  try {
+    const values = JSON.parse(localStorage.getItem(PENDING_PAYMENT_MUTATIONS_KEY) || "[]");
+    (Array.isArray(values) ? values : []).forEach(mutation => {
+      if (mutation?.id) {
+        pendingPaymentMutations.set(String(mutation.id), mutation);
+        localStateMutationVersion = Math.max(localStateMutationVersion, Number(mutation.mutationVersion || 0));
+      }
+    });
+  } catch (error) {
+    localStorage.removeItem(PENDING_PAYMENT_MUTATIONS_KEY);
+  }
+}
+
+function registerPendingPaymentMutation(mutation) {
+  if (!mutation?.id) return;
+  pendingPaymentMutations.set(String(mutation.id), structuredClone(mutation));
+  persistPendingPaymentMutations();
+}
+
+function pendingHistoryItem(targetCustomer, mutation) {
+  targetCustomer.serviceHistory = Array.isArray(targetCustomer.serviceHistory) ? targetCustomer.serviceHistory : [];
+  let historyItem = targetCustomer.serviceHistory.find(item => String(item.id || "") === String(mutation.historyId || ""));
+  if (!historyItem && mutation.historySnapshot) {
+    const snapshot = structuredClone(mutation.historySnapshot);
+    snapshot.id = mutation.historyId;
+    snapshot.payments = Array.isArray(snapshot.payments) ? snapshot.payments : [];
+    delete snapshot.paymentFormOpen;
+    delete snapshot.diagnosisOpen;
+    delete snapshot.expandedVisit;
+    targetCustomer.serviceHistory.unshift(snapshot);
+    historyItem = snapshot;
+  }
+  return historyItem;
+}
+
+function applyPendingPaymentMutations(targetState) {
+  if (!targetState || !pendingPaymentMutations.size) return false;
+  let changed = false;
+  pendingPaymentMutations.forEach(mutation => {
+    const targetCustomer = (targetState.customers || []).find(customer => Number(customer.id) === Number(mutation.customerId));
+    if (!targetCustomer) return;
+    const historyItem = pendingHistoryItem(targetCustomer, mutation);
+    if (!historyItem) return;
+    historyItem.payments = Array.isArray(historyItem.payments) ? historyItem.payments : [];
+    if (historyItem.payments.some(payment => String(payment.id || "") === String(mutation.payment?.id || mutation.id))) return;
+
+    const payment = structuredClone(mutation.payment || {});
+    historyItem.payments.unshift(payment);
+    historyItem.balance = Math.max(0, Number(historyItem.balance || 0) - Number(payment.amount || 0));
+
+    if (mutation.voucherLog && !(targetState.voucherLogs || []).some(log =>
+      String(log.paymentId || "") === String(mutation.payment?.id || mutation.id)
+    )) {
+      targetState.voucherLogs = Array.isArray(targetState.voucherLogs) ? targetState.voucherLogs : [];
+      targetState.voucherLogs.unshift(structuredClone(mutation.voucherLog));
+    }
+
+    if (mutation.giftCardUsage) {
+      const card = (targetState.giftCards || []).find(item => String(item.cardNumber) === String(mutation.giftCardNumber));
+      if (card) {
+        card.usage = Array.isArray(card.usage) ? card.usage : [];
+        if (!card.usage.some(usage => String(usage.id) === String(mutation.giftCardUsage.id))) {
+          card.remainingAmount = Math.max(0, Number(card.remainingAmount || 0) - Number(payment.paidAmount || 0));
+          card.status = card.remainingAmount <= 0 ? "used" : "new";
+          card.usage.unshift(structuredClone(mutation.giftCardUsage));
+        }
+      }
+    }
+
+    const group = (targetState.customerGroups || []).find(item => Number(item.id) === Number(payment.groupId));
+    if (group) {
+      group.spent2y = Math.max(0, Number(group.spent2y || 0) + Number(payment.groupSpentAmount || 0));
+      group.bonusPool = Math.max(0, Number(group.bonusPool || 0) + Number(payment.groupBonusEarned || 0));
+      group.usedBonus = Math.max(0, Number(group.usedBonus || 0) + Number(payment.groupBonusUsed ?? payment.bonusAmount ?? 0));
+    }
+
+    if (mutation.auditEntry) {
+      targetState.audit = Array.isArray(targetState.audit) ? targetState.audit : [];
+      if (!targetState.audit.some(entry => String(entry.paymentId || "") === String(payment.id || ""))) {
+        targetState.audit.unshift(structuredClone(mutation.auditEntry));
+      }
+    }
+    if (targetCustomer.currentTreatment && (
+      String(targetCustomer.currentTreatment.historyId || "") === String(historyItem.id || "") ||
+      (!targetCustomer.currentTreatment.historyId && targetCustomer.currentTreatment.service === (historyItem.service || historyItem.title))
+    )) {
+      targetCustomer.currentTreatment.historyId = historyItem.id;
+      targetCustomer.currentTreatment.paymentBalance = historyItem.balance;
+      if (historyItem.balance <= 0) targetCustomer.currentTreatment.stage = "Төлбөр хаагдсан";
+    }
+    targetCustomer.unpaid = (targetCustomer.serviceHistory || []).some(item => Number(item.balance || 0) > 0);
+    changed = true;
+  });
+  return changed;
+}
+
+loadPendingPaymentMutations();
+
 async function serverApi(path, options = {}) {
   const response = await fetch(`${SERVER_API_BASE}/${path}`, {
     credentials: "same-origin",
@@ -710,6 +827,7 @@ function applyServerData(data = {}) {
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
   ensureEmployeeCustomerBonusRule(state);
   applyPendingCustomerProfileUpdates(state);
+  const pendingPaymentsApplied = applyPendingPaymentMutations(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
     state.selectedCustomerId = selectedCustomerId;
   }
@@ -735,7 +853,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0;
+  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingPaymentsApplied;
 }
 
 async function saveServerStateNow() {
@@ -746,15 +864,21 @@ async function saveServerStateNow() {
   }
   serverSaveInFlight = true;
   const savingMutationVersion = localStateMutationVersion;
+  let nextSaveDelay = 100;
   try {
     const result = await serverApi("state.php", {
       method: "PUT",
       body: JSON.stringify({ revision: serverStorageRevision, data: serverStateData() })
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
+    serverSaveRetryDelay = 1000;
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerProfileUpdates.delete(customerId);
     });
+    pendingPaymentMutations.forEach((mutation, mutationId) => {
+      if (Number(mutation.mutationVersion || 0) <= savingMutationVersion) pendingPaymentMutations.delete(mutationId);
+    });
+    persistPendingPaymentMutations();
   } catch (error) {
     if (error.status === 409 && error.payload?.conflict) {
       try {
@@ -763,10 +887,10 @@ async function saveServerStateNow() {
         applyServerData(remote.data || {});
         rerenderAll();
         setView(activeView);
-        const retryingProfileUpdate = pendingCustomerProfileUpdates.size > 0;
-        if (retryingProfileUpdate) serverSavePending = true;
-        showToast(retryingProfileUpdate
-          ? "Шинэ мэдээлэлтэй нэгтгээд профайлын өөрчлөлтийг дахин хадгалж байна"
+        const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 || pendingPaymentMutations.size > 0;
+        if (retryingLocalMutation) serverSavePending = true;
+        showToast(retryingLocalMutation
+          ? "Шинэ мэдээлэлтэй нэгтгээд өөрчлөлтийг дахин хадгалж байна"
           : "Өөр хэрэглэгч мэдээлэл шинэчилсэн тул хамгийн сүүлийн хувилбарыг ачааллаа. Үйлдлээ дахин хийнэ үү");
         return;
       } catch (refreshError) {
@@ -774,12 +898,15 @@ async function saveServerStateNow() {
       }
     }
     console.error("Server save failed", error);
-    showToast("Server хадгалалт түр амжилтгүй боллоо");
+    serverSavePending = true;
+    nextSaveDelay = serverSaveRetryDelay;
+    serverSaveRetryDelay = Math.min(30000, serverSaveRetryDelay * 2);
+    showToast("Server хадгалалт түр амжилтгүй. Автоматаар дахин оролдож байна");
   } finally {
     serverSaveInFlight = false;
     if (serverSavePending) {
       serverSavePending = false;
-      queueServerStateSave(100);
+      queueServerStateSave(nextSaveDelay);
     }
   }
 }
@@ -1728,12 +1855,48 @@ function groupMembers(group) {
   return state.customers.filter(customer => memberIds.includes(Number(customer.id)));
 }
 
+function groupPaymentLedgerTotals(group, activeOnly = false) {
+  const groupId = Number(group?.id || 0);
+  const totals = { spent: 0, pool: 0, used: 0, dates: [] };
+  if (!groupId) return totals;
+  (state.customers || []).forEach(customer => {
+    (customer.serviceHistory || []).forEach(historyItem => {
+      (historyItem.payments || []).forEach(payment => {
+        const hasGroupSnapshot = ["groupSpentAmount", "groupBonusEarned", "groupBonusUsed"].some(key =>
+          Object.prototype.hasOwnProperty.call(payment, key)
+        );
+        if (Number(payment.groupId || 0) !== groupId || !hasGroupSnapshot) return;
+        const paymentDate = payment.groupPaymentDate || payment.date || "";
+        const age = daysBetween(paymentDate, todayText());
+        if (activeOnly && (age < 0 || age > 730)) return;
+        totals.spent += Math.max(0, Number(payment.groupSpentAmount || 0));
+        totals.pool += Math.max(0, Number(payment.groupBonusEarned || 0));
+        totals.used += Math.max(0, Number(payment.groupBonusUsed ?? payment.bonusAmount ?? 0));
+        if (paymentDate) totals.dates.push(paymentDate);
+      });
+    });
+  });
+  return totals;
+}
+
 function groupBonusInfo(group) {
   if (!group) return null;
-  const spent = Number(group.spent2y || 0);
+  const allLedger = groupPaymentLedgerTotals(group, false);
+  const activeLedger = groupPaymentLedgerTotals(group, true);
+  const legacyDate = group.bonusLegacyDate || group.startedAt || group.createdAt || todayText();
+  const legacyAge = daysBetween(legacyDate, todayText());
+  const legacyActive = legacyAge >= 0 && legacyAge <= 730;
+  const storedSpent = Math.max(0, Number(group.spent2y || 0));
+  const storedPool = group.bonusPool === undefined || group.bonusPool === null
+    ? Math.round(storedSpent * bonusPercentForSpent(storedSpent) / 100)
+    : Math.max(0, Number(group.bonusPool || 0));
+  const legacySpent = legacyActive ? Math.max(0, storedSpent - allLedger.spent) : 0;
+  const legacyPool = legacyActive ? Math.max(0, storedPool - allLedger.pool) : 0;
+  const legacyUsed = legacyActive ? Math.max(0, Number(group.usedBonus || 0) - allLedger.used) : 0;
+  const spent = activeLedger.spent + legacySpent;
   const percent = bonusPercentForSpent(spent);
-  const pool = Number(group.bonusPool ?? Math.round(spent * percent / 100));
-  const used = Number(group.usedBonus || 0);
+  const pool = activeLedger.pool + legacyPool;
+  const used = activeLedger.used + legacyUsed;
   return {
     spent,
     percent,
@@ -1745,6 +1908,10 @@ function groupBonusInfo(group) {
 
 function applyGroupPayment(group, paidAmount, bonusAmount, paidDate, options = {}) {
   if (!group) return null;
+  const current = groupBonusInfo(group);
+  group.spent2y = Number(current?.spent || 0);
+  group.bonusPool = Number(current?.pool || 0);
+  group.usedBonus = Number(current?.used || 0);
   const spentAmount = Math.max(0, Number(paidAmount || 0));
   const usedAmount = Math.max(0, Number(bonusAmount || 0));
   const nextSpent = Math.max(0, Number(group.spent2y || 0) + spentAmount);
@@ -1801,6 +1968,28 @@ function reverseGiftCardPayment(payment, customer = null, historyItem = null) {
     );
   }
   if (usageIndex >= 0) card.usage.splice(usageIndex, 1);
+}
+
+function reverseVoucherPayment(payment, customer = null, historyItem = null) {
+  if (payment?.method !== "voucher") return;
+  state.voucherLogs = Array.isArray(state.voucherLogs) ? state.voucherLogs : [];
+  let logIndex = payment.id
+    ? state.voucherLogs.findIndex(log => String(log.paymentId || "") === String(payment.id))
+    : -1;
+  if (logIndex < 0 && payment.voucherLogId) {
+    logIndex = state.voucherLogs.findIndex(log => String(log.id) === String(payment.voucherLogId));
+  }
+  if (logIndex < 0) {
+    const paidAmount = Math.max(0, Number(payment.paidAmount || 0));
+    const serviceName = historyItem?.service || historyItem?.title || "";
+    logIndex = state.voucherLogs.findIndex(log =>
+      Number(log.amount || 0) === paidAmount &&
+      (!customer || !log.phone || String(log.phone) === String(customer.phone || "")) &&
+      (!serviceName || !log.note || String(log.note).includes(serviceName)) &&
+      (!payment.date || !log.date || log.date === payment.date)
+    );
+  }
+  if (logIndex >= 0) state.voucherLogs.splice(logIndex, 1);
 }
 
 function treatmentStageClass(treatment) {
@@ -4986,8 +5175,11 @@ function renderAssignments() {
 
 function customerBalance(customer) {
   const treatmentBalance = Number(customer.currentTreatment?.paymentBalance || 0);
-  const historyBalance = (customer.serviceHistory || []).reduce((sum, item) => sum + Number(item.balance || 0), 0);
-  return treatmentBalance || historyBalance || 0;
+  const serviceHistory = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
+  if (serviceHistory.length) {
+    return serviceHistory.reduce((sum, item) => sum + Math.max(0, Number(item.balance || 0)), 0);
+  }
+  return Math.max(0, treatmentBalance);
 }
 
 function customerBonusPercent(customer) {
@@ -5884,9 +6076,11 @@ function renderPaymentHistoryChips(item = {}) {
   return `
     <div class="payment-history-chips">
       ${payments.map(payment => {
-        const label = payment.methodLabel || paymentMethodOptionsLabel(payment.method) || "Төлбөр";
         const time = payment.createdAt || payment.date || "";
         const paidAmount = Number(payment.paidAmount ?? payment.amount ?? 0);
+        const label = paidAmount <= 0 && Number(payment.bonusAmount || 0) > 0
+          ? "Бонус"
+          : (payment.methodLabel || paymentMethodOptionsLabel(payment.method) || "Төлбөр");
         const displayAmount = paidAmount || Number(payment.amount || payment.bonusAmount || 0);
         const bonusText = payment.bonusAmount && paidAmount > 0 ? ` + бонус ${money(payment.bonusAmount)}` : "";
         const reference = payment.referenceLabel ? ` · ${payment.referenceLabel}` : "";
@@ -6049,7 +6243,17 @@ function nextBonusTierInfo(spent) {
 }
 
 function groupPeriodInfo(group) {
-  const start = group?.startedAt || group?.createdAt || state.customers.find(customer => Number(customer.id) === Number(group?.adminCustomerId))?.registeredAt || todayText();
+  const activeLedger = groupPaymentLedgerTotals(group, true);
+  const legacyStart = group?.bonusLegacyDate || group?.startedAt || group?.createdAt || state.customers.find(customer => Number(customer.id) === Number(group?.adminCustomerId))?.registeredAt || todayText();
+  const legacyAge = daysBetween(legacyStart, todayText());
+  const allLedger = groupPaymentLedgerTotals(group, false);
+  const hasActiveLegacy = legacyAge >= 0 && legacyAge <= 730 && (
+    Number(group?.spent2y || 0) > allLedger.spent ||
+    Number(group?.bonusPool || 0) > allLedger.pool ||
+    Number(group?.usedBonus || 0) > allLedger.used
+  );
+  const dates = [...activeLedger.dates, ...(hasActiveLegacy ? [legacyStart] : [])].filter(Boolean).sort();
+  const start = dates[0] || todayText();
   const used = Math.max(0, Math.min(730, daysBetween(start, todayText())));
   const left = Math.max(0, 730 - used);
   const end = new Date(`${start}T00:00:00`);
@@ -7545,6 +7749,7 @@ function bindProfileKassInlineForm(customer, form) {
     const editingIndex = Number.isInteger(customer.profileKassEditingIndex) ? customer.profileKassEditingIndex : null;
     const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
     const historyItem = {
+      id: editingItem?.id || entityId("svc"),
       kind: "kass",
       title: "Касс",
       service: "Касс",
@@ -7663,6 +7868,7 @@ function bindProfileServiceInlineForm(customer) {
         ? readDiagnosisPayload("profileService")
         : (editingItem?.diagnosis || null);
     const historyItem = {
+      id: editingItem?.id || entityId("svc"),
       kind,
       title: standardServiceName(item.name, kind),
       service: standardServiceName(item.name, kind),
@@ -7845,19 +8051,28 @@ function bindInlinePaymentForms(customer) {
       event.preventDefault();
       const historyItem = customer.serviceHistory?.[historyIndex];
       if (!historyItem) return;
+      historyItem.id = historyItem.id || entityId("svc");
       const currentBalance = Number(historyItem.balance || 0);
       const amount = Math.max(0, Math.min(parseMoneyInput(amountInput?.value), currentBalance));
-      if (!amount) {
-        showToast("Төлөх дүн оруулна уу");
-        return;
-      }
       const currentBonusUsed = (historyItem.payments || []).some(payment => Number(payment.bonusAmount || 0) > 0);
       const bonusAmount = currentBonusUsed || !bonusApplied ? 0 : Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus, Math.max(0, currentBalance - amount)));
       const appliedAmount = Math.min(currentBalance, amount + bonusAmount);
       const methodSelect = form.querySelector(".inline-payment-method");
       const methodLabel = methodSelect?.selectedOptions?.[0]?.textContent || "";
+      if (!appliedAmount) {
+        showToast("Төлөх дүн эсвэл бонус оруулна уу");
+        return;
+      }
+      if (!amount && ["voucher", "gift_card"].includes(methodSelect?.value || "")) {
+        showToast("Ваучер эсвэл бэлгийн картаар төлөх дүн оруулна уу");
+        return;
+      }
+      const paidDate = form.querySelector(".inline-payment-date")?.value || todayText();
+      const paymentId = entityId("pay");
       let referenceLabel = "";
       let giftCardUsageId = "";
+      let voucherLog = null;
+      let giftCardUsage = null;
       if (methodSelect?.value === "voucher") {
         const roleId = form.querySelector(".inline-payment-voucher-role")?.value;
         const role = state.voucherRoles.find(item => String(item.id) === String(roleId));
@@ -7866,9 +8081,10 @@ function bindInlinePaymentForms(customer) {
           return;
         }
         referenceLabel = role.name;
-        state.voucherLogs.unshift({
+        voucherLog = {
           id: nextId(state.voucherLogs),
-          date: form.querySelector(".inline-payment-date")?.value || todayText(),
+          paymentId,
+          date: paidDate,
           time: currentTimeText(),
           customer: customer.name,
           phone: customer.phone,
@@ -7877,7 +8093,8 @@ function bindInlinePaymentForms(customer) {
           rolePosition: role.position || "",
           amount,
           note: form.querySelector(".inline-payment-voucher-note")?.value?.trim() || historyItem.service || historyItem.title || ""
-        });
+        };
+        state.voucherLogs.unshift(voucherLog);
       }
       if (methodSelect?.value === "gift_card") {
         const cardNumber = form.querySelector(".inline-payment-gift-card")?.value?.trim() || "";
@@ -7895,22 +8112,25 @@ function bindInlinePaymentForms(customer) {
         card.remainingAmount = Math.max(0, Number(card.remainingAmount || 0) - amount);
         card.status = card.remainingAmount <= 0 ? "used" : "new";
         card.usage = Array.isArray(card.usage) ? card.usage : [];
-        card.usage.unshift({
+        giftCardUsage = {
           id: giftCardUsageId,
-          date: form.querySelector(".inline-payment-date")?.value || todayText(),
+          paymentId,
+          date: paidDate,
           time: currentTimeText(),
           customer: customer.name,
           phone: customer.phone,
           service: historyItem.service || historyItem.title || "",
           amount
-        });
+        };
+        card.usage.unshift(giftCardUsage);
       }
-      const paidDate = form.querySelector(".inline-payment-date")?.value || todayText();
+      const historySnapshot = structuredClone(historyItem);
       historyItem.payments = historyItem.payments || [];
       const groupPayment = applyGroupPayment(group, amount, bonusAmount, paidDate, {
         bonusEligible: !["voucher", "gift_card"].includes(methodSelect?.value || "")
       });
-      historyItem.payments.unshift({
+      const payment = {
+        id: paymentId,
         amount: appliedAmount,
         bonusAmount,
         paidAmount: amount,
@@ -7920,16 +8140,44 @@ function bindInlinePaymentForms(customer) {
         methodLabel,
         referenceLabel,
         giftCardUsageId,
+        voucherLogId: voucherLog?.id || "",
+        createdById: activeAccount.id || 0,
+        createdBy: activeAccount.displayName || activeAccount.username || "Систем",
+        createdByRole: activeAccount.role || "",
         ...(groupPayment || {})
-      });
+      };
+      historyItem.payments.unshift(payment);
       historyItem.balance = Math.max(0, currentBalance - appliedAmount);
       historyItem.paymentFormOpen = false;
-      if (customer.currentTreatment?.service === (historyItem.service || historyItem.title)) {
+      if (customer.currentTreatment && (
+        String(customer.currentTreatment.historyId || "") === String(historyItem.id) ||
+        (!customer.currentTreatment.historyId && customer.currentTreatment.service === (historyItem.service || historyItem.title))
+      )) {
+        customer.currentTreatment.historyId = historyItem.id;
         customer.currentTreatment.paymentBalance = historyItem.balance;
         if (historyItem.balance <= 0) customer.currentTreatment.stage = "Төлбөр хаагдсан";
       }
       customer.unpaid = customerBalance(customer) > 0;
-      saveAndRefreshCustomerProfile("Төлбөр хадгалагдлаа");
+      const auditEntry = {
+        title: "payment_created",
+        paymentId,
+        createdAt: auditNowText(),
+        meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • ${money(appliedAmount)}`
+      };
+      state.audit.unshift(auditEntry);
+      registerPendingPaymentMutation({
+        id: paymentId,
+        mutationVersion: localStateMutationVersion + 1,
+        customerId: customer.id,
+        historyId: historyItem.id,
+        historySnapshot,
+        payment,
+        voucherLog,
+        giftCardNumber: referenceLabel,
+        giftCardUsage,
+        auditEntry
+      });
+      saveAndRefreshCustomerProfile("Төлбөр бүртгэгдлээ");
     });
   });
 }
@@ -7965,9 +8213,18 @@ function deleteCustomerHistoryItem(customerId, historyIndex) {
   if (!requireDeleteCode()) return;
   const group = customerGroup(customer);
   (historyItem.payments || []).forEach(payment => {
+    if (payment.id) pendingPaymentMutations.delete(String(payment.id));
     reverseGroupPayment(payment, group);
     reverseGiftCardPayment(payment, customer, historyItem);
+    reverseVoucherPayment(payment, customer, historyItem);
+    state.audit.unshift({
+      title: "payment_reversed",
+      paymentId: payment.id || "",
+      createdAt: auditNowText(),
+      meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • ${customer.name} • ${money(payment.amount || payment.paidAmount || 0)}`
+    });
   });
+  persistPendingPaymentMutations();
   customer.serviceHistory.splice(historyIndex, 1);
   customer.currentTreatment = customer.serviceHistory[0] ? currentTreatmentFromHistory(customer, customer.serviceHistory[0], customer.serviceHistory[0].kind === "course" ? customer.course || "Курс" : "Нэг удаа") : null;
   customer.activeCourse = customer.serviceHistory.some(item => item.kind === "course");
@@ -8477,6 +8734,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
 function currentTreatmentFromHistory(customer, item, progress) {
   return {
     id: `tr-${customer.id}-${Date.now()}`,
+    historyId: item.id || "",
     service: item.service,
     salon: item.salon,
     staff: item.staff,
@@ -10245,6 +10503,7 @@ function auditActionText(title = "") {
     staff_assignment_updated: "Ажилтны томилгоог зассан",
     staff_assignment_deleted: "Ажилтны томилгоог устгасан",
     payment_created: "Төлбөр бүртгэсэн",
+    payment_reversed: "Төлбөрийг буцаасан",
     customer_created: "Шинэ хэрэглэгч бүртгэсэн",
     customer_updated: "Хэрэглэгчийн мэдээллийг зассан",
     customer_deleted: "Хэрэглэгчийг устгасан",
