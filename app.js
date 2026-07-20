@@ -11539,8 +11539,9 @@ function initializeSidebarNavigation() {
     const label = button.textContent.trim();
     const key = button.id === "settingsToggle" ? "admin" : button.dataset.view;
     const path = iconPaths[key] || iconPaths.admin;
-    button.innerHTML = `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg><span class="nav-label">${label}</span><span class="nav-compact-label">${label}</span>`;
-    button.title = label;
+    button.innerHTML = `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg><span class="nav-label">${label}</span>`;
+    button.dataset.tooltip = label;
+    button.setAttribute("aria-label", label);
   });
   document.querySelectorAll(".nav-subitem").forEach(button => {
     if (button.querySelector(".nav-label")) return;
@@ -11548,11 +11549,36 @@ function initializeSidebarNavigation() {
     button.innerHTML = `<span class="nav-sub-dot" aria-hidden="true"></span><span class="nav-label">${label}</span>`;
     button.title = label;
   });
+  let hoverTooltip = document.getElementById("sidebarHoverTooltip");
+  if (!hoverTooltip) {
+    hoverTooltip = document.createElement("div");
+    hoverTooltip.id = "sidebarHoverTooltip";
+    hoverTooltip.className = "sidebar-hover-tooltip";
+    hoverTooltip.setAttribute("role", "tooltip");
+    document.body.appendChild(hoverTooltip);
+  }
+  const hideHoverTooltip = () => hoverTooltip.classList.remove("visible");
+  const showHoverTooltip = button => {
+    if (!document.body.classList.contains("sidebar-collapsed")) return hideHoverTooltip();
+    const rect = button.getBoundingClientRect();
+    hoverTooltip.textContent = button.dataset.tooltip || "";
+    hoverTooltip.style.left = `${Math.round(rect.right + 8)}px`;
+    hoverTooltip.style.top = `${Math.round(rect.top + rect.height / 2)}px`;
+    hoverTooltip.classList.add("visible");
+  };
+  document.querySelectorAll(".nav-item").forEach(button => {
+    button.addEventListener("mouseenter", () => showHoverTooltip(button));
+    button.addEventListener("mouseleave", hideHoverTooltip);
+    button.addEventListener("focus", () => showHoverTooltip(button));
+    button.addEventListener("blur", hideHoverTooltip);
+    button.addEventListener("click", hideHoverTooltip);
+  });
   const compactViewport = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
   const desktopViewport = window.matchMedia("(min-width: 821px)").matches;
   const preference = localStorage.getItem(SIDEBAR_COMPACT_KEY);
   document.body.classList.toggle("sidebar-collapsed", desktopViewport && (preference === "collapsed" || (compactViewport && preference !== "expanded")));
   window.addEventListener("resize", () => {
+    hideHoverTooltip();
     if (window.matchMedia("(max-width: 820px)").matches) {
       document.body.classList.remove("sidebar-collapsed");
       return;

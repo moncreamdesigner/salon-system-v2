@@ -187,10 +187,6 @@ button {
   white-space: nowrap;
 }
 
-.nav-compact-label {
-  display: none;
-}
-
 .nav-item:hover {
   border-color: var(--line);
   background: var(--surface-soft);
@@ -297,31 +293,34 @@ body.sidebar-collapsed .nav {
 }
 
 body.sidebar-collapsed .nav-item {
-  height: 44px;
   width: 100%;
   justify-content: center;
-  flex-direction: column;
-  gap: 1px;
   padding: 0;
 }
 
-body.sidebar-collapsed .nav-icon {
-  width: 18px;
-  height: 18px;
-  flex-basis: 18px;
+.sidebar-hover-tooltip {
+  position: fixed;
+  z-index: 1000;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(23, 32, 23, .16);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-50%) translateX(-3px);
+  transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
 }
 
-body.sidebar-collapsed .nav-compact-label {
-  display: block;
-  max-width: 100%;
-  max-height: 18px;
-  overflow: hidden;
-  color: currentColor;
-  font-size: 7.5px;
-  font-weight: 600;
-  line-height: 9px;
-  text-align: center;
-  white-space: normal;
+.sidebar-hover-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
 }
 
 body.sidebar-collapsed .nav-label,
