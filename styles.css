@@ -266,6 +266,7 @@ body.sidebar-collapsed .app-shell {
 body.sidebar-collapsed .sidebar {
   padding-left: 8px;
   padding-right: 8px;
+  overflow: visible;
 }
 
 body.sidebar-collapsed .sidebar-collapse-btn::before {
@@ -290,16 +291,20 @@ body.sidebar-collapsed .brand-logo {
 
 body.sidebar-collapsed .nav {
   padding-right: 0;
+  overflow: visible;
 }
 
 body.sidebar-collapsed .nav-item {
+  position: relative;
   width: 100%;
   justify-content: center;
   padding: 0;
 }
 
 .sidebar-hover-tooltip {
-  position: fixed;
+  position: absolute;
+  left: calc(50% + 16px);
+  top: 50%;
   z-index: 1000;
   padding: 7px 10px;
   border-radius: 8px;
