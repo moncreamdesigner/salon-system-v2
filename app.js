@@ -7506,7 +7506,7 @@ function bindProfileServiceInlineForm(customer) {
     const item = priceParts.item;
     if (!item) return;
     const date = formValue("profileServiceDate") || todayText();
-    const salon = formValue("profileServiceSalon") || customer.salon || activeAccount.salon;
+    const salon = showSalon ? formValue("profileServiceSalon") : activeAccount.salon;
     if (showSalon && !formValue("profileServiceSalon")) {
       showToast("Салбар сонгоно уу");
       return;
@@ -8297,7 +8297,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
         if (!item) return;
         const date = formValue("customerServiceDate") || todayText();
         const staff = formValue("customerServiceStaff");
-        const salon = showSalon ? formValue("customerServiceSalon") : (customer.salon || activeAccount.salon);
+        const salon = showSalon ? formValue("customerServiceSalon") : activeAccount.salon;
         const price = Number(item.price || 0);
         const diagnosis = readDiagnosisPayload("service");
         const historyItem = {
