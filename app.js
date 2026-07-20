@@ -578,6 +578,7 @@ function loadState() {
 
 function clearTransientState(source) {
   const next = structuredClone(source);
+  next.selectedCustomerId = null;
   (next.customers || []).forEach(customer => {
     clearCustomerUiState(customer);
   });
@@ -699,10 +700,14 @@ async function serverApi(path, options = {}) {
 }
 
 function applyServerData(data = {}) {
+  const selectedCustomerId = Number(state?.selectedCustomerId || 0);
   const incoming = structuredClone(data || {});
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
+  if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
+    state.selectedCustomerId = selectedCustomerId;
+  }
   const customerNamesChanged = normalizeCustomerNamesWithoutSurname(state);
   const embeddedImagesRemoved = stripLegacyEmbeddedImages(state);
   try {
