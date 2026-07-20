@@ -2971,6 +2971,197 @@ body.camera-overlay-open {
   justify-content: space-between;
 }
 
+.service-clinical-section,
+.course-level-signature {
+  padding: 0 16px 14px;
+}
+
+.service-diagnosis-toggle,
+.course-signature-toggle {
+  width: auto;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.service-diagnosis-toggle i {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+}
+
+.service-diagnosis-toggle.active i {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.service-clinical-panel {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 9px;
+  background: var(--surface);
+  display: grid;
+  gap: 12px;
+  animation: expandDown .18s ease-out;
+  transform-origin: top;
+}
+
+.service-clinical-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-clinical-head strong {
+  font-size: 13px;
+}
+
+.service-clinical-head .primary-btn {
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.service-diagnosis-history-form {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.service-diagnosis-date {
+  width: 180px;
+}
+
+.service-diagnosis-history-list {
+  display: grid;
+}
+
+.service-diagnosis-history-item + .service-diagnosis-history-item {
+  border-top: 1px solid var(--line);
+}
+
+.service-diagnosis-detail-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 11px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.service-diagnosis-detail-toggle span {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.service-diagnosis-detail-toggle strong {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.service-diagnosis-detail-toggle small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-diagnosis-detail-toggle i {
+  font-style: normal;
+}
+
+.service-diagnosis-detail {
+  padding: 0 2px 12px;
+}
+
+.course-level-signature {
+  margin-top: -4px;
+}
+
+.course-signature-toggle svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.course-level-signature.saved {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.course-level-signature.saved > span {
+  color: var(--muted);
+}
+
+.course-level-signature.saved .diagnosis-photo-thumb {
+  width: 90px;
+  margin-left: auto;
+}
+
+.course-level-signature.saved img {
+  width: 100%;
+  height: 38px;
+  object-fit: contain;
+}
+
+.course-visit-summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.course-visit-summary-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.course-visit-summary-row small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.course-visit-summary-row strong {
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .service-clinical-head,
+  .service-diagnosis-detail-toggle span,
+  .course-level-signature.saved {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .service-diagnosis-date {
+    width: 100%;
+  }
+
+  .course-visit-summary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .course-diagnosis-view {
   margin-top: 7px;
   padding: 14px;

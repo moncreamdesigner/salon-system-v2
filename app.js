@@ -142,6 +142,7 @@ const defaultState = {
 };
 
 let state = loadState();
+let currentTreatmentExpiryTimer = null;
 
 state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : structuredClone(defaultState.salons)).map((salon, index) => {
   const fallback = defaultState.salons.find(item => Number(item.id) === Number(salon?.id) || item.name === salon?.name) || {};
@@ -611,6 +612,9 @@ function clearCustomerUiState(customer) {
   (customer.serviceHistory || []).forEach(item => {
     delete item.expandedVisit;
     delete item.diagnosisOpen;
+    delete item.diagnosisAddOpen;
+    delete item.diagnosisDetailId;
+    delete item.signatureOpen;
     delete item.paymentFormOpen;
   });
 }
@@ -5209,15 +5213,16 @@ function serviceDateKey(value) {
 function todaySalonTreatment(customer, salon = activeAccount.salon) {
   const today = todayText();
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
-  const isSigned = value => value?.signed || value?.qr === "Баталгаажсан" || value?.qrStatus === "Баталгаажсан";
   for (const item of history) {
     const itemSalon = item.salon || customer.salon || activeAccount.salon;
-    if (salon && itemSalon !== salon) continue;
     if (item.kind === "course") {
       const visits = Array.isArray(item.visits) ? item.visits : [];
-      const visit = visits.find(entry => serviceDateKey(entry.date || item.date) === today && (!salon || (entry.salon || itemSalon) === salon));
+      const now = Date.now();
+      const visit = visits
+        .filter(entry => !salon || (entry.salon || itemSalon) === salon)
+        .filter(entry => Number.isFinite(new Date(entry.activeUntil || 0).getTime()) && new Date(entry.activeUntil).getTime() > now)
+        .sort((a, b) => new Date(b.registeredAt || 0).getTime() - new Date(a.registeredAt || 0).getTime())[0];
       if (!visit) continue;
-      if (isSigned(visit)) continue;
       const visitNumber = visit.number || visits.indexOf(visit) + 1;
       const total = Number(item.visitsTotal || parseVisitCount(item.visits || item.service || item.title) || visits.length || 1);
       return {
@@ -5227,6 +5232,7 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
         stage: Number(item.balance || 0) > 0 ? "Үйлчилгээ эхэлсэн" : "Төлбөр хаагдсан"
       };
     }
+    if (salon && itemSalon !== salon) continue;
     if (serviceDateKey(item.date || item.createdAt) !== today) continue;
     if (Number(item.balance || 0) <= 0) continue;
     return {
@@ -5237,6 +5243,20 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
     };
   }
   return null;
+}
+
+function scheduleCurrentTreatmentExpiryRefresh() {
+  if (currentTreatmentExpiryTimer) clearTimeout(currentTreatmentExpiryTimer);
+  currentTreatmentExpiryTimer = null;
+  const now = Date.now();
+  const expiries = (state.customers || []).flatMap(customer =>
+    (customer.serviceHistory || []).flatMap(item =>
+      item.kind === "course" ? (item.visits || []).map(visit => new Date(visit.activeUntil || 0).getTime()) : []
+    )
+  ).filter(value => Number.isFinite(value) && value > now);
+  if (!expiries.length) return;
+  const delay = Math.min(Math.max(50, Math.min(...expiries) - now + 50), 2147483647);
+  currentTreatmentExpiryTimer = setTimeout(() => renderCustomers(), delay);
 }
 
 function renderCustomerInlineForm() {
@@ -5382,6 +5402,7 @@ function renderCustomers() {
     .filter(customer => !customer.deleted && !customer.deletedAt)
     .map(customer => ({ customer, treatment: todaySalonTreatment(customer, activeAccount.salon) }))
     .filter(item => item.treatment);
+  scheduleCurrentTreatmentExpiryRefresh();
   const activeStrip = document.getElementById("activeTreatmentStrip");
   if (activeStrip) {
     activeStrip.innerHTML = `
@@ -5584,13 +5605,124 @@ function renderKassProductsSummary(item = {}) {
   `;
 }
 
+function diagnosisHasContent(diagnosis = null) {
+  return Boolean(diagnosis && (
+    (diagnosis.types || []).length ||
+    String(diagnosis.note || "").trim() ||
+    (diagnosis.generalPhotos || []).some(Boolean) ||
+    (diagnosis.scopePhotos || []).some(Boolean)
+  ));
+}
+
+function ensureServiceDiagnosisHistory(item = {}) {
+  item.diagnosisHistory = Array.isArray(item.diagnosisHistory) ? item.diagnosisHistory : [];
+  const addLegacy = (diagnosis, sourceKey, date, visitNumber = null) => {
+    if (!diagnosisHasContent(diagnosis) || item.diagnosisHistory.some(entry => entry.sourceKey === sourceKey)) return;
+    item.diagnosisHistory.push({
+      id: entityId("diagnosis"),
+      sourceKey,
+      date: date || item.date || todayText(),
+      createdAt: date || item.createdAt || item.date || todayText(),
+      visitNumber,
+      ...structuredClone(diagnosis)
+    });
+  };
+  addLegacy(item.diagnosis, "legacy-service", item.date || item.createdAt);
+  if (item.kind === "course") {
+    (item.visits || []).forEach(visit => addLegacy(visit.diagnosis, `legacy-visit-${visit.number}`, visit.date, visit.number));
+  }
+  return item.diagnosisHistory.sort((a, b) =>
+    String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || ""))
+  );
+}
+
+function diagnosisHistoryDate(entry = {}) {
+  const date = entry.date || String(entry.createdAt || "").slice(0, 10) || "-";
+  const visit = entry.visitNumber ? ` • ${entry.visitNumber}-р оролт` : "";
+  return `${date}${visit}`;
+}
+
+function renderServiceDiagnosisHistory(item, historyIndex) {
+  const history = ensureServiceDiagnosisHistory(item);
+  const prefix = `serviceDiagnosis${historyIndex}`;
+  return `
+    <section class="service-clinical-section">
+      <button class="secondary-btn service-diagnosis-toggle ${item.diagnosisOpen ? "active" : ""}" type="button" data-history-index="${historyIndex}">
+        <span>Оношилгоо${history.length ? ` (${history.length})` : ""}</span><i></i>
+      </button>
+      ${item.diagnosisOpen ? `
+        <div class="service-clinical-panel">
+          <div class="service-clinical-head">
+            <strong>Оношилгооны түүх</strong>
+            <button class="primary-btn service-diagnosis-add-toggle" type="button" data-history-index="${historyIndex}">${item.diagnosisAddOpen ? "Болих" : "Шинэ оношилгоо"}</button>
+          </div>
+          ${item.diagnosisAddOpen ? `
+            <form class="service-diagnosis-history-form" data-history-index="${historyIndex}" data-prefix="${prefix}">
+              <label class="service-diagnosis-date">Огноо<input class="input" type="date" value="${todayText()}" required></label>
+              ${diagnosisFormHtml(prefix, true)}
+              <div class="form-actions"><button class="primary-btn" type="submit">Оношилгоо хадгалах</button></div>
+            </form>
+          ` : ""}
+          <div class="service-diagnosis-history-list">
+            ${history.map(entry => `
+              <div class="service-diagnosis-history-item">
+                <button class="service-diagnosis-detail-toggle" type="button" data-history-index="${historyIndex}" data-diagnosis-id="${entry.id}">
+                  <span><strong>${diagnosisHistoryDate(entry)}</strong><small>${(entry.types || []).join(", ") || String(entry.note || "Тэмдэглэлгүй")}</small></span>
+                  <i>${String(item.diagnosisDetailId) === String(entry.id) ? "↑" : "↓"}</i>
+                </button>
+                ${String(item.diagnosisDetailId) === String(entry.id) ? `<div class="service-diagnosis-detail">${renderDiagnosisSummary(entry)}</div>` : ""}
+              </div>
+            `).join("") || `<div class="empty-state">Оношилгооны түүх алга</div>`}
+          </div>
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+function courseSignatureRecord(item = {}) {
+  if (item.courseSignature?.signed) return item.courseSignature;
+  const legacy = (item.visits || []).find(visit => visit.signed || visit.signature);
+  if (!legacy) return null;
+  item.courseSignature = {
+    signed: true,
+    signature: legacy.signature || null,
+    signedAt: legacy.signedAt || legacy.date || item.date || todayText()
+  };
+  return item.courseSignature;
+}
+
+function renderCourseSignature(item, historyIndex) {
+  const signature = courseSignatureRecord(item);
+  if (signature) {
+    const image = typeof signature.signature === "string" && signature.signature.startsWith("data:image/")
+      ? `<button class="diagnosis-photo-thumb" type="button" aria-label="Гарын үсэг томоор харах"><img src="${signature.signature}" alt="Хэрэглэгчийн гарын үсэг"></button>`
+      : "";
+    return `<div class="course-level-signature saved"><strong>Курс баталгаажсан</strong><span>${new Date(signature.signedAt).toLocaleString("mn-MN")}</span>${image}</div>`;
+  }
+  return `
+    <section class="course-level-signature">
+      <button class="secondary-btn course-signature-toggle ${item.signatureOpen ? "active" : ""}" type="button" data-history-index="${historyIndex}">
+        <span>Курс баталгаажуулах</span>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 17c3-8 5-11 7-11 2 0-1 8-3 11-1 2 1 2 3 0l2-3c-1 3 0 4 2 3l2-2c-1 2 0 3 2 2h4"/></svg>
+      </button>
+      ${item.signatureOpen ? `
+        <div class="course-signature-panel" data-history-index="${historyIndex}">
+          <div class="course-signature-head"><strong>Хэрэглэгчийн гарын үсэг</strong><span>Хулгана эсвэл touch-оор зурна</span></div>
+          <canvas class="course-signature-canvas" width="900" height="300"></canvas>
+          <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Зурж хадгалах</button></div>
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
 function renderCustomerServiceHistory(customer) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   if (!history.length) return `<div class="empty-state">Үйлчилгээний түүх алга</div>`;
   return history.map((item, index) => {
     const isCourse = item.kind === "course";
     const isKass = item.kind === "kass" || item.kind === "product";
-    const diagnosis = item.diagnosis || null;
     const title = item.title || item.service || "Үйлчилгээ";
     const date = item.date || item.createdAt || customer.last || "-";
     const staff = item.staff || "Ажилтан сонгоогүй";
@@ -5600,7 +5732,7 @@ function renderCustomerServiceHistory(customer) {
     const editMode = profileServiceEditMode(item);
     const editAllowed = editMode !== "locked";
     const deleteAllowed = isServiceDeletable(item);
-    const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || customer.profileServiceEditingIndex === index);
+    const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.signatureOpen || customer.profileServiceEditingIndex === index);
     return `
       <article class="profile-service-card ${active ? "active" : ""}">
         <div class="profile-service-head">
@@ -5620,13 +5752,8 @@ function renderCustomerServiceHistory(customer) {
           </div>
         ` : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
-        ${isCourse ? renderCourseSlots(item, index) : ""}
-        ${!isCourse && !isKass && diagnosis ? `
-          <div class="profile-diagnosis-history">
-            <button class="secondary-btn history-diagnosis-toggle" type="button" data-history-index="${index}">Оношилгоо <span>${item.diagnosisOpen ? "↑" : "↓"}</span></button>
-            ${item.diagnosisOpen ? renderDiagnosisSummary(diagnosis) : ""}
-          </div>
-        ` : ""}
+        ${isCourse ? `${renderServiceDiagnosisHistory(item, index)}${renderCourseSignature(item, index)}${renderCourseSlots(item, index)}` : ""}
+        ${!isCourse && !isKass ? renderServiceDiagnosisHistory(item, index) : ""}
         ${customer.profileServiceEditingIndex === index ? "" : `
           <div class="profile-service-footer">
             ${renderServicePaymentSummary(item, paid, index)}
@@ -6637,6 +6764,9 @@ function collapseCustomerServicePanels(customer) {
     item.diagnosisViewVisit = null;
     item.paymentFormOpen = false;
     item.diagnosisOpen = false;
+    item.diagnosisAddOpen = false;
+    item.diagnosisDetailId = null;
+    item.signatureOpen = false;
   });
 }
 
@@ -6921,21 +7051,6 @@ function renderProfileServiceInlineForm(customer) {
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const kind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
   if (!editingItem && kind === "kass") return renderProfileKassInlineForm(customer);
-  const diagnosisOnly = Boolean(editingItem && customer.profileServiceEditMode === "diagnosis");
-  if (diagnosisOnly) {
-    return `
-      <form id="profileServiceForm" class="profile-inline-service-form profile-diagnosis-only-form" data-kind="single" novalidate>
-        ${diagnosisFormHtml("profileService", true)}
-        <div class="profile-service-submit-row">
-          <div></div>
-          <div class="form-actions">
-            <button class="secondary-btn icon-clear profile-service-cancel-edit" type="button" aria-label="Засахыг болих">×</button>
-            <button class="primary-btn" type="submit">Оношилгоо хадгалах</button>
-          </div>
-        </div>
-      </form>
-    `;
-  }
   const options = serviceOptionsForKind(kind, customer);
   const selectedOptionIndex = editingItem
     ? Math.max(0, options.findIndex(option => standardServiceName(option.name, kind) === standardServiceName(editingItem.service || editingItem.title, kind)))
@@ -6970,10 +7085,6 @@ function renderProfileServiceInlineForm(customer) {
           </label>
         `}
       </div>
-      ${kind === "course" ? "" : `
-        <button class="secondary-btn diagnosis-expand-btn" id="profileServiceDiagnosisToggle" type="button"><span>Оношилгоо</span><i></i></button>
-        ${diagnosisFormHtml("profileService")}
-      `}
       <div class="profile-service-submit-row">
         <div id="profileServicePrice" class="profile-service-price-breakdown"></div>
         <div class="form-actions">
@@ -6998,25 +7109,6 @@ function renderCourseVisitInlineForm(item, historyIndex, visitNumber) {
         <label>Ажилтан<select class="input course-visit-staff" id="${prefix}Staff" required>${staffOptionHtmlForSalon(salon, previousStaff, existing?.date || todayText())}</select></label>
         <label>Өрөө<select class="input course-visit-room" id="${prefix}Room"><option value="standard" ${room === "standard" ? "selected" : ""}>Энгийн</option><option value="vip" ${room === "vip" ? "selected" : ""}>Вип</option></select></label>
         <button class="primary-btn" type="submit">${existing ? "Оролт шинэчлэх" : "Оролт бүртгэх"}</button>
-      </div>
-      <div class="course-visit-action-tabs">
-        <button class="secondary-btn diagnosis-expand-btn" id="${prefix}DiagnosisToggle" type="button"><span>Оношилгоо</span><i></i></button>
-        <button class="secondary-btn course-visit-confirm ${existing?.signed ? "confirmed" : ""}" type="button" ${existing?.signed ? "disabled" : ""}>
-          <span>${existing?.signed ? "Үйлчилгээ баталгаажсан" : "Үйлчилгээг батлах"}</span>
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 17c3-8 5-11 7-11 2 0-1 8-3 11-1 2 1 2 3 0l2-3c-1 3 0 4 2 3l2-2c-1 2 0 3 2 2h4"/></svg>
-        </button>
-      </div>
-      ${diagnosisFormHtml(prefix)}
-      <div class="course-signature-panel hidden">
-        <div class="course-signature-head">
-          <strong>Хэрэглэгчийн гарын үсэг</strong>
-          <span>Доорх талбарт хулгана эсвэл touch-оор зурна</span>
-        </div>
-        <canvas class="course-signature-canvas" width="900" height="300"></canvas>
-        <div class="course-signature-actions">
-          <button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button>
-          <button class="primary-btn course-signature-submit" type="button">Зурж илгээх</button>
-        </div>
       </div>
     </form>
   `;
@@ -7067,15 +7159,11 @@ function renderCourseSlots(item, historyIndex) {
 
 function bindCourseVisitInlineForms(customer) {
   document.querySelectorAll(".course-visit-inline-form").forEach(form => {
-    const prefix = form.dataset.prefix;
     enhanceNativeSelects(Array.from(form.querySelectorAll(".course-visit-salon, .course-visit-staff, .course-visit-room")).map(select => select.id).filter(Boolean));
-    bindDiagnosisControls(prefix);
     const historyIndex = Number(form.dataset.historyIndex);
     const visitNumber = Number(form.dataset.visit);
     const course = customer.serviceHistory?.[historyIndex];
     const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
-    hydrateDiagnosisForm(prefix, existingVisit?.diagnosis);
-    bindCourseVisitSignature(form, existingVisit);
     form.querySelector(".course-visit-salon")?.addEventListener("change", event => {
       const staffSelect = form.querySelector(".course-visit-staff");
       if (!staffSelect) return;
@@ -7113,6 +7201,7 @@ function bindCourseVisitInlineForms(customer) {
       const masterStaffFee = isMasterStaffName(staff) ? Number(policy.masterStaffFee || 0) : 0;
       const oldExtra = Number(existingVisit?.vipRoomFee || 0) + Number(existingVisit?.masterStaffFee || 0);
       const newExtra = vipRoomFee + masterStaffFee;
+      const registeredAt = existingVisit?.registeredAt || new Date().toISOString();
       const visit = {
         number: visitNumber,
         date: form.querySelector(".course-visit-date")?.value || todayText(),
@@ -7124,10 +7213,8 @@ function bindCourseVisitInlineForms(customer) {
         masterStaffFee,
         extraTotal: newExtra,
         createdAt: existingVisit?.createdAt || todayText(),
-        diagnosis: readDiagnosisPayload(prefix),
-        signed: form.dataset.confirming === "true" ? true : Boolean(existingVisit?.signed),
-        signature: form.dataset.confirming === "true" ? form.dataset.signature : (existingVisit?.signature || null),
-        signedAt: form.dataset.confirming === "true" ? new Date().toISOString() : (existingVisit?.signedAt || null)
+        registeredAt,
+        activeUntil: existingVisit?.activeUntil || new Date(new Date(registeredAt).getTime() + 2 * 60 * 60 * 1000).toISOString()
       };
       course.price = Math.max(0, Number(course.price || course.basePrice || 0) + newExtra - oldExtra);
       course.balance = Math.max(0, Number(course.balance || 0) + newExtra - oldExtra);
@@ -7139,79 +7226,23 @@ function bindCourseVisitInlineForms(customer) {
       const done = course.visits.length;
       customer.course = `Курс ${done}/${course.visitsTotal}`;
       customer.activeCourse = done < Number(course.visitsTotal || 0);
-      customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, salon: visit.salon, staff: visit.staff, date: visit.date, diagnosis: visit.diagnosis }, `Курс ${visitNumber}/${course.visitsTotal}`);
+      customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, salon: visit.salon, staff: visit.staff, date: visit.date }, `Курс ${visitNumber}/${course.visitsTotal}`);
+      customer.currentTreatment.activeUntil = visit.activeUntil;
       customer.last = visit.date;
-      saveAndRefreshCustomerProfile(form.dataset.confirming === "true" ? "Үйлчилгээ гарын үсгээр баталгаажлаа" : "Курсийн оролт бүртгэгдлээ");
+      saveAndRefreshCustomerProfile("Курсийн оролт бүртгэгдлээ");
     });
   });
 }
 
-function bindCourseVisitSignature(form, existingVisit = null) {
-  const openButton = form.querySelector(".course-visit-confirm");
-  const panel = form.querySelector(".course-signature-panel");
-  const canvas = form.querySelector(".course-signature-canvas");
-  if (!openButton || !panel || !canvas || existingVisit?.signed) return;
-  const context = canvas.getContext("2d");
-  context.lineWidth = 5;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.strokeStyle = "#172017";
-  let drawing = false;
-  let hasInk = false;
-  const point = event => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) * (canvas.width / rect.width),
-      y: (event.clientY - rect.top) * (canvas.height / rect.height)
-    };
-  };
-  canvas.addEventListener("pointerdown", event => {
-    drawing = true;
-    hasInk = true;
-    canvas.setPointerCapture?.(event.pointerId);
-    const current = point(event);
-    context.beginPath();
-    context.moveTo(current.x, current.y);
-  });
-  canvas.addEventListener("pointermove", event => {
-    if (!drawing) return;
-    const current = point(event);
-    context.lineTo(current.x, current.y);
-    context.stroke();
-  });
-  const stopDrawing = () => {
-    drawing = false;
-    context.closePath();
-  };
-  canvas.addEventListener("pointerup", stopDrawing);
-  canvas.addEventListener("pointercancel", stopDrawing);
-  canvas.addEventListener("pointerleave", stopDrawing);
-  openButton.addEventListener("click", () => {
-    panel.classList.toggle("hidden");
-    openButton.classList.toggle("active", !panel.classList.contains("hidden"));
-    const diagnosisPanel = form.querySelector(".service-diagnosis-panel");
-    if (diagnosisPanel) {
-      diagnosisPanel.classList.add("hidden");
-    }
-    form.querySelector(".diagnosis-expand-btn")?.classList.remove("active");
-  });
-  form.querySelector(".course-signature-clear")?.addEventListener("click", () => {
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    hasInk = false;
-  });
-  form.querySelector(".course-signature-submit")?.addEventListener("click", () => {
-    if (!hasInk) return showToast("Гарын үсгээ зурна уу");
-    form.dataset.signature = canvas.toDataURL("image/png");
-    form.dataset.confirming = "true";
-    form.requestSubmit();
-  });
-}
-
 function renderCourseVisitSummary(visit = {}) {
-  const signature = typeof visit.signature === "string" && visit.signature.startsWith("data:image/")
-    ? `<div class="course-signature-summary"><strong>Хэрэглэгчийн гарын үсэг</strong><button class="diagnosis-photo-thumb" type="button" aria-label="Гарын үсэг томоор харах"><img src="${visit.signature}" alt="Хэрэглэгчийн гарын үсэг"></button><span>${visit.signedAt ? new Date(visit.signedAt).toLocaleString("mn-MN") : "Баталгаажсан"}</span></div>`
-    : (visit.signed ? `<div class="course-signature-summary"><strong>Хэрэглэгчийн гарын үсэг</strong><span>Баталгаажсан</span></div>` : "");
-  return `${renderDiagnosisSummary(visit.diagnosis || {})}${signature}`;
+  return `
+    <div class="course-visit-summary-row">
+      <span><small>Огноо</small><strong>${visit.date || "-"}</strong></span>
+      <span><small>Салбар</small><strong>${visit.salon || "-"}</strong></span>
+      <span><small>Ажилтан</small><strong>${visit.staff || "-"}</strong></span>
+      <span><small>Өрөө</small><strong>${visit.room === "vip" ? "Вип" : "Энгийн"}</strong></span>
+    </div>
+  `;
 }
 
 function renderDiagnosisSummary(diagnosis) {
@@ -7241,6 +7272,118 @@ function renderDiagnosisSummary(diagnosis) {
       </div>
     </div>
   `;
+}
+
+function bindServiceClinicalControls(customer) {
+  const root = document.getElementById("historyList") || document;
+  root.querySelectorAll(".service-diagnosis-toggle").forEach(button => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.historyIndex);
+      const item = customer.serviceHistory?.[index];
+      if (!item) return;
+      const wasOpen = Boolean(item.diagnosisOpen);
+      collapseCustomerServicePanels(customer);
+      item.diagnosisOpen = !wasOpen;
+      renderProfile();
+    });
+  });
+  root.querySelectorAll(".service-diagnosis-add-toggle").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
+      if (!item) return;
+      item.diagnosisAddOpen = !item.diagnosisAddOpen;
+      item.diagnosisDetailId = null;
+      renderProfile();
+    });
+  });
+  root.querySelectorAll(".service-diagnosis-detail-toggle").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
+      if (!item) return;
+      item.diagnosisDetailId = String(item.diagnosisDetailId) === String(button.dataset.diagnosisId) ? null : button.dataset.diagnosisId;
+      renderProfile();
+    });
+  });
+  root.querySelectorAll(".service-diagnosis-history-form").forEach(form => {
+    const prefix = form.dataset.prefix;
+    bindDiagnosisControls(prefix);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const item = customer.serviceHistory?.[Number(form.dataset.historyIndex)];
+      if (!item) return;
+      const diagnosis = readDiagnosisPayload(prefix);
+      if (!diagnosisHasContent(diagnosis)) return showToast("Оношилгооны мэдээлэл оруулна уу");
+      const date = form.querySelector('input[type="date"]')?.value || todayText();
+      ensureServiceDiagnosisHistory(item).unshift({
+        id: entityId("diagnosis"),
+        date,
+        createdAt: new Date().toISOString(),
+        ...diagnosis
+      });
+      item.diagnosisAddOpen = false;
+      item.diagnosisDetailId = item.diagnosisHistory[0].id;
+      state.audit.unshift({ title: "diagnosis_created", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${date}` });
+      saveAndRefreshCustomerProfile("Оношилгоо хадгалагдлаа");
+    });
+  });
+  root.querySelectorAll(".course-signature-toggle").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
+      if (!item || courseSignatureRecord(item)) return;
+      const wasOpen = Boolean(item.signatureOpen);
+      collapseCustomerServicePanels(customer);
+      item.signatureOpen = !wasOpen;
+      renderProfile();
+    });
+  });
+  root.querySelectorAll(".course-signature-panel").forEach(panel => bindCourseLevelSignature(panel, customer));
+}
+
+function bindCourseLevelSignature(panel, customer) {
+  const item = customer.serviceHistory?.[Number(panel.dataset.historyIndex)];
+  const canvas = panel.querySelector(".course-signature-canvas");
+  if (!item || !canvas || courseSignatureRecord(item)) return;
+  const context = canvas.getContext("2d");
+  context.lineWidth = 5;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#172017";
+  let drawing = false;
+  let hasInk = false;
+  const point = event => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) };
+  };
+  canvas.addEventListener("pointerdown", event => {
+    drawing = true;
+    hasInk = true;
+    canvas.setPointerCapture?.(event.pointerId);
+    const current = point(event);
+    context.beginPath();
+    context.moveTo(current.x, current.y);
+  });
+  canvas.addEventListener("pointermove", event => {
+    if (!drawing) return;
+    const current = point(event);
+    context.lineTo(current.x, current.y);
+    context.stroke();
+  });
+  const stop = () => { drawing = false; context.closePath(); };
+  canvas.addEventListener("pointerup", stop);
+  canvas.addEventListener("pointercancel", stop);
+  canvas.addEventListener("pointerleave", stop);
+  panel.querySelector(".course-signature-clear")?.addEventListener("click", () => {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    hasInk = false;
+  });
+  panel.querySelector(".course-signature-submit")?.addEventListener("click", () => {
+    if (!hasInk) return showToast("Гарын үсгээ зурна уу");
+    const signedAt = new Date().toISOString();
+    item.courseSignature = { signed: true, signature: canvas.toDataURL("image/png"), signedAt };
+    item.signatureOpen = false;
+    state.audit.unshift({ title: "course_signed", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${signedAt}` });
+    saveAndRefreshCustomerProfile("Курс баталгаажлаа");
+  });
 }
 
 function bindDiagnosisPhotoPreview(root = document) {
@@ -7284,7 +7427,7 @@ function isServiceEditable(item) {
 function profileServiceEditMode(item = {}) {
   if (!isServiceWithinEditDays(item)) return "locked";
   if (item.kind === "course" && Array.isArray(item.visits) && item.visits.length > 0) return "locked";
-  if (serviceHasPayment(item)) return item.kind === "single" ? "diagnosis" : "locked";
+  if (serviceHasPayment(item)) return "locked";
   return "full";
 }
 
@@ -7403,6 +7546,7 @@ function renderProfile() {
   });
   bindProfileGroupInlineSearch(customer);
   bindCourseVisitInlineForms(customer);
+  bindServiceClinicalControls(customer);
   document.getElementById("historyList")?.querySelectorAll(".course-slot-card").forEach(card => {
     card.addEventListener("click", event => {
       if (event.target.closest(".course-slot-edit")) return;
@@ -7473,7 +7617,7 @@ function renderProfile() {
           : item.kind === "course" && Array.isArray(item.visits) && item.visits.length
           ? "Эхний оролт бүртгэгдсэн курсийн үндсэн үйлчилгээг засах боломжгүй"
           : serviceHasPayment(item)
-            ? "Төлбөр орсон үйлчилгээний зөвхөн оношилгоог засах боломжтой"
+            ? "Төлбөр орсон үйлчилгээний үндсэн мэдээллийг засах боломжгүй. Оношилгоог тусдаа хэсгээс нэмнэ"
             : "Үйлчилгээ засах хугацаа дууссан байна";
         showToast(message);
         return;
@@ -7834,20 +7978,8 @@ function bindProfileServiceInlineForm(customer) {
     enhanceNativeSelects(["profileServiceStaff"]);
     updateProfileServicePrice(customer);
   });
-  if ((editingItem ? editingItem.kind : customer.profileServiceKind) !== "course") {
-    bindDiagnosisControls("profileService");
-    hydrateDiagnosisForm("profileService", editingItem?.diagnosis, customer.profileServiceEditMode === "diagnosis");
-  }
   form.addEventListener("submit", event => {
     event.preventDefault();
-    if (editingItem && customer.profileServiceEditMode === "diagnosis") {
-      editingItem.diagnosis = readDiagnosisPayload("profileService");
-      delete customer.profileServiceEditingIndex;
-      delete customer.profileServiceEditMode;
-      customer.profileServiceOpen = false;
-      saveAndRefreshCustomerProfile("Оношилгоо шинэчлэгдлээ");
-      return;
-    }
     if (!customer.groupId) {
       showToast("Эхлээд групп үүсгэх эсвэл группт нэгтгэнэ");
       return;
@@ -7867,12 +7999,6 @@ function bindProfileServiceInlineForm(customer) {
       showToast("Ажилтан сонгоно уу");
       return;
     }
-    const diagnosisPanel = document.getElementById("profileServiceDiagnosisPanel");
-    const diagnosis = kind === "course"
-      ? null
-      : diagnosisPanel?.dataset.open === "true"
-        ? readDiagnosisPayload("profileService")
-        : (editingItem?.diagnosis || null);
     const historyItem = {
       id: editingItem?.id || entityId("svc"),
       kind,
@@ -7888,8 +8014,7 @@ function bindProfileServiceInlineForm(customer) {
       vipRoom: priceParts.vipRoom,
       vipRoomFee: Number(priceParts.vipRoomFee || 0),
       masterStaffFee: Number(priceParts.masterStaffFee || 0),
-      paymentMethod: "",
-      diagnosis
+      paymentMethod: ""
     };
     if (kind === "course") {
       historyItem.visitsTotal = parseVisitCount(item.visits || item.name);
@@ -7907,6 +8032,9 @@ function bindProfileServiceInlineForm(customer) {
       const paidAmount = servicePaidAmount(editingItem);
       historyItem.createdAt = editingItem.createdAt || historyItem.createdAt;
       historyItem.payments = editingItem.payments || [];
+      historyItem.diagnosis = editingItem.diagnosis || null;
+      historyItem.diagnosisHistory = editingItem.diagnosisHistory || [];
+      historyItem.courseSignature = editingItem.courseSignature || null;
       historyItem.paymentFormOpen = editingItem.paymentFormOpen || false;
       if (kind === "course" && Array.isArray(editingItem.visits) && editingItem.visits.length) {
         historyItem.visits = editingItem.visits;
