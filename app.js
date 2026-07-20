@@ -22,6 +22,10 @@ let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
 let localStateMutationVersion = 0;
+let localStateSaveTimer = null;
+let persistedStateCacheVersion = -1;
+let persistedStateCache = null;
+let persistedStateCacheJson = "";
 const pendingCustomerProfileUpdates = new Map();
 const pendingPaymentMutations = new Map();
 let serverSaveRetryDelay = 1000;
@@ -596,6 +600,42 @@ function clearTransientState(source) {
   return next;
 }
 
+function invalidatePersistedStateCache() {
+  persistedStateCacheVersion = -1;
+  persistedStateCache = null;
+  persistedStateCacheJson = "";
+}
+
+function persistedStateSnapshot() {
+  if (persistedStateCache && persistedStateCacheVersion === localStateMutationVersion) return persistedStateCache;
+  persistedStateCache = clearTransientState(state);
+  persistedStateCacheVersion = localStateMutationVersion;
+  return persistedStateCache;
+}
+
+function persistedStateJson() {
+  persistedStateSnapshot();
+  if (!persistedStateCacheJson) persistedStateCacheJson = JSON.stringify(persistedStateCache);
+  return persistedStateCacheJson;
+}
+
+function flushLocalStateSave() {
+  if (!localStateSaveTimer) return;
+  clearTimeout(localStateSaveTimer);
+  localStateSaveTimer = null;
+  try {
+    localStorage.setItem(STORAGE_KEY, persistedStateJson());
+  } catch (error) {
+    console.warn("Local storage save skipped", error);
+    if (["127.0.0.1", "localhost"].includes(window.location.hostname)) showToast("Browser-ийн хадгалах зай дүүрсэн байна");
+  }
+}
+
+function queueLocalStateSave() {
+  clearTimeout(localStateSaveTimer);
+  localStateSaveTimer = setTimeout(flushLocalStateSave, 0);
+}
+
 function clearCustomerUiState(customer) {
   if (!customer) return;
   delete customer.profileServiceOpen;
@@ -621,16 +661,12 @@ function clearCustomerUiState(customer) {
 
 function saveState() {
   localStateMutationVersion += 1;
+  invalidatePersistedStateCache();
   const createdAt = auditNowText();
   state.audit.forEach(item => {
     if (!Object.prototype.hasOwnProperty.call(item, "createdAt")) item.createdAt = createdAt;
   });
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
-  } catch (error) {
-    console.warn("Local storage save skipped", error);
-    if (["127.0.0.1", "localhost"].includes(window.location.hostname)) showToast("Browser-ийн хадгалах зай дүүрсэн байна");
-  }
+  queueLocalStateSave();
   queueServerStateSave();
 }
 
@@ -665,7 +701,7 @@ function stripLegacyEmbeddedImages(targetState = {}) {
 
 function serverStateData() {
   return {
-    ...clearTransientState(state),
+    ...persistedStateSnapshot(),
     _serviceSettings: {
       data: structuredClone(serviceSettingsData),
       groups: structuredClone(productGroups)
@@ -673,19 +709,16 @@ function serverStateData() {
   };
 }
 
-function stableJsonValue(value) {
-  if (Array.isArray(value)) return value.map(stableJsonValue);
-  if (!value || typeof value !== "object") return value;
-  return Object.keys(value)
-    .sort()
-    .reduce((result, key) => {
-      result[key] = stableJsonValue(value[key]);
-      return result;
-    }, {});
-}
-
-function stableJsonStringify(value) {
-  return JSON.stringify(stableJsonValue(value));
+function serverStateRequestBody(revision) {
+  const stateJson = persistedStateJson();
+  const settingsJson = JSON.stringify({
+    data: serviceSettingsData,
+    groups: productGroups
+  });
+  const dataJson = stateJson === "{}"
+    ? `{"_serviceSettings":${settingsJson}}`
+    : `${stateJson.slice(0, -1)},"_serviceSettings":${settingsJson}}`;
+  return `{"revision":${Number(revision) || 0},"data":${dataJson}}`;
 }
 
 function entityId(prefix = "item") {
@@ -829,6 +862,7 @@ function applyServerData(data = {}) {
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
+  invalidatePersistedStateCache();
   ensureEmployeeCustomerBonusRule(state);
   applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
@@ -872,7 +906,7 @@ async function saveServerStateNow() {
   try {
     const result = await serverApi("state.php", {
       method: "PUT",
-      body: JSON.stringify({ revision: serverStorageRevision, data: serverStateData() })
+      body: serverStateRequestBody(serverStorageRevision)
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     serverSaveRetryDelay = 1000;
@@ -981,16 +1015,10 @@ async function synchronizeServerState(expectedLocalVersion = null) {
     showToast("Одоогийн мэдээллийг server database-д хадгаллаа");
     return false;
   }
-  const localJson = stableJsonStringify(serverStateData());
-  const remoteJson = stableJsonStringify(remote.data || {});
-  if (localJson !== remoteJson) {
-    const customerNamesChanged = applyServerData(remote.data || {});
-    serverStorageReady = true;
-    if (customerNamesChanged) await saveServerStateNow();
-    return true;
-  }
+  const customerNamesChanged = applyServerData(remote.data || {});
   serverStorageReady = true;
-  return false;
+  if (customerNamesChanged) await saveServerStateNow();
+  return true;
 }
 
 async function initializeServerStorage() {
@@ -1029,6 +1057,8 @@ async function refreshServerStateForView(viewName = activeView) {
   const refreshVersion = localStateMutationVersion;
   serverRefreshInFlight = true;
   try {
+    const revisionResult = await serverApi("revision.php");
+    if (Number(revisionResult.revision || 0) === serverStorageRevision) return;
     const changed = await synchronizeServerState(refreshVersion);
     if (!changed || activeView !== viewName) return;
     rerenderAll();
@@ -4068,7 +4098,6 @@ function rerenderAll() {
   renderHolidaySettings();
   renderAssignments();
   renderCustomers();
-  renderKassSchedule();
   renderProfile();
   renderCatalog();
   renderStaff();
@@ -12130,3 +12159,4 @@ document.addEventListener("visibilitychange", () => {
 window.setInterval(() => {
   if (!document.hidden && AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
 }, 10000);
+window.addEventListener("pagehide", flushLocalStateSave);

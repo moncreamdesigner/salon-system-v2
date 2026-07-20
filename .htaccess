@@ -3,7 +3,7 @@ DirectoryIndex booking.html
 
 # Deploy hiigdsen HTML, CSS, JS-iig browser huuchin cache-aas ashiglahgui.
 <IfModule mod_headers.c>
-  <FilesMatch "\.(html|css|js)$">
+  <FilesMatch "\.(html|css|js|json)$">
     Header always set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
     Header always set Pragma "no-cache"
     Header always set Expires "0"
@@ -11,6 +11,9 @@ DirectoryIndex booking.html
 </IfModule>
 
 RewriteEngine On
+
+RewriteCond %{REQUEST_URI} \.(html|css|js|json)$ [NC]
+RewriteRule .* - [E=Cache-Control:no-cache]
 
 # /login/ хаягийг нэг стандарт /login хаяг руу оруулна.
 RewriteCond %{THE_REQUEST} \s/+login/[?\s] [NC]
