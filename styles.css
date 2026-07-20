@@ -4118,22 +4118,29 @@ input[type="date"].input {
   border-radius: 0;
 }
 
+.booking-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
 .booking-table tr.booking-row-editing td {
   border-top: 1px solid var(--accent);
-  border-bottom: 1px solid var(--accent);
-  background: var(--accent-soft);
+  border-bottom: 0;
+  background: var(--surface);
 }
 
 .booking-table tr.booking-row-editing td:first-child {
   border-left: 1px solid var(--accent);
+  border-radius: 10px 0 0 0;
 }
 
 .booking-table tr.booking-row-editing td:last-child {
   border-right: 1px solid var(--accent);
+  border-radius: 0 10px 0 0;
 }
 
 .booking-inline-edit-row td {
-  padding: 0 8px 10px;
+  padding: 0;
   border-bottom: 0;
   background: var(--surface);
 }
@@ -6754,6 +6761,10 @@ tr:last-child td {
   align-items: end;
 }
 
+.inline-booking-form.is-editing .booking-entry-row {
+  grid-template-columns: 570px 140px max-content;
+}
+
 .booking-admin-fields {
   display: grid;
   grid-template-columns: 145px minmax(180px, 1fr);
@@ -6825,6 +6836,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   justify-content: flex-end;
   gap: 8px;
   padding-left: 0;
+}
+
+.inline-booking-actions #bookingEditCancel {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  font-size: 18px;
 }
 
 .time-dropdown .custom-select-menu {
@@ -8407,6 +8425,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .booking-entry-row {
     grid-template-columns: minmax(445px, 1fr) 124px 142px max-content;
     gap: 8px;
+  }
+
+  .inline-booking-form.is-editing .booking-entry-row {
+    grid-template-columns: minmax(445px, 1fr) 124px max-content;
   }
 
   .booking-entry-row .booking-slots {

@@ -9084,6 +9084,13 @@ function renderStaff() {
 }
 
 function renderBookings() {
+  const activeEditForm = document.getElementById("bookingRowEditSlot")?.querySelector("#bookingForm");
+  const editDraft = activeEditForm ? {
+    salon: activeEditForm.querySelector(".booking-salon")?.value || "",
+    date: activeEditForm.querySelector(".booking-date")?.value || "",
+    time: activeEditForm.querySelector(".booking-time")?.value || "",
+    phone: activeEditForm.querySelector("#bookingPhone")?.value || ""
+  } : null;
   const q = document.getElementById("bookingSearch")?.value || "";
   const status = document.getElementById("bookingStatusFilter")?.value || "all";
   const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("bookingSalonFilter")?.value || "all");
@@ -9143,7 +9150,6 @@ function renderBookings() {
       bookingInlineEditingId = Number(button.dataset.id);
       closeBookingForm();
       renderBookings();
-      openBookingModal(bookingInlineEditingId, document.getElementById("bookingRowEditSlot"));
     });
   });
   if (pagination) {
@@ -9160,6 +9166,12 @@ function renderBookings() {
       bookingPage += 1;
       renderBookings();
     });
+  }
+
+  if (bookingInlineEditingId) {
+    const editSlot = document.getElementById("bookingRowEditSlot");
+    if (editSlot) openBookingModal(bookingInlineEditingId, editSlot, editDraft);
+    else bookingInlineEditingId = null;
   }
 
   renderInfoHeader(activeView);
@@ -10939,17 +10951,17 @@ function setBookingSlotCount(targetCount, editId) {
   updateBookingSlotCount();
 }
 
-function openBookingModal(editId, targetSlot = null) {
+function openBookingModal(editId, targetSlot = null, draft = null) {
   const editing = state.bookings.find(item => Number(item.id) === Number(editId));
   if (editing && !canAccessSalon(editing.salon)) return showToast("Өөр салбарын цагийг засах эрхгүй");
   const minDate = todayText();
-  const selectedDate = editing && !isPastDate(editing.date) ? editing.date : minDate;
-  const selectedSalon = isSalonAccount() ? activeAccount.salon : (editing?.salon || state.salons[0]?.name || "");
-  const selectedTime = editing?.time || bookingOptionsForSalon(selectedSalon)[0] || "";
+  const selectedDate = draft?.date || (editing && !isPastDate(editing.date) ? editing.date : minDate);
+  const selectedSalon = isSalonAccount() ? activeAccount.salon : (draft?.salon || editing?.salon || state.salons[0]?.name || "");
+  const selectedTime = draft?.time || editing?.time || bookingOptionsForSalon(selectedSalon)[0] || "";
   const slot = targetSlot || document.getElementById("bookingInlineSlot");
   if (!slot) return;
   slot.innerHTML = `
-    <form id="bookingForm" class="clean-form inline-booking-form">
+    <form id="bookingForm" class="clean-form inline-booking-form${editing ? " is-editing" : ""}">
       <div class="inline-form-head">
         <strong>${editing ? "Цаг засах" : "Цаг захиалга"}</strong>
       </div>
@@ -10967,11 +10979,11 @@ function openBookingModal(editId, targetSlot = null) {
           </label>
         `}
         <label>Утас
-          <input id="bookingPhone" class="input" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="99112233" value="${editing?.phone || ""}">
+          <input id="bookingPhone" class="input" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="99112233" value="${draft?.phone ?? editing?.phone ?? ""}">
         </label>
         <div class="inline-booking-actions">
+          ${editing ? '<button class="secondary-btn icon-action" id="bookingEditCancel" type="button" aria-label="Болих">×</button>' : ""}
           <button class="primary-btn" type="submit">${editing ? "Хадгалах" : "Цаг бүртгэх"}</button>
-          ${editing ? '<button class="secondary-btn" id="bookingEditCancel" type="button">Болих</button>' : ""}
         </div>
       </div>
     </form>
