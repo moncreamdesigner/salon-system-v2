@@ -8480,6 +8480,22 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     gap: 10px;
   }
 
+  .profile-inline-service-form,
+  .profile-service-card,
+  .customer-service-history,
+  .customer-service-grid,
+  .customer-service-grid > label {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .profile-service-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
   .profile-side-column {
     gap: 10px;
   }
@@ -8522,13 +8538,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 
   .customer-service-grid.course-visit-row {
-    grid-template-columns: 105px minmax(112px, 1fr) minmax(125px, 1fr) 96px 110px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
   .customer-service-grid.course-visit-row .primary-btn {
-    width: 100%;
+    grid-column: 1 / -1;
+    width: auto;
     min-width: 0;
+    justify-self: end;
     padding-left: 8px;
     padding-right: 8px;
   }
