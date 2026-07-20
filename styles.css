@@ -8352,7 +8352,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 @media (min-width: 821px) and (max-width: 1180px) {
   .booking-entry-row {
-    grid-template-columns: 445px 124px 142px minmax(118px, 1fr);
+    grid-template-columns: minmax(445px, 1fr) 124px 142px max-content;
     gap: 8px;
   }
 
@@ -8361,7 +8361,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 
   .booking-entry-row .booking-slot-row {
-    grid-template-columns: 160px 135px 134px;
+    grid-template-columns: minmax(160px, 1.1fr) minmax(135px, .9fr) minmax(134px, .9fr);
     gap: 8px;
   }
 
@@ -8385,13 +8385,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .booking-entry-row .inline-booking-actions,
   .booking-entry-row .inline-booking-actions .primary-btn {
-    width: 100%;
+    width: auto;
     min-width: 0;
   }
 
   .booking-entry-row .inline-booking-actions .primary-btn {
     padding-left: 8px;
     padding-right: 8px;
+    white-space: nowrap;
   }
 }
 
