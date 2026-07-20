@@ -124,7 +124,7 @@ const defaultState = {
   customerTypes: ["Хэрэглэгч", "Тусгай хэрэглэгч", "Ажилтан"],
   customerTypeRules: {
     "Хэрэглэгч": { bonusPercent: 2, dynamic: true },
-    "Тусгай хэрэглэгч": { bonusPercent: 10, dynamic: false },
+    "Тусгай хэрэглэгч": { bonusPercent: 10, dynamic: true },
     "Ажилтан": { bonusPercent: 10, dynamic: false }
   },
   pricePolicy: {
@@ -233,7 +233,7 @@ state.customerTypes.forEach(type => {
     ...(state.customerTypeRules[type] || {})
   };
 });
-ensureFixedCustomerBonusRules(state);
+ensureCustomerBonusTypeRules(state);
 state.pricePolicy = {
   ...structuredClone(defaultState.pricePolicy),
   ...(state.pricePolicy || {})
@@ -865,7 +865,7 @@ function applyServerData(data = {}) {
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
   invalidatePersistedStateCache();
-  const fixedBonusRulesChanged = ensureFixedCustomerBonusRules(state);
+  const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
   applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
@@ -893,7 +893,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingPaymentsApplied || fixedBonusRulesChanged;
+  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingPaymentsApplied || bonusTypeRulesChanged;
 }
 
 async function saveServerStateNow() {
@@ -1956,7 +1956,12 @@ function applyGroupPayment(group, paidAmount, bonusAmount, paidDate, options = {
   const spentAmount = Math.max(0, Number(paidAmount || 0));
   const usedAmount = Math.max(0, Number(bonusAmount || 0));
   const nextSpent = Math.max(0, Number(group.spent2y || 0) + spentAmount);
-  const bonusPercent = bonusPercentForSpent(nextSpent);
+  const configuredPercent = options.bonusPercent === null || options.bonusPercent === undefined
+    ? Number.NaN
+    : Number(options.bonusPercent);
+  const bonusPercent = Number.isFinite(configuredPercent)
+    ? configuredPercent
+    : bonusPercentForSpent(nextSpent);
   const bonusEligibleAmount = options.bonusEligible === false ? 0 : spentAmount;
   const bonusEarned = Math.round(bonusEligibleAmount * bonusPercent / 100);
 
@@ -2174,7 +2179,7 @@ function customerTypeRule(type) {
   return state.customerTypeRules[type];
 }
 
-function ensureFixedCustomerBonusRules(targetState) {
+function ensureCustomerBonusTypeRules(targetState) {
   if (!targetState) return false;
   let changed = false;
   targetState.customerTypes = Array.isArray(targetState.customerTypes) ? targetState.customerTypes : [];
@@ -2187,19 +2192,24 @@ function ensureFixedCustomerBonusRules(targetState) {
       changed = true;
     }
     const currentRule = targetState.customerTypeRules[type] || {};
-    if (Number(currentRule.bonusPercent) !== 10 || currentRule.dynamic !== false) changed = true;
+    const dynamic = type === "Тусгай хэрэглэгч";
+    if (Number(currentRule.bonusPercent) !== 10 || currentRule.dynamic !== dynamic) changed = true;
     targetState.customerTypeRules[type] = {
       ...currentRule,
       bonusPercent: 10,
-      dynamic: false
+      dynamic
     };
   });
   targetState.customers = (Array.isArray(targetState.customers) ? targetState.customers : []).map(customer => {
-    if (!["Тусгай хэрэглэгч", "Ажилтан"].includes(customer.type) || customer.bonus === "10%") return customer;
+    if (!["Тусгай хэрэглэгч", "Ажилтан"].includes(customer.type)) return customer;
+    const specialSince = customer.type === "Тусгай хэрэглэгч"
+      ? serviceDateKey(customer.specialSince || customer.registeredAt || customer.last || todayText())
+      : customer.specialSince;
+    if (customer.bonus === "10%" && customer.specialSince === specialSince) return customer;
     changed = true;
-    return { ...customer, bonus: "10%" };
+    return { ...customer, bonus: "10%", specialSince };
   });
-  targetState.fixedCustomerBonusRulesV3 = true;
+  targetState.customerBonusTypeRulesV4 = true;
   return changed;
 }
 
@@ -2296,9 +2306,13 @@ function saveCustomerType(event) {
   event.preventDefault();
   const input = document.getElementById("customerTypeName");
   const name = input?.value.trim();
-  const fixedTenPercentType = ["Тусгай хэрэглэгч", "Ажилтан"].includes(name);
-  const bonusPercent = fixedTenPercentType ? 10 : Number(formValue("customerTypeBonus"));
-  const dynamic = fixedTenPercentType ? false : document.getElementById("customerTypeDynamic")?.value !== "false";
+  const protectedType = ["Тусгай хэрэглэгч", "Ажилтан"].includes(name);
+  const bonusPercent = protectedType ? 10 : Number(formValue("customerTypeBonus"));
+  const dynamic = name === "Тусгай хэрэглэгч"
+    ? true
+    : name === "Ажилтан"
+      ? false
+      : document.getElementById("customerTypeDynamic")?.value !== "false";
   if (!name) return;
   if (customerTypeEditingName && customerTypeEditingName !== name) {
     state.customerTypes = state.customerTypes.map(type => type === customerTypeEditingName ? name : type);
@@ -5230,10 +5244,38 @@ function customerBalance(customer) {
 
 function customerBonusPercent(customer) {
   const typeRule = customerTypeRule(customer.type || "Хэрэглэгч");
+  if (customer.type === "Тусгай хэрэглэгч") {
+    return `${specialCustomerBonusPercent(customer)}%`;
+  }
   if (!typeRule.dynamic) return `${typeRule.bonusPercent}%`;
   const group = customerGroup(customer);
   if (group) return `${groupBonusInfo(group).percent}%`;
   return `${typeRule.bonusPercent}%`;
+}
+
+function specialCustomerBonusPercent(customer, additionalSpent = 0) {
+  const specialSince = serviceDateKey(customer?.specialSince || customer?.registeredAt || customer?.last || todayText());
+  const age = daysBetween(specialSince, todayText());
+  if (!Number.isFinite(age) || age < 730) return 10;
+  return bonusPercentForSpent(customerPaidUsageWithinDays(customer, 730, specialSince) + Math.max(0, Number(additionalSpent || 0)));
+}
+
+function customerPaidUsageWithinDays(customer, maxDays = 730, startedAt = "") {
+  let total = 0;
+  let hasDatedPayment = false;
+  const startDate = serviceDateKey(startedAt);
+  (customer?.serviceHistory || []).forEach(historyItem => {
+    (historyItem.payments || []).forEach(payment => {
+      const paidDate = serviceDateKey(payment.date || payment.createdAt || historyItem.date || historyItem.createdAt);
+      if (!paidDate) return;
+      const age = daysBetween(paidDate, todayText());
+      if (!Number.isFinite(age) || age < 0 || age > maxDays) return;
+      if (startDate && daysBetween(startDate, paidDate) < 0) return;
+      hasDatedPayment = true;
+      total += Math.max(0, Number(payment.paidAmount ?? payment.amount ?? 0));
+    });
+  });
+  return hasDatedPayment ? total : Math.max(0, Number(customer?.spent || 0));
 }
 
 function serviceDateKey(value) {
@@ -5333,6 +5375,7 @@ function saveInlineCustomer(event) {
     khoroo: formValue("inlineCustomerKhoroo"),
     type: selectedType,
     bonus: `${customerTypeRule(selectedType).bonusPercent}%`,
+    specialSince: selectedType === "Тусгай хэрэглэгч" ? todayText() : "",
     activeCourse: false,
     course: "",
     unpaid: false,
@@ -7695,6 +7738,7 @@ function renderProfile() {
     event.preventDefault();
     if (!requireCustomerEditCodeIfExpired(customer)) return;
     const selectedType = document.getElementById("profileInfoType")?.value || "Хэрэглэгч";
+    const previousType = customer.type || "Хэрэглэгч";
     const profileUpdate = {
       name: formValue("profileInfoName"),
       phone: formValue("profileInfoPhone"),
@@ -7702,7 +7746,10 @@ function renderProfile() {
       district: formValue("profileInfoDistrict"),
       khoroo: formValue("profileInfoKhoroo"),
       type: selectedType,
-      bonus: `${customerTypeRule(selectedType).bonusPercent}%`
+      bonus: `${customerTypeRule(selectedType).bonusPercent}%`,
+      specialSince: selectedType === "Тусгай хэрэглэгч"
+        ? (previousType === "Тусгай хэрэглэгч" ? customer.specialSince || customer.registeredAt || todayText() : todayText())
+        : ""
     };
     Object.assign(customer, profileUpdate);
     setCustomerAgeFromInput(customer, formValue("profileInfoAge"));
@@ -8306,7 +8353,10 @@ function bindInlinePaymentForms(customer) {
       const historySnapshot = structuredClone(historyItem);
       historyItem.payments = historyItem.payments || [];
       const groupPayment = applyGroupPayment(group, amount, bonusAmount, paidDate, {
-        bonusEligible: !["voucher", "gift_card"].includes(methodSelect?.value || "")
+        bonusEligible: !["voucher", "gift_card"].includes(methodSelect?.value || ""),
+        bonusPercent: customer.type === "Тусгай хэрэглэгч"
+          ? specialCustomerBonusPercent(customer, amount)
+          : null
       });
       const payment = {
         id: paymentId,
@@ -10967,6 +11017,7 @@ function openCustomerModal() {
           khoroo: formValue("modalCustomerKhoroo"),
           type: selectedType,
           bonus: formValue("modalCustomerBonus") || defaultBonus,
+          specialSince: selectedType === "Тусгай хэрэглэгч" ? todayText() : "",
           activeCourse: false,
           course: "",
           unpaid: false,
