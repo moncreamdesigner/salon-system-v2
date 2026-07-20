@@ -305,7 +305,9 @@ let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
 let systemUsers = [];
 let serverDatabaseBackups = [];
-let serverBackupIntervalDays = 14;
+let serverFullBackups = [];
+let serverBackupIntervalDays = 7;
+let scheduledFullBackupChecked = false;
 let systemUserEditingId = null;
 let systemUserMigratingLegacy = false;
 let systemUsersLoaded = false;
@@ -993,6 +995,9 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         applyActiveAccount(loginResult.user);
         hideServerLogin();
         await synchronizeServerState();
+        await loadDatabaseBackups({ silent: true });
+        await loadFullBackups({ silent: true });
+        void ensureScheduledFullBackup();
         rerenderAll();
         setView(activeView);
       } catch (error) {
@@ -1037,6 +1042,8 @@ async function initializeServerStorage() {
     applyActiveAccount(status.user);
     await synchronizeServerState();
     await loadDatabaseBackups({ silent: true });
+    await loadFullBackups({ silent: true });
+    void ensureScheduledFullBackup();
     rerenderAll();
     setView(activeView);
   } catch (error) {
@@ -10393,7 +10400,7 @@ async function loadDatabaseBackups({ silent = false } = {}) {
   try {
     const result = await serverApi("backups.php");
     serverDatabaseBackups = Array.isArray(result.backups) ? result.backups : [];
-    serverBackupIntervalDays = Number(result.settings?.intervalDays ?? 14);
+    serverBackupIntervalDays = Number(result.settings?.intervalDays ?? 7);
     localStorage.removeItem(DATABASE_BACKUP_KEY);
     renderDatabaseBackups();
     renderInfoHeader(activeView);
@@ -10402,6 +10409,54 @@ async function loadDatabaseBackups({ silent = false } = {}) {
     if (!silent) showToast(error?.message || "Backup жагсаалт ачаалсангүй");
     return [];
   }
+}
+
+function formatBackupSize(bytes = 0) {
+  const value = Math.max(0, Number(bytes) || 0);
+  if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.ceil(value / 1024))} KB`;
+}
+
+async function loadFullBackups({ silent = false } = {}) {
+  if (!serverStorageReady || !isAdminAccount()) {
+    serverFullBackups = [];
+    renderFullBackups();
+    return [];
+  }
+  try {
+    const result = await serverApi("full-backups.php");
+    serverFullBackups = Array.isArray(result.backups) ? result.backups : [];
+    renderFullBackups();
+    return serverFullBackups;
+  } catch (error) {
+    if (!silent) showToast(error?.message || "Full backup жагсаалт ачаалсангүй");
+    return [];
+  }
+}
+
+async function ensureScheduledFullBackup() {
+  if (scheduledFullBackupChecked || !serverStorageReady || !isAdminAccount()) return;
+  scheduledFullBackupChecked = true;
+  try {
+    const result = await serverApi("full-backups.php", {
+      method: "POST",
+      body: JSON.stringify({ mode: "scheduled" })
+    });
+    if (!result.skipped) await loadFullBackups({ silent: true });
+  } catch (error) {
+    console.error("Scheduled full backup failed", error);
+  }
+}
+
+async function createFullBackup() {
+  if (!serverStorageReady) throw new Error("Server database-д нэвтэрсний дараа full backup үүсгэнэ үү");
+  const result = await serverApi("full-backups.php", {
+    method: "POST",
+    body: JSON.stringify({ mode: "manual", reason: "Гараар үүсгэсэн full backup" })
+  });
+  await loadFullBackups({ silent: true });
+  return result.backup;
 }
 
 async function createDatabaseBackup(reason = "Гараар үүсгэсэн backup") {
@@ -10581,6 +10636,56 @@ function renderDatabaseBackups() {
       }
     });
   });
+  renderFullBackups();
+}
+
+function renderFullBackups() {
+  const list = document.getElementById("databaseFullBackupList");
+  if (!list) return;
+  list.innerHTML = serverFullBackups.map(backup => `
+    <div class="database-backup-item">
+      <div>
+        <strong>${htmlSafe(backup.createdAt || "—")}</strong>
+        <span>Full backup • ${formatBackupSize(backup.sizeBytes)} • ${Number(backup.mediaFiles || 0)} зураг • ${Number(backup.diagnosisFiles || 0)} private/онош${Number(backup.missingMediaFiles || 0) ? ` • ${Number(backup.missingMediaFiles)} зураг дутуу` : " • Бүх холбоостой зураг орсон"}</span>
+      </div>
+      <div class="table-actions">
+        <button class="secondary-btn database-full-backup-download" type="button" data-file="${htmlSafe(backup.file || "")}">ZIP татах</button>
+        <button class="danger-btn icon-danger database-full-backup-delete" type="button" data-file="${htmlSafe(backup.file || "")}" aria-label="Full backup устгах">${trashIcon()}</button>
+      </div>
+    </div>
+  `).join("") || `<div class="empty-state">Full backup үүсгээгүй байна</div>`;
+
+  list.querySelectorAll(".database-full-backup-download").forEach(button => {
+    button.addEventListener("click", () => {
+      const filename = String(button.dataset.file || "");
+      if (!filename) return;
+      const anchor = document.createElement("a");
+      anchor.href = `${SERVER_API_BASE}/full-backups.php?download=${encodeURIComponent(filename)}`;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    });
+  });
+  list.querySelectorAll(".database-full-backup-delete").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (!requireDeleteCode()) return;
+      const filename = String(button.dataset.file || "");
+      if (!filename || !window.confirm("Энэ full backup ZIP-ийг устгах уу?")) return;
+      button.disabled = true;
+      try {
+        await serverApi("full-backups.php", {
+          method: "DELETE",
+          body: JSON.stringify({ file: filename })
+        });
+        await loadFullBackups({ silent: true });
+        showToast("Full backup устлаа");
+      } catch (error) {
+        button.disabled = false;
+        showToast(error?.message || "Full backup устгаж чадсангүй");
+      }
+    });
+  });
 }
 
 function renderDatabaseSettings() {
@@ -10588,9 +10693,11 @@ function renderDatabaseSettings() {
   const category = databaseSelectedCategory();
   const summary = document.getElementById("databaseCategorySummary");
   if (summary) summary.textContent = databaseCategorySummaryText(category);
-  enhanceNativeSelects(["databaseCategory", "databaseImportMode", "databaseBackupInterval"]);
+  enhanceNativeSelects(["databaseCategory", "databaseImportMode"]);
   renderDatabaseBackups();
   loadDatabaseBackups({ silent: true });
+  loadFullBackups({ silent: true });
+  void ensureScheduledFullBackup();
 }
 
 async function importDatabaseFile(event) {
@@ -11785,6 +11892,21 @@ function bindEvents() {
       showToast(error?.message || "Backup үүсгэж чадсангүй");
     } finally {
       button.disabled = false;
+    }
+  });
+  document.getElementById("databaseCreateFullBackup")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "ZIP үүсгэж байна…";
+    try {
+      const backup = await createFullBackup();
+      showToast(`Full backup бэлэн боллоо • ${formatBackupSize(backup?.sizeBytes)}`);
+    } catch (error) {
+      showToast(error?.message || "Full backup үүсгэж чадсангүй");
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
     }
   });
   document.getElementById("databaseBackupInterval")?.addEventListener("change", async event => {

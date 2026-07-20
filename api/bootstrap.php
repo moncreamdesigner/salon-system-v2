@@ -116,7 +116,13 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_users_salon (salon_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
-    $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '14')");
+    $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '7')");
+    $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_policy_version', '0')");
+    $backupPolicyVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_policy_version'")->fetchColumn();
+    if ($backupPolicyVersion < 1) {
+        $pdo->exec("UPDATE app_meta SET meta_value = '7' WHERE meta_key = 'backup_interval_days'");
+        $pdo->exec("UPDATE app_meta SET meta_value = '1' WHERE meta_key = 'backup_policy_version'");
+    }
     $ready = true;
 }
 

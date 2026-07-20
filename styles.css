@@ -4953,6 +4953,18 @@ tr:last-child td {
   gap: 10px;
 }
 
+.database-backup-policy {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.database-full-backup-card {
+  margin-top: 12px;
+}
+
 .database-backup-frequency {
   width: 190px;
   display: grid;

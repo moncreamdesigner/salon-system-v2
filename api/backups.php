@@ -32,7 +32,7 @@ function insert_backup(PDO $pdo, int $revision, string $reason, array $data): in
 
 function prune_backups(PDO $pdo): void
 {
-    $pdo->exec('DELETE FROM app_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM app_backups ORDER BY id DESC LIMIT 50) AS keep_rows)');
+    $pdo->exec('DELETE FROM app_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM app_backups ORDER BY id DESC LIMIT 3) AS keep_rows)');
 }
 
 function backup_metadata(array $row): array
@@ -59,9 +59,10 @@ if ($method === 'GET') {
         json_response(['ok' => true, 'backup' => backup_metadata($row), 'data' => $data]);
     }
 
-    $rows = $pdo->query('SELECT id, revision, reason, created_at, OCTET_LENGTH(payload) AS size_bytes FROM app_backups ORDER BY id DESC LIMIT 50')->fetchAll();
+    prune_backups($pdo);
+    $rows = $pdo->query('SELECT id, revision, reason, created_at, OCTET_LENGTH(payload) AS size_bytes FROM app_backups ORDER BY id DESC LIMIT 3')->fetchAll();
     $intervalDays = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_interval_days'")->fetchColumn();
-    if (!in_array($intervalDays, [0, 1, 7, 14, 30, 90], true)) $intervalDays = 14;
+    if (!in_array($intervalDays, [0, 1, 7, 14, 30, 90], true)) $intervalDays = 7;
     json_response([
         'ok' => true,
         'backups' => array_map('backup_metadata', $rows),
