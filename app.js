@@ -6658,13 +6658,14 @@ function renderProfileServiceInlineForm(customer) {
 function renderCourseVisitInlineForm(item, historyIndex, visitNumber) {
   const existing = (item.visits || []).find(visit => Number(visit.number) === Number(visitNumber));
   const previousStaff = existing?.staff || item.visits?.[0]?.staff || item.staff || "";
-  const salon = item.salon || activeAccount.salon;
+  const salon = existing?.salon || (isSalonAccount() ? activeAccount.salon : (item.salon || activeAccount.salon));
   const prefix = `courseVisit${historyIndex}_${visitNumber}`;
   const room = existing?.room || "standard";
   return `
     <form class="course-visit-inline-form" data-history-index="${historyIndex}" data-visit="${visitNumber}" data-prefix="${prefix}" data-mode="${existing ? "edit" : "create"}">
       <div class="customer-service-grid course-visit-row">
         <label>Огноо<input class="input course-visit-date" type="date" value="${existing?.date || todayText()}" required></label>
+        <label>Салбар<select class="input course-visit-salon" id="${prefix}Salon" required ${isSalonAccount() ? "disabled" : ""}>${accountSalons().map(item => `<option value="${item.name}" ${item.name === salon ? "selected" : ""}>${item.name}</option>`).join("")}</select></label>
         <label>Ажилтан<select class="input course-visit-staff" id="${prefix}Staff" required>${staffOptionHtmlForSalon(salon, previousStaff, existing?.date || todayText())}</select></label>
         <label>Өрөө<select class="input course-visit-room" id="${prefix}Room"><option value="standard" ${room === "standard" ? "selected" : ""}>Энгийн</option><option value="vip" ${room === "vip" ? "selected" : ""}>Вип</option></select></label>
         <button class="primary-btn" type="submit">${existing ? "Оролт шинэчлэх" : "Оролт бүртгэх"}</button>
@@ -6738,7 +6739,7 @@ function renderCourseSlots(item, historyIndex) {
 function bindCourseVisitInlineForms(customer) {
   document.querySelectorAll(".course-visit-inline-form").forEach(form => {
     const prefix = form.dataset.prefix;
-    enhanceNativeSelects(Array.from(form.querySelectorAll(".course-visit-staff, .course-visit-room")).map(select => select.id).filter(Boolean));
+    enhanceNativeSelects(Array.from(form.querySelectorAll(".course-visit-salon, .course-visit-staff, .course-visit-room")).map(select => select.id).filter(Boolean));
     bindDiagnosisControls(prefix);
     const historyIndex = Number(form.dataset.historyIndex);
     const visitNumber = Number(form.dataset.visit);
@@ -6746,10 +6747,17 @@ function bindCourseVisitInlineForms(customer) {
     const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
     hydrateDiagnosisForm(prefix, existingVisit?.diagnosis);
     bindCourseVisitSignature(form, existingVisit);
+    form.querySelector(".course-visit-salon")?.addEventListener("change", event => {
+      const staffSelect = form.querySelector(".course-visit-staff");
+      if (!staffSelect) return;
+      staffSelect.innerHTML = staffOptionHtmlForSalon(event.target.value, "", form.querySelector(".course-visit-date")?.value || todayText());
+      enhanceNativeSelects([staffSelect.id]);
+    });
     form.querySelector(".course-visit-date")?.addEventListener("change", event => {
       const staffSelect = form.querySelector(".course-visit-staff");
       if (!staffSelect) return;
-      staffSelect.innerHTML = staffOptionHtmlForSalon(course?.salon || activeAccount.salon, staffSelect.value, event.target.value || todayText());
+      const salon = form.querySelector(".course-visit-salon")?.value || activeAccount.salon;
+      staffSelect.innerHTML = staffOptionHtmlForSalon(salon, staffSelect.value, event.target.value || todayText());
       enhanceNativeSelects([staffSelect.id]);
     });
     form.addEventListener("submit", event => {
@@ -6768,6 +6776,8 @@ function bindCourseVisitInlineForms(customer) {
         return;
       }
       const room = form.querySelector(".course-visit-room")?.value || "standard";
+      const salon = form.querySelector(".course-visit-salon")?.value || activeAccount.salon;
+      if (!salon || !canAccessSalon(salon)) return showToast("Салбар сонгоно уу");
       const policy = pricePolicy();
       const vipRoomFee = room === "vip" ? Number(policy.vipRoomFee || 0) : 0;
       const staff = form.querySelector(".course-visit-staff")?.value || "";
@@ -6777,6 +6787,7 @@ function bindCourseVisitInlineForms(customer) {
       const visit = {
         number: visitNumber,
         date: form.querySelector(".course-visit-date")?.value || todayText(),
+        salon,
         staff,
         room,
         vipRoom: room === "vip",
@@ -6799,7 +6810,7 @@ function bindCourseVisitInlineForms(customer) {
       const done = course.visits.length;
       customer.course = `Курс ${done}/${course.visitsTotal}`;
       customer.activeCourse = done < Number(course.visitsTotal || 0);
-      customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, staff: visit.staff, date: visit.date, diagnosis: visit.diagnosis }, `Курс ${visitNumber}/${course.visitsTotal}`);
+      customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, salon: visit.salon, staff: visit.staff, date: visit.date, diagnosis: visit.diagnosis }, `Курс ${visitNumber}/${course.visitsTotal}`);
       customer.last = visit.date;
       saveAndRefreshCustomerProfile(form.dataset.confirming === "true" ? "Үйлчилгээ гарын үсгээр баталгаажлаа" : "Курсийн оролт бүртгэгдлээ");
     });

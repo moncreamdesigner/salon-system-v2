@@ -1023,7 +1023,7 @@ button {
 }
 
 .customer-service-grid.course-visit-row {
-  grid-template-columns: 170px 190px 150px minmax(0, 1fr);
+  grid-template-columns: 160px 180px 190px 150px minmax(0, 1fr);
   align-items: end;
 }
 
