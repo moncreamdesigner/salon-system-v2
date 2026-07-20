@@ -4231,6 +4231,28 @@ td {
   text-align: right;
 }
 
+.booking-list-table th:nth-child(7),
+.booking-list-table td:nth-child(7) {
+  width: 122px;
+  padding-right: 6px;
+  white-space: nowrap;
+}
+
+.booking-list-table th:last-child,
+.booking-list-table td:last-child {
+  width: 174px;
+  padding-left: 6px;
+}
+
+.booking-list-table .status-text {
+  white-space: nowrap;
+}
+
+.booking-list-table .table-actions {
+  flex-wrap: nowrap;
+  min-width: 174px;
+}
+
 th {
   background: var(--surface-soft);
   color: var(--muted);
