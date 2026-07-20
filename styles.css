@@ -273,7 +273,7 @@ body.sidebar-collapsed .sidebar-collapse-btn::before {
 }
 
 body.sidebar-collapsed .sidebar-collapse-btn {
-  width: 72px;
+  width: 100%;
 }
 
 body.sidebar-collapsed .brand {
