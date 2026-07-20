@@ -5579,6 +5579,15 @@ function performanceTransactions() {
       temporary: Boolean(payload.temporary || performanceAssignment(staff, payload.date, payload.salon))
     });
   };
+  const addKassCommission = payload => {
+    const schedule = state.kassSchedules.find(entry => entry.date === payload.date && entry.salon === payload.salon);
+    if (!schedule?.staff) return;
+    add({
+      ...payload,
+      staff: schedule.staff,
+      type: "kass"
+    });
+  };
 
   state.customers.forEach(customer => {
     (customer.serviceHistory || []).forEach(item => {
@@ -5597,7 +5606,7 @@ function performanceTransactions() {
         const visitTotal = Math.max(1, Number(item.visitsTotal || visits.length || 1));
         const basePerVisit = Number(item.basePrice || item.price || item.total || 0) / visitTotal;
         visits.forEach((visit, index) => {
-          add({
+          const visitTransaction = {
             staff: visit.staff || item.staff,
             date: visit.date || date,
             salon: visit.salon || salon,
@@ -5605,19 +5614,23 @@ function performanceTransactions() {
             title: `${title} · ${index + 1}-р оролт`,
             customer: customer.name,
             revenue: basePerVisit + Number(visit.vipRoomFee || 0) + Number(visit.masterStaffFee || 0)
-          });
+          };
+          add(visitTransaction);
+          addKassCommission(visitTransaction);
         });
         return;
       }
       if (item.kind === "single" && item.staff) {
-        add({ staff: item.staff, date, salon, type: "single", title, customer: customer.name, revenue: serviceTotalAmount(item) });
+        const singleTransaction = { staff: item.staff, date, salon, type: "single", title, customer: customer.name, revenue: serviceTotalAmount(item) };
+        add(singleTransaction);
+        addKassCommission(singleTransaction);
       }
     });
   });
 
   state.services.forEach((item, index) => {
     if (!item || item.deleted || !item.staff) return;
-    add({
+    const serviceTransaction = {
       staff: item.staff,
       date: item.date || item.createdAt || todayText(),
       salon: item.salon || activeAccount.salon,
@@ -5625,7 +5638,9 @@ function performanceTransactions() {
       title: item.service || item.title || `Үйлчилгээ ${index + 1}`,
       customer: item.customer || "",
       revenue: Number(item.total || item.price || 0)
-    });
+    };
+    add(serviceTransaction);
+    addKassCommission(serviceTransaction);
   });
   return transactions;
 }
