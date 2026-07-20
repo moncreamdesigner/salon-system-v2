@@ -3074,6 +3074,67 @@ body.camera-overlay-open {
   overflow: visible;
 }
 
+.customer-table {
+  min-width: 820px;
+}
+
+.customer-table th,
+.customer-table td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.customer-table th:nth-child(1),
+.customer-table td:nth-child(1) {
+  width: 17%;
+}
+
+.customer-table th:nth-child(2),
+.customer-table td:nth-child(2) {
+  width: 11%;
+}
+
+.customer-table th:nth-child(3),
+.customer-table td:nth-child(3) {
+  width: 13%;
+}
+
+.customer-table th:nth-child(4),
+.customer-table td:nth-child(4) {
+  width: 12%;
+}
+
+.customer-table th:nth-child(5),
+.customer-table td:nth-child(5) {
+  width: 9%;
+}
+
+.customer-table th:nth-child(6),
+.customer-table td:nth-child(6) {
+  width: 11%;
+}
+
+.customer-table th:nth-child(7),
+.customer-table td:nth-child(7) {
+  width: 9%;
+}
+
+.customer-table th:last-child,
+.customer-table td:last-child {
+  width: 18%;
+}
+
+.customer-table .name-cell {
+  min-width: 0;
+  gap: 8px;
+}
+
+.customer-table .compact-action {
+  max-width: 100%;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
 .search,
 .select,
 .input {

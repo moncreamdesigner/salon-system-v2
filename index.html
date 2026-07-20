@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607211555">
+  <link rel="stylesheet" href="styles.css?v=202607211625">
 </head>
 <body>
   <div class="app-shell">
@@ -236,8 +236,7 @@
               <button class="secondary-btn icon-clear" id="clearCustomerFilters" type="button" aria-label="Цэвэрлэх">×</button>
             </div>
             <div class="customer-sort-actions" aria-label="Эрэмбэлэх">
-              <button class="sort-text-btn active" id="customerSortDate" type="button" data-sort="date">Огноо <span>↓</span></button>
-              <button class="sort-text-btn" id="customerSortName" type="button" data-sort="name">Нэр <span>↕</span></button>
+              <button class="sort-text-btn active" id="customerSortToggle" type="button" data-sort="date">Огноо <span>↓</span></button>
             </div>
           </div>
           <div class="table-wrap customer-table-wrap">
@@ -247,7 +246,7 @@
                   <th>Нэр</th>
                   <th>Утас</th>
                   <th>Төрөл</th>
-                  <th>Бүртгэсэн огноо</th>
+                  <th>Огноо</th>
                   <th>Оролт</th>
                   <th>Үлдэгдэл</th>
                   <th>Бонус</th>
@@ -1206,7 +1205,7 @@
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
   <script src="fliphtml5.js?v=202607210130"></script>
-  <script src="app.js?v=202607211535"></script>
+  <script src="app.js?v=202607211625"></script>
 </body>
 </html>
 

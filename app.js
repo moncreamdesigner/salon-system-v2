@@ -5118,12 +5118,11 @@ function renderCustomers() {
   const type = document.getElementById("customerTypeFilter")?.value || "all";
   const workFilter = document.getElementById("customerWorkFilter")?.value || "all";
   const sortMode = customerSortMode || "date";
-  document.querySelectorAll(".customer-sort-actions .sort-text-btn").forEach(button => {
-    const active = button.dataset.sort === sortMode;
-    button.classList.toggle("active", active);
-    const icon = button.querySelector("span");
-    if (icon) icon.textContent = active ? "↓" : "↕";
-  });
+  const sortToggle = document.getElementById("customerSortToggle");
+  if (sortToggle) {
+    sortToggle.dataset.sort = sortMode;
+    sortToggle.innerHTML = `${sortMode === "name" ? "Нэр" : "Огноо"} <span>↓</span>`;
+  }
   const activeTreatments = state.customers
     .filter(customer => !customer.deleted && !customer.deletedAt)
     .map(customer => ({ customer, treatment: todaySalonTreatment(customer, activeAccount.salon) }))
@@ -11388,12 +11387,10 @@ function bindEvents() {
     });
   });
   document.getElementById("clearCustomerFilters")?.addEventListener("click", clearCustomerFilters);
-  document.querySelectorAll(".customer-sort-actions .sort-text-btn").forEach(button => {
-    button.addEventListener("click", () => {
-      customerSortMode = button.dataset.sort || "date";
-      customerPage = 1;
-      renderCustomers();
-    });
+  document.getElementById("customerSortToggle")?.addEventListener("click", () => {
+    customerSortMode = customerSortMode === "date" ? "name" : "date";
+    customerPage = 1;
+    renderCustomers();
   });
   document.getElementById("bookingSearch").addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
