@@ -11488,11 +11488,17 @@ function initializeSidebarNavigation() {
     button.title = label;
   });
   const compactViewport = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
+  const desktopViewport = window.matchMedia("(min-width: 821px)").matches;
   const preference = localStorage.getItem(SIDEBAR_COMPACT_KEY);
-  document.body.classList.toggle("sidebar-collapsed", compactViewport && preference !== "expanded");
+  document.body.classList.toggle("sidebar-collapsed", desktopViewport && (preference === "collapsed" || (compactViewport && preference !== "expanded")));
   window.addEventListener("resize", () => {
-    if (window.matchMedia("(max-width: 820px)").matches) document.body.classList.remove("sidebar-collapsed");
-    else if (window.matchMedia("(max-width: 1180px)").matches && localStorage.getItem(SIDEBAR_COMPACT_KEY) !== "expanded") document.body.classList.add("sidebar-collapsed");
+    if (window.matchMedia("(max-width: 820px)").matches) {
+      document.body.classList.remove("sidebar-collapsed");
+      return;
+    }
+    const saved = localStorage.getItem(SIDEBAR_COMPACT_KEY);
+    const compact = window.matchMedia("(max-width: 1180px)").matches;
+    document.body.classList.toggle("sidebar-collapsed", saved === "collapsed" || (compact && saved !== "expanded"));
   });
 }
 

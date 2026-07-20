@@ -313,7 +313,7 @@ body.sidebar-collapsed .sidebar-logout {
   margin-left: 0;
 }
 
-@media (min-width: 821px) and (max-width: 1180px) {
+@media (min-width: 821px) {
   .sidebar-collapse-btn {
     display: flex;
     position: static;
@@ -335,7 +335,9 @@ body.sidebar-collapsed .sidebar-logout {
   body.sidebar-collapsed .sidebar {
     width: 72px;
   }
+}
 
+@media (min-width: 821px) and (max-width: 1180px) {
   .topbar {
     display: none;
   }
