@@ -8324,6 +8324,31 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 
+@media (min-width: 821px) and (max-width: 1180px) {
+  .booking-entry-row {
+    grid-template-columns: minmax(0, 1fr) 130px 130px;
+  }
+
+  .booking-entry-row .booking-slots {
+    grid-column: 1 / -1;
+  }
+
+  .booking-entry-row .booking-slot-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .booking-entry-row .inline-booking-actions,
+  .booking-entry-row .inline-booking-actions .primary-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .booking-entry-row .inline-booking-actions .primary-btn {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
 @supports (zoom: 1) {
   .sidebar {
     height: 111.111vh;
