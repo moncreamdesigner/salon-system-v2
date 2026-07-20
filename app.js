@@ -263,19 +263,8 @@ stripLegacyEmbeddedImages(state);
 localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
 state.diagnosisTypes = Array.isArray(state.diagnosisTypes) && state.diagnosisTypes.length ? state.diagnosisTypes : [...defaultState.diagnosisTypes];
 normalizeStoredNames();
-const humanResourceSeed = [
-  { id: 1, name: "Ариундулам", phone: "88093590", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 2, name: "Бадамханд", phone: "99286879", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 3, name: "Батцэцэг", phone: "89247238", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 4, name: "Молор-Эрдэнэ", phone: "88688826", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 5, name: "Мөнхзул", phone: "80858669", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 6, name: "Номинзул", phone: "90401039", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 7, name: "Оюундарь", phone: "80909436", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 8, name: "Урантогос", phone: "89891365", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 9, name: "Уранцэцэг", phone: "89208122", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 10, name: "Энхбилэг", phone: "99185759", position: "Массажист", bonusCommission: 10, kassCommission: 2, status: "active" },
-  { id: 11, name: "Энхзул", phone: "80057040", position: "Касс", bonusCommission: 0, kassCommission: 2, status: "active" }
-];
+// Бодит ажилтны мэдээллийг source code-д seed хэлбэрээр хадгалахгүй.
+const humanResourceSeed = [];
 ensureHumanResourcesData();
 state.assignments = (Array.isArray(state.assignments) ? state.assignments : []).map((assignment, index) => {
   const staff = state.staff.find(item => Number(item.id) === Number(assignment.staffId) || item.name === assignment.staff);
@@ -285,8 +274,8 @@ state.assignments = (Array.isArray(state.assignments) ? state.assignments : []).
     staff: assignment.staff || staff?.name || "",
     from: assignment.from || staff?.salon || "",
     to: assignment.to || "",
-    startDate: assignment.startDate || assignment.date || todayText(),
-    endDate: assignment.endDate || assignment.date || todayText(),
+    startDate: assignment.startDate || assignment.date || "",
+    endDate: assignment.endDate || assignment.date || "",
     startTime: assignment.startTime || String(assignment.time || "09:00-20:00").split("-")[0] || "09:00",
     endTime: assignment.endTime || String(assignment.time || "09:00-20:00").split("-")[1] || "20:00",
     reason: assignment.reason || "Салбарын ачаалал нөхөх",
@@ -752,6 +741,19 @@ async function saveServerStateNow() {
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
   } catch (error) {
+    if (error.status === 409 && error.payload?.conflict) {
+      try {
+        const remote = await serverApi("state.php");
+        serverStorageRevision = Number(remote.revision || 0);
+        applyServerData(remote.data || {});
+        rerenderAll();
+        setView(activeView);
+        showToast("Өөр хэрэглэгч мэдээлэл шинэчилсэн тул хамгийн сүүлийн хувилбарыг ачааллаа. Үйлдлээ дахин хийнэ үү");
+        return;
+      } catch (refreshError) {
+        console.error("Conflict refresh failed", refreshError);
+      }
+    }
     console.error("Server save failed", error);
     showToast("Server хадгалалт түр амжилтгүй боллоо");
   } finally {
@@ -1369,12 +1371,6 @@ function normalizeStoredNames() {
 }
 
 function ensureHumanResourcesData() {
-  const hasHumanResourceRows = state.staff.some(item => item.phone && item.bonusCommission !== undefined);
-  if (!hasHumanResourceRows && state.staff.length <= 4) {
-    state.staff = humanResourceSeed.map(item => ({ ...item, salon: "Хан-Уул салбар", position: normalizePositionName(item.position), vip: item.position === "Мастер массажист", commission: `${item.bonusCommission}%` }));
-    saveState();
-    return;
-  }
   state.staff = state.staff.map((item, index) => ({
     ...item,
     phone: item.phone || humanResourceSeed[index]?.phone || "",
@@ -1383,11 +1379,6 @@ function ensureHumanResourcesData() {
     kassCommission: Number(item.kassCommission ?? 2),
     status: item.status || "active"
   }));
-  humanResourceSeed.forEach(seed => {
-    if (!state.staff.some(item => item.name === seed.name || item.phone === seed.phone)) {
-      state.staff.push({ ...seed, salon: "Хан-Уул салбар", position: normalizePositionName(seed.position), vip: seed.position === "Мастер массажист", commission: `${seed.bonusCommission}%` });
-    }
-  });
   saveState();
 }
 
@@ -7888,24 +7879,31 @@ function staffOptionHtml(selected = "") {
     .join("");
 }
 
+function staffHasActiveAssignment(staff, salon, date = todayText()) {
+  if (!staff || !salon || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return false;
+  return state.assignments.some(assignment => {
+    const status = String(assignment.status || "active").toLowerCase();
+    const startDate = String(assignment.startDate || assignment.date || "");
+    const endDate = String(assignment.endDate || assignment.date || "");
+    if (status !== "active") return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return false;
+    return (Number(assignment.staffId) === Number(staff.id) || assignment.staff === staff.name)
+      && assignment.to === salon
+      && date >= startDate
+      && date <= endDate;
+  });
+}
+
 function staffOptionHtmlForSalon(salon = "", selected = "", date = todayText()) {
   if (!salon) return `<option value="">Эхлээд салбар сонгоно уу</option>`;
   const staff = state.staff.filter(item => {
     if (item.status === "inactive") return false;
-    const assigned = state.assignments.some(assignment =>
-      assignment.status !== "cancelled" &&
-      (Number(assignment.staffId) === Number(item.id) || assignment.staff === item.name) &&
-      assignment.to === salon && date >= assignment.startDate && date <= assignment.endDate
-    );
+    const assigned = staffHasActiveAssignment(item, salon, date);
     return item.salon === salon || assigned || item.name === selected;
   });
   return staff.length
     ? staff.map(item => {
-        const temporary = item.salon !== salon && state.assignments.some(assignment =>
-          assignment.status !== "cancelled" &&
-          (Number(assignment.staffId) === Number(item.id) || assignment.staff === item.name) &&
-          assignment.to === salon && date >= assignment.startDate && date <= assignment.endDate
-        );
+        const temporary = item.salon !== salon && staffHasActiveAssignment(item, salon, date);
         return `<option value="${item.name}" ${item.name === selected ? "selected" : ""}>${item.name}${temporary ? " · Түр томилгоо" : ""}</option>`;
       }).join("")
     : `<option value="">Ажилтан алга</option>`;
@@ -8251,7 +8249,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
             <input class="input" id="customerServiceDate" type="date" value="${todayText()}" required>
           </label>
           <label>Ажилтан
-            <select class="input" id="customerServiceStaff" required>${staffOptionHtml()}</select>
+            <select class="input" id="customerServiceStaff" required>${staffOptionHtmlForSalon(showSalon ? "" : activeAccount.salon, "", todayText())}</select>
           </label>
           ${showSalon ? `<label>Салбар<select class="input" id="customerServiceSalon">${state.salons.map(s => `<option ${s.name === activeAccount.salon ? "selected" : ""}>${s.name}</option>`).join("")}</select></label>` : ""}
           <div class="service-price-readout"><span>Үнэ</span><strong id="customerServicePrice">—</strong></div>
@@ -8277,6 +8275,19 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
       };
       document.querySelectorAll(".service-modal-tab:not(.disabled)").forEach(tab => tab.addEventListener("click", () => hydrateKind(tab.dataset.kind)));
       select.addEventListener("change", () => updateCustomerServicePrice(form.dataset.kind));
+      document.getElementById("customerServiceSalon")?.addEventListener("change", event => {
+        const staffSelect = document.getElementById("customerServiceStaff");
+        if (!staffSelect) return;
+        staffSelect.innerHTML = staffOptionHtmlForSalon(event.target.value, "", formValue("customerServiceDate") || todayText());
+        enhanceNativeSelects(["customerServiceStaff"]);
+      });
+      document.getElementById("customerServiceDate")?.addEventListener("change", event => {
+        const staffSelect = document.getElementById("customerServiceStaff");
+        if (!staffSelect) return;
+        const salon = showSalon ? formValue("customerServiceSalon") : activeAccount.salon;
+        staffSelect.innerHTML = staffOptionHtmlForSalon(salon, staffSelect.value, event.target.value || todayText());
+        enhanceNativeSelects(["customerServiceStaff"]);
+      });
       bindDiagnosisControls("service");
       hydrateKind(selectedKind);
       form.addEventListener("submit", event => {
