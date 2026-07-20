@@ -8352,7 +8352,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 @media (min-width: 821px) and (max-width: 1180px) {
   .booking-entry-row {
-    grid-template-columns: minmax(445px, 1fr) 120px 130px 120px;
+    grid-template-columns: 445px 124px 142px minmax(118px, 1fr);
     gap: 8px;
   }
 
@@ -8361,8 +8361,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 
   .booking-entry-row .booking-slot-row {
-    grid-template-columns: 155px minmax(145px, 1fr) minmax(125px, .9fr);
+    grid-template-columns: 160px 135px 134px;
     gap: 8px;
+  }
+
+  .booking-entry-row .slot-stepper-field {
+    min-width: 0;
+  }
+
+  .booking-entry-row .slot-stepper {
+    gap: 5px;
+  }
+
+  .booking-entry-row .slot-step-btn {
+    width: 32px;
+    min-width: 32px;
+  }
+
+  .booking-entry-row .slot-count-input {
+    width: 50px;
+    min-width: 50px;
   }
 
   .booking-entry-row .inline-booking-actions,

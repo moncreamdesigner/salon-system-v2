@@ -117,7 +117,7 @@ const defaultState = {
   customerTypeRules: {
     "Хэрэглэгч": { bonusPercent: 2, dynamic: true },
     "Тусгай хэрэглэгч": { bonusPercent: 10, dynamic: true },
-    "Ажилтан": { bonusPercent: 0, dynamic: false }
+    "Ажилтан": { bonusPercent: 10, dynamic: false }
   },
   pricePolicy: {
     vipRoomFee: 20000,
@@ -219,11 +219,12 @@ if (state.customerTypeRules["Шинэ хэрэглэгч"] && !state.customerTyp
 delete state.customerTypeRules["Шинэ хэрэглэгч"];
 state.customerTypes.forEach(type => {
   state.customerTypeRules[type] = {
-    bonusPercent: type === "Тусгай хэрэглэгч" ? 10 : type === "Ажилтан" ? 0 : 2,
+    bonusPercent: type === "Тусгай хэрэглэгч" || type === "Ажилтан" ? 10 : 2,
     dynamic: type !== "Ажилтан",
     ...(state.customerTypeRules[type] || {})
   };
 });
+ensureEmployeeCustomerBonusRule(state);
 state.pricePolicy = {
   ...structuredClone(defaultState.pricePolicy),
   ...(state.pricePolicy || {})
@@ -705,6 +706,7 @@ function applyServerData(data = {}) {
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
+  const employeeBonusRuleChanged = ensureEmployeeCustomerBonusRule(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
     state.selectedCustomerId = selectedCustomerId;
   }
@@ -730,7 +732,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0;
+  return customerNamesChanged || embeddedImagesRemoved > 0 || employeeBonusRuleChanged;
 }
 
 async function saveServerStateNow() {
@@ -1921,11 +1923,30 @@ function customerTypeRule(type) {
   };
   if (!state.customerTypeRules[type]) {
     state.customerTypeRules[type] = {
-      bonusPercent: type === "Тусгай хэрэглэгч" ? 10 : type === "Ажилтан" ? 0 : 2,
+      bonusPercent: type === "Тусгай хэрэглэгч" || type === "Ажилтан" ? 10 : 2,
       dynamic: type !== "Ажилтан"
     };
   }
   return state.customerTypeRules[type];
+}
+
+function ensureEmployeeCustomerBonusRule(targetState) {
+  if (!targetState || targetState.employeeCustomerBonusRuleV2) return false;
+  targetState.customerTypes = Array.isArray(targetState.customerTypes) ? targetState.customerTypes : [];
+  if (!targetState.customerTypes.includes("Ажилтан")) targetState.customerTypes.push("Ажилтан");
+  targetState.customerTypeRules = targetState.customerTypeRules && typeof targetState.customerTypeRules === "object"
+    ? targetState.customerTypeRules
+    : {};
+  targetState.customerTypeRules["Ажилтан"] = {
+    ...(targetState.customerTypeRules["Ажилтан"] || {}),
+    bonusPercent: 10,
+    dynamic: false
+  };
+  targetState.customers = (Array.isArray(targetState.customers) ? targetState.customers : []).map(customer =>
+    customer.type === "Ажилтан" ? { ...customer, bonus: "10%" } : customer
+  );
+  targetState.employeeCustomerBonusRuleV2 = true;
+  return true;
 }
 
 function bonusTierSummary() {
@@ -4940,9 +4961,11 @@ function customerBalance(customer) {
 }
 
 function customerBonusPercent(customer) {
+  const typeRule = customerTypeRule(customer.type || "Хэрэглэгч");
+  if (!typeRule.dynamic) return `${typeRule.bonusPercent}%`;
   const group = customerGroup(customer);
   if (group) return `${groupBonusInfo(group).percent}%`;
-  return customer.bonus || `${customerTypeRule(customer.type || "Хэрэглэгч").bonusPercent}%`;
+  return customer.bonus || `${typeRule.bonusPercent}%`;
 }
 
 function serviceDateKey(value) {
@@ -5168,11 +5191,6 @@ function renderCustomers() {
     .filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q));
 
   rows = rows.sort((a, b) => {
-    const courseA = customerCourseEntryStatus(a);
-    const courseB = customerCourseEntryStatus(b);
-    const activeCourseA = courseA && !courseA.complete ? 1 : 0;
-    const activeCourseB = courseB && !courseB.complete ? 1 : 0;
-    if (activeCourseA !== activeCourseB) return activeCourseB - activeCourseA;
     if (sortMode === "name") return a.name.localeCompare(b.name);
     return String(b.registeredAt || b.last || "").localeCompare(String(a.registeredAt || a.last || "")) || b.id - a.id;
   });
