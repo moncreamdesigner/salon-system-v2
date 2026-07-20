@@ -76,6 +76,32 @@ button {
   overflow-y: hidden;
 }
 
+.sidebar-collapse-btn {
+  display: none;
+  position: static;
+  align-self: flex-end;
+  flex: 0 0 30px;
+  margin-bottom: 4px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(31, 36, 31, .12);
+  z-index: 5;
+}
+
+.sidebar-collapse-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .brand {
   flex: 0 0 auto;
   display: flex;
@@ -235,6 +261,10 @@ body.sidebar-collapsed .sidebar {
   padding-right: 8px;
 }
 
+body.sidebar-collapsed .sidebar-collapse-btn {
+  align-self: center;
+}
+
 body.sidebar-collapsed .brand {
   padding-left: 6px;
   padding-right: 6px;
@@ -277,15 +307,12 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 @media (min-width: 821px) and (max-width: 1180px) {
-  .topbar {
+  .sidebar-collapse-btn {
     display: flex;
-    min-height: 38px;
-    margin-bottom: 8px;
   }
 
-  .topbar .icon-btn {
-    display: grid;
-    place-items: center;
+  .topbar {
+    display: none;
   }
 
   .main {

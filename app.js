@@ -11359,14 +11359,16 @@ function bindEvents() {
     document.getElementById(id)?.addEventListener("input", renderSchedulePreview);
   });
 
-  document.getElementById("menuButton").addEventListener("click", () => {
+  const toggleSidebar = () => {
     if (window.matchMedia("(max-width: 820px)").matches) {
       document.getElementById("sidebar").classList.toggle("open");
       return;
     }
     const collapsed = document.body.classList.toggle("sidebar-collapsed");
     localStorage.setItem(SIDEBAR_COMPACT_KEY, collapsed ? "collapsed" : "expanded");
-  });
+  };
+  document.getElementById("menuButton")?.addEventListener("click", toggleSidebar);
+  document.getElementById("sidebarCollapseBtn")?.addEventListener("click", toggleSidebar);
 
   ["customerSearch", "customerKhorooFilter"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", () => {
