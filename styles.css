@@ -701,6 +701,13 @@ body.sidebar-collapsed .sidebar-logout {
   min-width: 104px;
 }
 
+.customer-inline-form .form-actions .primary-btn {
+  width: 100%;
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
 .customer-toolbar {
   display: flex;
   align-items: center;
