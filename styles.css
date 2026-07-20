@@ -4140,11 +4140,11 @@ input[type="date"].input {
 }
 
 .booking-list-table .booking-inline-edit-row td {
-  width: auto;
-  padding: 0;
+  width: auto !important;
+  padding: 0 !important;
   border-bottom: 0;
   background: var(--surface);
-  text-align: left;
+  text-align: left !important;
 }
 
 .booking-row-edit-shell {

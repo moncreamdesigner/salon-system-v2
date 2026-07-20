@@ -11018,6 +11018,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
   document.getElementById("bookingEditCancel")?.addEventListener("click", () => {
     bookingInlineEditingId = null;
     renderBookings();
+    openBookingModal();
   });
   document.getElementById("bookingForm").addEventListener("submit", event => {
     event.preventDefault();
