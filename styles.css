@@ -316,24 +316,15 @@ body.sidebar-collapsed .sidebar-logout {
 @media (min-width: 821px) {
   .sidebar-collapse-btn {
     display: flex;
-    position: static;
+    position: sticky;
+    left: auto;
+    bottom: 0;
     flex: 0 0 34px;
     width: 100%;
   }
 
   .sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: var(--sidebar);
-    height: auto !important;
-    min-height: 0 !important;
     padding-bottom: 8px;
-  }
-
-  body.sidebar-collapsed .sidebar {
-    width: 72px;
   }
 }
 
