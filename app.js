@@ -11539,7 +11539,7 @@ function initializeSidebarNavigation() {
     const label = button.textContent.trim();
     const key = button.id === "settingsToggle" ? "admin" : button.dataset.view;
     const path = iconPaths[key] || iconPaths.admin;
-    button.innerHTML = `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg><span class="nav-label">${label}</span>`;
+    button.innerHTML = `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg><span class="nav-label">${label}</span><span class="nav-compact-label">${label}</span>`;
     button.title = label;
   });
   document.querySelectorAll(".nav-subitem").forEach(button => {
