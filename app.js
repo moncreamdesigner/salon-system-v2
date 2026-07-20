@@ -21,6 +21,7 @@ let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
 let localStateMutationVersion = 0;
+const SIDEBAR_COMPACT_KEY = "khalgai_sidebar_compact_v1";
 
 const defaultState = {
   salons: [
@@ -10985,6 +10986,10 @@ function bindEvents() {
     item.addEventListener("click", () => setView(item.dataset.view));
   });
   document.getElementById("settingsToggle").addEventListener("click", () => {
+    if (document.body.classList.contains("sidebar-collapsed")) {
+      document.body.classList.remove("sidebar-collapsed");
+      localStorage.setItem(SIDEBAR_COMPACT_KEY, "expanded");
+    }
     const submenu = document.getElementById("settingsSubmenu");
     const isOpen = submenu.classList.toggle("open");
     document.getElementById("settingsToggle").setAttribute("aria-expanded", String(isOpen));
@@ -11355,7 +11360,12 @@ function bindEvents() {
   });
 
   document.getElementById("menuButton").addEventListener("click", () => {
-    document.getElementById("sidebar").classList.toggle("open");
+    if (window.matchMedia("(max-width: 820px)").matches) {
+      document.getElementById("sidebar").classList.toggle("open");
+      return;
+    }
+    const collapsed = document.body.classList.toggle("sidebar-collapsed");
+    localStorage.setItem(SIDEBAR_COMPACT_KEY, collapsed ? "collapsed" : "expanded");
   });
 
   ["customerSearch", "customerKhorooFilter"].forEach(id => {
@@ -11442,10 +11452,48 @@ function bindEvents() {
   });
 }
 
+function initializeSidebarNavigation() {
+  const iconPaths = {
+    bookings: "M7 2v3M17 2v3M3 9h18M5 4h14a2 2 0 0 1 2 2v13H3V6a2 2 0 0 1 2-2Z",
+    customers: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+    kass: "M4 3h16v18H4zM8 7h8M8 11h2m4 0h2M8 15h2m4 0h2",
+    performance: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+    vouchers: "M4 6h16v12H4zM8 6v12M12 9h5M12 13h5",
+    giftCards: "M20 12v9H4v-9M2 7h20v5H2zM12 7v14M12 7H7.5A2.5 2.5 0 1 1 12 4.5V7Zm0 0h4.5A2.5 2.5 0 1 0 12 4.5V7Z",
+    settingsDiscounts: "M19 5 5 19M7 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm14 14a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+    dashboard: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
+    settingsHumanResources: "M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M16 11h6",
+    settingsSchedule: "M4 5h16v16H4zM8 2v6M16 2v6M4 10h16M8 14h3M8 17h6",
+    admin: "M12 2 4 5v6c0 5 3.4 9.6 8 11 4.6-1.4 8-6 8-11V5l-8-3Zm0 5v5m0 4h.01"
+  };
+  document.querySelectorAll(".nav-item").forEach(button => {
+    if (button.querySelector(".nav-icon")) return;
+    const label = button.textContent.trim();
+    const key = button.id === "settingsToggle" ? "admin" : button.dataset.view;
+    const path = iconPaths[key] || iconPaths.admin;
+    button.innerHTML = `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg><span class="nav-label">${label}</span>`;
+    button.title = label;
+  });
+  document.querySelectorAll(".nav-subitem").forEach(button => {
+    if (button.querySelector(".nav-label")) return;
+    const label = button.textContent.trim();
+    button.innerHTML = `<span class="nav-sub-dot" aria-hidden="true"></span><span class="nav-label">${label}</span>`;
+    button.title = label;
+  });
+  const compactViewport = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
+  const preference = localStorage.getItem(SIDEBAR_COMPACT_KEY);
+  document.body.classList.toggle("sidebar-collapsed", compactViewport && preference !== "expanded");
+  window.addEventListener("resize", () => {
+    if (window.matchMedia("(max-width: 820px)").matches) document.body.classList.remove("sidebar-collapsed");
+    else if (window.matchMedia("(max-width: 1180px)").matches && localStorage.getItem(SIDEBAR_COMPACT_KEY) !== "expanded") document.body.classList.add("sidebar-collapsed");
+  });
+}
+
 function init() {
   removeRetiredViews();
   applyActiveAccount(activeAccount);
   ensureHumanResourceShell();
+  initializeSidebarNavigation();
   loadServiceSettings();
   restoreCoreServiceSettingsIfMissing();
   migrateSalonSchedules();

@@ -131,6 +131,27 @@ button {
   text-align: left;
   font-weight: 650;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.nav-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-item:hover {
@@ -187,6 +208,89 @@ button {
   text-align: left;
   font-size: 12px;
   font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.nav-sub-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 5px;
+}
+
+.app-shell,
+.sidebar {
+  transition: grid-template-columns .18s ease, width .18s ease, padding .18s ease;
+}
+
+body.sidebar-collapsed .app-shell {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+body.sidebar-collapsed .sidebar {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+body.sidebar-collapsed .brand {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+body.sidebar-collapsed .brand-logo {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  content: url("assets/favicon.png");
+}
+
+body.sidebar-collapsed .nav {
+  padding-right: 0;
+}
+
+body.sidebar-collapsed .nav-item {
+  width: 100%;
+  justify-content: center;
+  padding: 0;
+}
+
+body.sidebar-collapsed .nav-label,
+body.sidebar-collapsed .nav-parent::after,
+body.sidebar-collapsed .nav-submenu,
+body.sidebar-collapsed .sidebar-user-info {
+  display: none !important;
+}
+
+body.sidebar-collapsed .sidebar-footer {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+body.sidebar-collapsed .sidebar-logout {
+  margin-left: 0;
+}
+
+@media (min-width: 821px) and (max-width: 1180px) {
+  .topbar {
+    display: flex;
+    min-height: 38px;
+    margin-bottom: 8px;
+  }
+
+  .topbar .icon-btn {
+    display: grid;
+    place-items: center;
+  }
+
+  .main {
+    padding: 12px;
+  }
 }
 
 .nav-subitem:hover,
