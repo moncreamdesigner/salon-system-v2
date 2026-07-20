@@ -8352,15 +8352,17 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 @media (min-width: 821px) and (max-width: 1180px) {
   .booking-entry-row {
-    grid-template-columns: minmax(0, 1fr) 130px 130px;
+    grid-template-columns: minmax(445px, 1fr) 120px 130px 120px;
+    gap: 8px;
   }
 
   .booking-entry-row .booking-slots {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
   .booking-entry-row .booking-slot-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(170px, 1.35fr) minmax(135px, 1fr) minmax(120px, .9fr);
+    gap: 8px;
   }
 
   .booking-entry-row .inline-booking-actions,
@@ -8387,6 +8389,60 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .profile-side-card {
     padding: 14px;
+  }
+
+  .inline-payment-grid {
+    display: grid;
+    grid-template-columns: minmax(170px, 1.4fr) 94px 116px 116px 80px;
+    gap: 8px;
+    align-items: end;
+  }
+
+  .inline-payment-grid .inline-bonus-row,
+  .inline-payment-grid .inline-payment-amount-field,
+  .inline-payment-grid .inline-payment-date-field,
+  .inline-payment-grid .inline-payment-method-field {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    flex: none !important;
+  }
+
+  .inline-payment-grid .inline-bonus-row {
+    gap: 6px;
+  }
+
+  .inline-payment-grid .inline-bonus-apply,
+  .inline-payment-grid .primary-btn {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .inline-payment-grid .primary-btn {
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+  }
+
+  .customer-service-grid.course-visit-row {
+    grid-template-columns: 105px minmax(112px, 1fr) minmax(125px, 1fr) 96px 110px;
+    gap: 8px;
+  }
+
+  .customer-service-grid.course-visit-row .primary-btn {
+    width: 100%;
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .course-slot-row,
+  .course-slot-grid,
+  .course-visit-form-wrap,
+  .course-visit-inline-form {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 }
 

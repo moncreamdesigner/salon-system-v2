@@ -9288,8 +9288,8 @@ function renderGiftCards() {
         <td><span class="gift-card-usage">${usageText}</span></td>
         <td>
           <div class="table-actions">
-            <button class="secondary-btn icon-action gift-card-edit" type="button" data-id="${card.id}" aria-label="Засах" ${editable ? "" : "disabled"}>${editIcon()}</button>
             <button class="secondary-btn gift-card-toggle" type="button" data-id="${card.id}" ${status === "used" ? "disabled" : ""}>${status === "inactive" ? "Идэвхжүүлэх" : "Идэвхгүй"}</button>
+            <button class="secondary-btn icon-action gift-card-edit" type="button" data-id="${card.id}" aria-label="Засах" ${editable ? "" : "disabled"}>${editIcon()}</button>
             <button class="danger-btn icon-danger gift-card-delete" type="button" data-id="${card.id}" aria-label="Устгах" ${editable ? "" : "disabled"}>${trashIcon()}</button>
           </div>
         </td>
@@ -9394,6 +9394,7 @@ function editGiftCard(id) {
 function toggleGiftCard(id) {
   const card = state.giftCards.find(item => Number(item.id) === Number(id));
   if (!card || giftCardStatus(card) === "used") return;
+  if (!requireEditCode()) return;
   card.status = card.status === "inactive" ? "new" : "inactive";
   saveState();
   renderGiftCards();
