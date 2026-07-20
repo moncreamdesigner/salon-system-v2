@@ -21,6 +21,7 @@ let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
 let localStateMutationVersion = 0;
+const pendingCustomerProfileUpdates = new Map();
 const SIDEBAR_COMPACT_KEY = "khalgai_sidebar_compact_v1";
 
 const defaultState = {
@@ -706,7 +707,8 @@ function applyServerData(data = {}) {
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
-  const employeeBonusRuleChanged = ensureEmployeeCustomerBonusRule(state);
+  ensureEmployeeCustomerBonusRule(state);
+  applyPendingCustomerProfileUpdates(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
     state.selectedCustomerId = selectedCustomerId;
   }
@@ -732,7 +734,7 @@ function applyServerData(data = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0 || employeeBonusRuleChanged;
+  return customerNamesChanged || embeddedImagesRemoved > 0;
 }
 
 async function saveServerStateNow() {
@@ -742,12 +744,16 @@ async function saveServerStateNow() {
     return;
   }
   serverSaveInFlight = true;
+  const savingMutationVersion = localStateMutationVersion;
   try {
     const result = await serverApi("state.php", {
       method: "PUT",
       body: JSON.stringify({ revision: serverStorageRevision, data: serverStateData() })
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
+    pendingCustomerProfileUpdates.forEach((update, customerId) => {
+      if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerProfileUpdates.delete(customerId);
+    });
   } catch (error) {
     if (error.status === 409 && error.payload?.conflict) {
       try {
@@ -756,7 +762,11 @@ async function saveServerStateNow() {
         applyServerData(remote.data || {});
         rerenderAll();
         setView(activeView);
-        showToast("Өөр хэрэглэгч мэдээлэл шинэчилсэн тул хамгийн сүүлийн хувилбарыг ачааллаа. Үйлдлээ дахин хийнэ үү");
+        const retryingProfileUpdate = pendingCustomerProfileUpdates.size > 0;
+        if (retryingProfileUpdate) serverSavePending = true;
+        showToast(retryingProfileUpdate
+          ? "Шинэ мэдээлэлтэй нэгтгээд профайлын өөрчлөлтийг дахин хадгалж байна"
+          : "Өөр хэрэглэгч мэдээлэл шинэчилсэн тул хамгийн сүүлийн хувилбарыг ачааллаа. Үйлдлээ дахин хийнэ үү");
         return;
       } catch (refreshError) {
         console.error("Conflict refresh failed", refreshError);
@@ -1931,22 +1941,40 @@ function customerTypeRule(type) {
 }
 
 function ensureEmployeeCustomerBonusRule(targetState) {
-  if (!targetState || targetState.employeeCustomerBonusRuleV2) return false;
+  if (!targetState) return false;
+  let changed = false;
   targetState.customerTypes = Array.isArray(targetState.customerTypes) ? targetState.customerTypes : [];
-  if (!targetState.customerTypes.includes("Ажилтан")) targetState.customerTypes.push("Ажилтан");
+  if (!targetState.customerTypes.includes("Ажилтан")) {
+    targetState.customerTypes.push("Ажилтан");
+    changed = true;
+  }
   targetState.customerTypeRules = targetState.customerTypeRules && typeof targetState.customerTypeRules === "object"
     ? targetState.customerTypeRules
     : {};
+  const currentRule = targetState.customerTypeRules["Ажилтан"] || {};
+  if (Number(currentRule.bonusPercent) !== 10 || currentRule.dynamic !== false) changed = true;
   targetState.customerTypeRules["Ажилтан"] = {
-    ...(targetState.customerTypeRules["Ажилтан"] || {}),
+    ...currentRule,
     bonusPercent: 10,
     dynamic: false
   };
-  targetState.customers = (Array.isArray(targetState.customers) ? targetState.customers : []).map(customer =>
-    customer.type === "Ажилтан" ? { ...customer, bonus: "10%" } : customer
-  );
+  targetState.customers = (Array.isArray(targetState.customers) ? targetState.customers : []).map(customer => {
+    if (customer.type !== "Ажилтан" || customer.bonus === "10%") return customer;
+    changed = true;
+    return { ...customer, bonus: "10%" };
+  });
   targetState.employeeCustomerBonusRuleV2 = true;
-  return true;
+  return changed;
+}
+
+function applyPendingCustomerProfileUpdates(targetState) {
+  if (!targetState || !pendingCustomerProfileUpdates.size) return;
+  pendingCustomerProfileUpdates.forEach((update, customerId) => {
+    const customer = (targetState.customers || []).find(item => Number(item.id) === Number(customerId));
+    if (!customer) return;
+    const { mutationVersion, ...profile } = update;
+    Object.assign(customer, profile);
+  });
 }
 
 function bonusTierSummary() {
@@ -7211,14 +7239,24 @@ function renderProfile() {
   form.addEventListener("submit", event => {
     event.preventDefault();
     if (!requireCustomerEditCodeIfExpired(customer)) return;
-    customer.name = formValue("profileInfoName");
-    customer.phone = formValue("profileInfoPhone");
+    const selectedType = document.getElementById("profileInfoType")?.value || "Хэрэглэгч";
+    const profileUpdate = {
+      name: formValue("profileInfoName"),
+      phone: formValue("profileInfoPhone"),
+      gender: formValue("profileInfoGender"),
+      district: formValue("profileInfoDistrict"),
+      khoroo: formValue("profileInfoKhoroo"),
+      type: selectedType,
+      bonus: `${customerTypeRule(selectedType).bonusPercent}%`
+    };
+    Object.assign(customer, profileUpdate);
     setCustomerAgeFromInput(customer, formValue("profileInfoAge"));
-    customer.gender = formValue("profileInfoGender");
-    customer.district = formValue("profileInfoDistrict");
-    customer.khoroo = formValue("profileInfoKhoroo");
-    customer.type = formValue("profileInfoType") || "Хэрэглэгч";
-    customer.bonus = `${customerTypeRule(customer.type).bonusPercent}%`;
+    profileUpdate.age = customer.age;
+    profileUpdate.birthYear = customer.birthYear;
+    pendingCustomerProfileUpdates.set(Number(customer.id), {
+      ...profileUpdate,
+      mutationVersion: localStateMutationVersion + 1
+    });
     customer.profileInfoEditing = false;
     const adminGroup = state.customerGroups.find(group => Number(group.adminCustomerId) === Number(customer.id));
     const message = adminGroup && String(adminGroup.name || "") !== String(customer.phone || "")
