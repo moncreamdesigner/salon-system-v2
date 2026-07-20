@@ -7013,7 +7013,7 @@ function renderProfile() {
           <div class="bonus-line-head"><span>${bonus.percent}%</span><span>${money(nextTier.missing)} дутуу → ${nextTier.nextPercent}%</span></div>
           <div class="bonus-line"><i style="width:${bonusProgressPercent(bonus.spent)}%"></i></div>
           <div class="group-period-box in-bonus">
-            <div><span>Хэрэглээ дахин тооцох хугацаа</span><strong>${period.used}/730 өдөр</strong></div>
+            <div><span>Дахин тооцох хугацаа</span><strong>${period.used}/730 өдөр</strong></div>
             <div class="group-period-line"><i style="width:${period.percent}%"></i></div>
           </div>
           <div class="profile-mini-stat"><span>2 жилийн зарцуулалт</span><strong>${money(bonus.spent)}</strong></div>
