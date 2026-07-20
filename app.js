@@ -5230,7 +5230,7 @@ function customerBonusPercent(customer) {
   if (!typeRule.dynamic) return `${typeRule.bonusPercent}%`;
   const group = customerGroup(customer);
   if (group) return `${groupBonusInfo(group).percent}%`;
-  return customer.bonus || `${typeRule.bonusPercent}%`;
+  return `${typeRule.bonusPercent}%`;
 }
 
 function serviceDateKey(value) {
@@ -5465,7 +5465,8 @@ function renderCustomers() {
     .filter(c => {
       if (workFilter === "active") return Boolean(todaySalonTreatment(c, activeAccount.salon));
       if (workFilter === "unpaid") return Boolean(customerBalance(c));
-      if (workFilter === "group") return Boolean(c.groupId);
+      if (workFilter === "group") return Boolean(customerGroup(c));
+      if (workFilter === "no-group") return !customerGroup(c);
       return true;
     })
     .filter(c => districtQuery === "all" || String(c.district || "") === districtQuery)
