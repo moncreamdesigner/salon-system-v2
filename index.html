@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607211455">
+  <link rel="stylesheet" href="styles.css?v=202607211535">
 </head>
 <body>
   <div class="app-shell">
@@ -197,16 +197,15 @@
           </label>
           <label>Хүйс
             <select id="inlineCustomerGender" class="input" required>
-              <option value="" disabled selected>Сонгох</option>
-              <option>Эмэгтэй</option>
-              <option>Эрэгтэй</option>
+              <option value="Эмэгтэй" selected>Эм</option>
+              <option value="Эрэгтэй">Эр</option>
             </select>
           </label>
           <label>Дүүрэг
             <select id="inlineCustomerDistrict" class="input" required></select>
           </label>
           <label>Хороо
-            <input id="inlineCustomerKhoroo" class="input" required placeholder="Хороо">
+            <input id="inlineCustomerKhoroo" class="input" required inputmode="numeric" maxlength="2" pattern="[0-9]{1,2}" placeholder="00">
           </label>
           <label>Төрөл
             <select id="inlineCustomerType" class="input" required></select>
@@ -1207,7 +1206,7 @@
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
   <script src="fliphtml5.js?v=202607210130"></script>
-  <script src="app.js?v=202607210900"></script>
+  <script src="app.js?v=202607211535"></script>
 </body>
 </html>
 

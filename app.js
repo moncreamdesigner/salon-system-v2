@@ -10872,7 +10872,7 @@ function openBookingModal(editId) {
           <input id="bookingPhone" class="input" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="99112233" value="${editing?.phone || ""}">
         </label>
         <div class="inline-booking-actions">
-          <button class="primary-btn" type="submit">${editing ? "Хадгалах" : "Баталгаажуулах"}</button>
+          <button class="primary-btn" type="submit">${editing ? "Хадгалах" : "Цаг бүртгэх"}</button>
         </div>
       </div>
     </form>

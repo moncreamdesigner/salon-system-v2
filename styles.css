@@ -684,8 +684,8 @@ body.sidebar-collapsed .sidebar-logout {
 
 .customer-inline-form {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) 130px 86px 128px minmax(130px, .8fr) minmax(110px, .7fr) 150px auto;
-  gap: 16px 12px;
+  grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 124px 66px 132px 104px;
+  gap: 16px 8px;
   align-items: end;
   margin-bottom: 30px;
 }
@@ -698,7 +698,7 @@ body.sidebar-collapsed .sidebar-logout {
   display: flex;
   justify-content: flex-end;
   align-items: end;
-  min-width: 116px;
+  min-width: 104px;
 }
 
 .customer-toolbar {
