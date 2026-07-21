@@ -5482,11 +5482,10 @@ function customerCourseEntryHtml(customer) {
 function customerRegistrationHtml(customer = {}) {
   const rawDate = String(customer.registeredAt || customer.last || "").trim();
   const date = serviceDateKey(rawDate) || "—";
-  const time = customer.registeredTime || rawDate.match(/[T ](\d{2}:\d{2})/)?.[1] || "—";
   const salon = customer.registeredSalon || customer.salon || "—";
   return `
     <div class="customer-registration-cell">
-      <strong>${htmlSafe(date)} <span>· ${htmlSafe(time)}</span></strong>
+      <strong>${htmlSafe(date)}</strong>
       <em title="${htmlSafe(salon)}">${htmlSafe(salon)}</em>
     </div>
   `;
