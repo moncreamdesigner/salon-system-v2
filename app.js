@@ -5486,8 +5486,7 @@ function customerRegistrationHtml(customer = {}) {
   const salon = customer.registeredSalon || customer.salon || "—";
   return `
     <div class="customer-registration-cell">
-      <strong>${htmlSafe(date)}</strong>
-      <span>${htmlSafe(time)}</span>
+      <strong>${htmlSafe(date)} <span>· ${htmlSafe(time)}</span></strong>
       <em title="${htmlSafe(salon)}">${htmlSafe(salon)}</em>
     </div>
   `;

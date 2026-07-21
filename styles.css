@@ -6626,9 +6626,15 @@ tr:last-child td {
   color: var(--text);
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
-.customer-registration-cell span,
+.customer-registration-cell strong span {
+  color: var(--muted);
+  font-size: inherit;
+  font-weight: 400;
+}
+
 .customer-registration-cell em {
   min-width: 0;
   overflow: hidden;
