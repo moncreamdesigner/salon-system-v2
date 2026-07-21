@@ -6615,6 +6615,31 @@ tr:last-child td {
   font-weight: 400;
 }
 
+.customer-registration-cell {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  line-height: 1.15;
+}
+
+.customer-registration-cell strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.customer-registration-cell span,
+.customer-registration-cell em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .profile-side-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

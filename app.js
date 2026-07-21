@@ -1845,6 +1845,8 @@ function ensureCustomerWorkflowData() {
       district: customer.district || fallback.district || "",
       khoroo: customer.khoroo || fallback.khoroo || "",
       registeredAt: customer.registeredAt || customer.last || todayText(),
+      registeredTime: customer.registeredTime || String(customer.registeredAt || "").match(/[T ](\d{2}:\d{2})/)?.[1] || "",
+      registeredSalon: customer.registeredSalon || customer.salon || defaults.salon,
       deleted: Boolean(customer.deleted || customer.deletedAt)
     };
   });
@@ -5395,6 +5397,8 @@ function saveInlineCustomer(event) {
     balance: 0,
     last: "-",
     registeredAt: todayText(),
+    registeredTime: currentTimeText(),
+    registeredSalon: activeAccount.salon,
     salon: activeAccount.salon,
     groupId: null,
     groupRole: "",
@@ -5475,6 +5479,20 @@ function customerCourseEntryHtml(customer) {
   return `<span class="customer-entry-chip ${progress.complete ? "complete" : "active"}">${progress.done}/${progress.total}</span>`;
 }
 
+function customerRegistrationHtml(customer = {}) {
+  const rawDate = String(customer.registeredAt || customer.last || "").trim();
+  const date = serviceDateKey(rawDate) || "—";
+  const time = customer.registeredTime || rawDate.match(/[T ](\d{2}:\d{2})/)?.[1] || "—";
+  const salon = customer.registeredSalon || customer.salon || "—";
+  return `
+    <div class="customer-registration-cell">
+      <strong>${htmlSafe(date)}</strong>
+      <span>${htmlSafe(time)}</span>
+      <em title="${htmlSafe(salon)}">${htmlSafe(salon)}</em>
+    </div>
+  `;
+}
+
 function renderCustomers() {
   renderCustomerTypeFilter();
   renderCustomerInlineForm();
@@ -5492,10 +5510,11 @@ function renderCustomers() {
     sortToggle.dataset.sort = sortMode;
     sortToggle.innerHTML = `${sortMode === "name" ? "Нэр" : "Огноо"} <span>↓</span>`;
   }
+  const treatmentSalonScope = isSalonAccount() ? activeAccount.salon : "";
   const activeTreatments = state.customers
     .filter(customer => !customer.deleted && !customer.deletedAt)
-    .map(customer => ({ customer, treatment: todaySalonTreatment(customer, activeAccount.salon) }))
-    .filter(item => item.treatment);
+    .map(customer => ({ customer, treatment: todaySalonTreatment(customer, treatmentSalonScope) }))
+    .filter(item => item.treatment && canAccessSalon(item.treatment.salon));
   scheduleCurrentTreatmentExpiryRefresh();
   const activeStrip = document.getElementById("activeTreatmentStrip");
   if (activeStrip) {
@@ -5521,7 +5540,10 @@ function renderCustomers() {
     .filter(c => !c.deleted)
     .filter(c => type === "all" || c.type === type)
     .filter(c => {
-      if (workFilter === "active") return Boolean(todaySalonTreatment(c, activeAccount.salon));
+      if (workFilter === "active") {
+        const treatment = todaySalonTreatment(c, treatmentSalonScope);
+        return Boolean(treatment && canAccessSalon(treatment.salon));
+      }
       if (workFilter === "unpaid") return Boolean(customerBalance(c));
       if (workFilter === "group") return Boolean(customerGroup(c));
       if (workFilter === "no-group") return !customerGroup(c);
@@ -5533,7 +5555,9 @@ function renderCustomers() {
 
   rows = rows.sort((a, b) => {
     if (sortMode === "name") return a.name.localeCompare(b.name);
-    return String(b.registeredAt || b.last || "").localeCompare(String(a.registeredAt || a.last || "")) || b.id - a.id;
+    const aRegistered = `${a.registeredAt || a.last || ""} ${a.registeredTime || ""}`;
+    const bRegistered = `${b.registeredAt || b.last || ""} ${b.registeredTime || ""}`;
+    return bRegistered.localeCompare(aRegistered) || b.id - a.id;
   });
 
   const pageSize = 100;
@@ -5555,7 +5579,7 @@ function renderCustomers() {
         </td>
         <td>${customer.phone}</td>
         <td><span class="plain-cell-text">${customer.type}</span></td>
-        <td>${customer.registeredAt || customer.last || "-"}</td>
+        <td>${customerRegistrationHtml(customer)}</td>
         <td>${customerCourseEntryHtml(customer)}</td>
         <td>${customerBalance(customer) ? `<span class="customer-balance-due">${money(customerBalance(customer))}</span>` : "—"}</td>
         <td>${customerBonusPercent(customer)}</td>
@@ -11109,6 +11133,8 @@ function openCustomerModal() {
           balance: 0,
           last: "-",
           registeredAt: todayText(),
+          registeredTime: currentTimeText(),
+          registeredSalon: activeAccount.salon,
           salon: activeAccount.salon,
           groupId: null,
           groupRole: "",
