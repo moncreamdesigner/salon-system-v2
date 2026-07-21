@@ -8720,7 +8720,9 @@ async function ensureDiagnosisCameraStream(label) {
     diagnosisCameraStream = null;
     if (label) label.textContent = error?.name === "NotAllowedError"
       ? "Камерын зөвшөөрөл өгнө үү"
-      : "Камер нээгдсэнгүй";
+      : error?.name === "NotReadableError"
+        ? "Камер өөр програм дээр ашиглагдаж байна"
+        : "Камер нээгдсэнгүй";
     return null;
   }
 }
@@ -8735,6 +8737,7 @@ async function openDiagnosisCameraFullscreen(card, button) {
   overlay.innerHTML = `
     <video autoplay muted playsinline></video>
     <strong class="diagnosis-camera-position">${htmlSafe(positionName)}</strong>
+    <span class="diagnosis-camera-status">Камер нээж байна...</span>
     <div class="diagnosis-camera-toolbar" aria-label="Камерын удирдлага">
       <button class="diagnosis-camera-shoot" type="button" aria-label="Зураг авах" title="Зураг авах">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 5.5 9.6 3.8h4.8l1.2 1.7H19A2.5 2.5 0 0 1 21.5 8v9A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A2.5 2.5 0 0 1 5 5.5h3.4Z"/><circle cx="12" cy="12.5" r="4"/></svg>
@@ -8744,6 +8747,7 @@ async function openDiagnosisCameraFullscreen(card, button) {
   `;
   document.body.appendChild(overlay);
   document.body.classList.add("camera-overlay-open");
+  const streamPromise = ensureDiagnosisCameraStream(label);
   const requestFullscreen = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
   if (requestFullscreen) {
     try {
@@ -8756,11 +8760,13 @@ async function openDiagnosisCameraFullscreen(card, button) {
       } catch (_) {}
     }
   }
-  const stream = await ensureDiagnosisCameraStream(label);
+  const stream = await streamPromise;
   if (!stream) {
-    closeDiagnosisCameraOverlay();
+    const status = overlay.querySelector(".diagnosis-camera-status");
+    if (status) status.textContent = label?.textContent || "Камер нээгдсэнгүй";
     return;
   }
+  overlay.querySelector(".diagnosis-camera-status")?.remove();
   const video = overlay.querySelector("video");
   video.srcObject = stream;
   await video.play();
