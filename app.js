@@ -4336,7 +4336,7 @@ function compressBranchImage(file, options = {}) {
 
 async function uploadBranchImage(file, scope = "public", options = {}) {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
-  if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
+  if (file.size > 12 * 1024 * 1024 && !options.allowLargeSource) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
   const preserveOriginal = Boolean(options.preserveOriginal) && file.size <= 11.5 * 1024 * 1024;
   const compressed = preserveOriginal
     ? await new Promise((resolve, reject) => {
@@ -8673,6 +8673,8 @@ function closeDiagnosisCameraOverlay() {
   const overlay = document.querySelector(".diagnosis-camera-overlay");
   const video = overlay?.querySelector("video");
   if (video) video.srcObject = null;
+  if (document.fullscreenElement === overlay) document.exitFullscreen?.().catch(() => {});
+  else if (document.webkitFullscreenElement === overlay) document.webkitExitFullscreen?.();
   overlay?.remove();
   document.body.classList.remove("camera-overlay-open");
 }
@@ -8726,8 +8728,6 @@ async function ensureDiagnosisCameraStream(label) {
 async function openDiagnosisCameraFullscreen(card, button) {
   const label = card?.querySelector(".camera-preview-mini em");
   if (!card || !button) return;
-  const stream = await ensureDiagnosisCameraStream(label);
-  if (!stream) return;
   closeDiagnosisCameraOverlay();
   const positionName = card.querySelector(":scope > span")?.textContent?.trim() || "Оношилгооны зураг";
   const overlay = document.createElement("div");
@@ -8744,9 +8744,29 @@ async function openDiagnosisCameraFullscreen(card, button) {
   `;
   document.body.appendChild(overlay);
   document.body.classList.add("camera-overlay-open");
+  const requestFullscreen = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
+  if (requestFullscreen) {
+    try {
+      const result = requestFullscreen.call(overlay, { navigationUI: "hide" });
+      result?.catch?.(() => {});
+    } catch (_) {
+      try {
+        const result = requestFullscreen.call(overlay);
+        result?.catch?.(() => {});
+      } catch (_) {}
+    }
+  }
+  const stream = await ensureDiagnosisCameraStream(label);
+  if (!stream) {
+    closeDiagnosisCameraOverlay();
+    return;
+  }
   const video = overlay.querySelector("video");
   video.srcObject = stream;
   await video.play();
+  if (video.readyState < 2) {
+    await new Promise(resolve => video.addEventListener("loadeddata", resolve, { once: true }));
+  }
   const close = () => closeDiagnosisCameraOverlay();
   overlay.querySelector(".diagnosis-camera-close")?.addEventListener("click", close);
   overlay.querySelector(".diagnosis-camera-shoot")?.addEventListener("click", async event => {
@@ -8844,7 +8864,8 @@ async function captureDiagnosisCamera(card, button, sourceVideo = null) {
   button.dataset.photo = await uploadBranchImage(photoFile, "private", {
     maxSide: 4096,
     quality: 0.98,
-    preserveOriginal: config.mode === "native"
+    preserveOriginal: config.mode === "native",
+    allowLargeSource: true
   });
   card.classList.add("captured");
   card.classList.remove("legacy-photo");
