@@ -68,7 +68,7 @@ const defaultState = {
     diagnosisPhotoLimit: 5,
     diagnosisCaptureMode: "fixed",
     diagnosisCaptureSize: "1280x960",
-    diagnosisJpegQuality: 0.92,
+    diagnosisJpegQuality: 0.98,
     deleteCode: "1989",
     kassEditDays: 3,
     serviceEditDays: 3,
@@ -2382,7 +2382,7 @@ function saveGeneralSettings(event) {
     serviceEditDays: Number(formValue("serviceEditDays")) || generalSettings().serviceEditDays,
     diagnosisCaptureMode: formValue("diagnosisCaptureMode") === "native" ? "native" : "fixed",
     diagnosisCaptureSize: formValue("diagnosisCaptureSize") || "1280x960",
-    diagnosisJpegQuality: 0.92
+    diagnosisJpegQuality: 0.98
   };
   saveState();
   renderInfoHeader(activeView);
@@ -4311,7 +4311,7 @@ function renderBranchMediaDraft() {
   if (gallery) gallery.innerHTML = branchGalleryDraft.map((url, index) => `<span class="branch-gallery-item"><img src="${htmlSafe(url)}" alt="Slider зураг ${index + 1}"><button type="button" data-branch-gallery-remove="${index}" aria-label="Slider зураг хасах">×</button></span>`).join("");
 }
 
-function compressBranchImage(file) {
+function compressBranchImage(file, options = {}) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Зургийг уншиж чадсангүй"));
@@ -4319,13 +4319,14 @@ function compressBranchImage(file) {
       const image = new Image();
       image.onerror = () => reject(new Error("Зургийн файл буруу байна"));
       image.onload = () => {
-        const maxSide = 1600;
+        const maxSide = Math.max(800, Number(options.maxSide || 1600));
+        const quality = Math.max(0.8, Math.min(0.98, Number(options.quality || 0.82)));
         const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
         canvas.getContext("2d", { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/webp", 0.82));
+        resolve(canvas.toDataURL("image/webp", quality));
       };
       image.src = reader.result;
     };
@@ -4333,14 +4334,25 @@ function compressBranchImage(file) {
   });
 }
 
-async function uploadBranchImage(file, scope = "public") {
+async function uploadBranchImage(file, scope = "public", options = {}) {
   if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("JPEG, PNG эсвэл WebP зураг сонгоно уу");
   if (file.size > 12 * 1024 * 1024) throw new Error("Нэг зураг 12 MB-аас ихгүй байна");
-  const compressed = await compressBranchImage(file);
+  const preserveOriginal = Boolean(options.preserveOriginal) && file.size <= 11.5 * 1024 * 1024;
+  const compressed = preserveOriginal
+    ? await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Зургийг уншиж чадсангүй"));
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    })
+    : await compressBranchImage(file, options);
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return compressed;
-  const blob = await fetch(compressed).then(response => response.blob());
+  const blob = preserveOriginal ? file : await fetch(compressed).then(response => response.blob());
+  const extension = preserveOriginal
+    ? (file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg")
+    : "webp";
   const form = new FormData();
-  form.append("image", blob, `${Date.now()}.webp`);
+  form.append("image", blob, `${Date.now()}.${extension}`);
   form.append("scope", scope === "private" ? "private" : "public");
   const response = await fetch("api/upload.php", {
     method: "POST",
@@ -8674,7 +8686,7 @@ function diagnosisCaptureConfig() {
     mode,
     width,
     height,
-    quality: Math.max(0.8, Math.min(0.95, Number(settings.diagnosisJpegQuality || 0.92)))
+    quality: Math.max(0.96, Math.min(0.98, Number(settings.diagnosisJpegQuality || 0.98)))
   };
 }
 
@@ -8721,14 +8733,13 @@ async function openDiagnosisCameraFullscreen(card, button) {
   const overlay = document.createElement("div");
   overlay.className = "diagnosis-camera-overlay";
   overlay.innerHTML = `
-    <div class="diagnosis-camera-topbar">
-      <strong>${htmlSafe(positionName)}</strong>
-      <button class="diagnosis-camera-close" type="button" aria-label="Камер хаах">×</button>
-    </div>
     <video autoplay muted playsinline></video>
-    <div class="diagnosis-camera-actions">
-      <button class="secondary-btn diagnosis-camera-cancel" type="button">Болих</button>
-      <button class="primary-btn diagnosis-camera-shoot" type="button">Зураг авах</button>
+    <strong class="diagnosis-camera-position">${htmlSafe(positionName)}</strong>
+    <div class="diagnosis-camera-toolbar" aria-label="Камерын удирдлага">
+      <button class="diagnosis-camera-shoot" type="button" aria-label="Зураг авах" title="Зураг авах">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 5.5 9.6 3.8h4.8l1.2 1.7H19A2.5 2.5 0 0 1 21.5 8v9A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A2.5 2.5 0 0 1 5 5.5h3.4Z"/><circle cx="12" cy="12.5" r="4"/></svg>
+      </button>
+      <button class="diagnosis-camera-close" type="button" aria-label="Камер хаах" title="Камер хаах">×</button>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -8738,20 +8749,63 @@ async function openDiagnosisCameraFullscreen(card, button) {
   await video.play();
   const close = () => closeDiagnosisCameraOverlay();
   overlay.querySelector(".diagnosis-camera-close")?.addEventListener("click", close);
-  overlay.querySelector(".diagnosis-camera-cancel")?.addEventListener("click", close);
   overlay.querySelector(".diagnosis-camera-shoot")?.addEventListener("click", async event => {
     const shootButton = event.currentTarget;
     shootButton.disabled = true;
-    shootButton.textContent = "Хадгалж байна...";
+    shootButton.classList.add("saving");
     try {
       await captureDiagnosisCamera(card, button, video);
       close();
     } catch (error) {
       shootButton.disabled = false;
-      shootButton.textContent = "Зураг авах";
+      shootButton.classList.remove("saving");
       showToast(error.message || "Зураг хадгалагдсангүй");
     }
   });
+}
+
+function diagnosisCanvasFile(canvas, config) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob
+      ? resolve(new File([blob], `diagnosis-${Date.now()}.webp`, { type: "image/webp" }))
+      : reject(new Error("Зураг бэлтгэгдсэнгүй")), "image/webp", config.quality);
+  });
+}
+
+async function diagnosisNativePhotoFile(video, config) {
+  const track = video?.srcObject?.getVideoTracks?.()[0];
+  if (!track || typeof window.ImageCapture !== "function") return null;
+  try {
+    const blob = await new window.ImageCapture(track).takePhoto();
+    if (config.mode === "native") {
+      const type = ["image/jpeg", "image/png", "image/webp"].includes(blob.type) ? blob.type : "image/jpeg";
+      const extension = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+      return new File([blob], `diagnosis-${Date.now()}.${extension}`, { type });
+    }
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = config.width;
+    canvas.height = config.height;
+    const targetRatio = canvas.width / canvas.height;
+    const sourceRatio = bitmap.width / bitmap.height;
+    let sx = 0;
+    let sy = 0;
+    let sw = bitmap.width;
+    let sh = bitmap.height;
+    if (sourceRatio > targetRatio) {
+      sw = bitmap.height * targetRatio;
+      sx = (bitmap.width - sw) / 2;
+    } else {
+      sh = bitmap.width / targetRatio;
+      sy = (bitmap.height - sh) / 2;
+    }
+    canvas.getContext("2d", { alpha: false }).drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return diagnosisCanvasFile(canvas, config);
+  } catch (error) {
+    console.warn("Native camera snapshot unavailable, using video frame", error);
+    return null;
+  }
 }
 
 async function captureDiagnosisCamera(card, button, sourceVideo = null) {
@@ -8763,6 +8817,7 @@ async function captureDiagnosisCamera(card, button, sourceVideo = null) {
   const sourceWidth = video.videoWidth || 640;
   const sourceHeight = video.videoHeight || 480;
   const config = diagnosisCaptureConfig();
+  let photoFile = await diagnosisNativePhotoFile(video, config);
   if (config.mode === "native") {
     canvas.width = sourceWidth;
     canvas.height = sourceHeight;
@@ -8785,10 +8840,12 @@ async function captureDiagnosisCamera(card, button, sourceVideo = null) {
     sy = (sourceHeight - sh) / 2;
   }
   if (config.mode !== "native") context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  const photoFile = await new Promise((resolve, reject) => {
-    canvas.toBlob(blob => blob ? resolve(new File([blob], `diagnosis-${Date.now()}.webp`, { type: "image/webp" })) : reject(new Error("Зураг бэлтгэгдсэнгүй")), "image/webp", config.quality);
+  if (!photoFile) photoFile = await diagnosisCanvasFile(canvas, config);
+  button.dataset.photo = await uploadBranchImage(photoFile, "private", {
+    maxSide: 4096,
+    quality: 0.98,
+    preserveOriginal: config.mode === "native"
   });
-  button.dataset.photo = await uploadBranchImage(photoFile, "private");
   card.classList.add("captured");
   card.classList.remove("legacy-photo");
   button.classList.add("active");
