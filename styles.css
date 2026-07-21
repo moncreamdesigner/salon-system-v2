@@ -3409,7 +3409,7 @@ body.camera-overlay-open {
 .customer-table th:last-child,
 .customer-table td:last-child {
   width: 12%;
-  text-align: right;
+  text-align: left;
   overflow: visible;
 }
 
@@ -6644,6 +6644,11 @@ tr:last-child td {
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.booking-table.customer-table th:last-child,
+.booking-table.customer-table td:last-child {
+  text-align: left;
 }
 
 .profile-side-actions {
