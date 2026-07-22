@@ -38,8 +38,6 @@ function sanitize_public_booking(array $booking): ?array
     if (!preg_match('/^\d{2}:\d{2}$/', $time)) return null;
     $salon = trim((string)($booking['salon'] ?? ''));
     if ($salon === '' || mb_strlen($salon) > 190) return null;
-    $status = (string)($booking['status'] ?? 'pending');
-    if (!in_array($status, ['pending', 'confirmed', 'cancelled', 'done'], true)) $status = 'pending';
     $id = (int)($booking['id'] ?? 0);
     if ($id <= 0) $id = (int)(microtime(true) * 1000);
     return [
@@ -49,7 +47,7 @@ function sanitize_public_booking(array $booking): ?array
         'time' => $time,
         'phone' => $phone,
         'source' => 'customer',
-        'status' => $status,
+        'status' => 'pending',
         'createdAt' => date('Y-m-d H:i'),
     ];
 }
@@ -100,6 +98,40 @@ try {
         json_response(['ok' => false, 'message' => 'Салбар олдсонгүй эсвэл идэвхгүй байна.'], 422);
     }
 
+    $bookingDate = DateTimeImmutable::createFromFormat('!Y-m-d', $booking['date']);
+    $today = new DateTimeImmutable('today');
+    if (!$bookingDate || $bookingDate->format('Y-m-d') !== $booking['date'] || $bookingDate < $today) {
+        $pdo->rollBack();
+        json_response(['ok' => false, 'message' => 'Өнгөрсөн эсвэл буруу өдөрт цаг захиалах боломжгүй.'], 422);
+    }
+
+    $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
+    $isWeekend = in_array((int)$bookingDate->format('N'), [6, 7], true);
+    $startText = (string)($schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
+    $endText = (string)($schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
+    $duration = max(5, (int)($schedule['duration'] ?? 30));
+    $toMinutes = static function (string $value): ?int {
+        if (!preg_match('/^(\d{2}):(\d{2})$/', $value, $parts)) return null;
+        $hour = (int)$parts[1];
+        $minute = (int)$parts[2];
+        if ($hour > 23 || $minute > 59) return null;
+        return $hour * 60 + $minute;
+    };
+    $startMinutes = $toMinutes($startText);
+    $endMinutes = $toMinutes($endText);
+    $bookingMinutes = $toMinutes($booking['time']);
+    $validSlot = $startMinutes !== null && $endMinutes !== null && $bookingMinutes !== null
+        && $bookingMinutes >= $startMinutes && $bookingMinutes < $endMinutes
+        && (($bookingMinutes - $startMinutes) % $duration === 0);
+    if (!$validSlot) {
+        $pdo->rollBack();
+        json_response(['ok' => false, 'message' => 'Сонгосон цаг салбарын цагийн хуваарьт тохирохгүй байна.'], 422);
+    }
+    if ($bookingDate->format('Y-m-d') === $today->format('Y-m-d') && $bookingMinutes <= ((int)date('G') * 60 + (int)date('i'))) {
+        $pdo->rollBack();
+        json_response(['ok' => false, 'message' => 'Өнгөрсөн цагт захиалга хийх боломжгүй.'], 422);
+    }
+
     // Амралтын өдөр шалгах.
     foreach ($holidays as $holiday) {
         if (!is_array($holiday)) continue;
@@ -114,7 +146,7 @@ try {
     // Давхардал шалгах — ижил утас + ижил өдөр.
     foreach ($bookings as $existing) {
         if (!is_array($existing)) continue;
-        if (($existing['status'] ?? '') === 'cancelled') continue;
+        if (in_array(($existing['status'] ?? ''), ['cancelled', 'rejected'], true)) continue;
         if (($existing['phone'] ?? '') === $booking['phone'] && ($existing['date'] ?? '') === $booking['date']) {
             $pdo->rollBack();
             json_response(['ok' => false, 'message' => 'Энэ дугаараас тухайн өдөр цаг захиалсан байна.'], 409);
@@ -127,7 +159,7 @@ try {
     $slotCount = 0;
     foreach ($bookings as $existing) {
         if (!is_array($existing)) continue;
-        if (($existing['status'] ?? '') === 'cancelled') continue;
+        if (in_array(($existing['status'] ?? ''), ['cancelled', 'rejected'], true)) continue;
         if (($existing['salon'] ?? '') === $booking['salon']
             && ($existing['date'] ?? '') === $booking['date']
             && ($existing['time'] ?? '') === $booking['time']) {
@@ -157,6 +189,7 @@ try {
 
     $meta = $pdo->prepare("UPDATE app_meta SET meta_value = ? WHERE meta_key = 'revision'");
     $meta->execute([(string)$nextRevision]);
+    bump_scope_revisions($pdo, ['role' => 'salon', 'salon' => (string)$booking['salon']], ['bookings'], (string)$booking['salon']);
 
     $pdo->commit();
     json_response(['ok' => true, 'booking' => $booking, 'revision' => $nextRevision]);

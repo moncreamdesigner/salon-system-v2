@@ -10,6 +10,7 @@ const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
 const SERVER_API_BASE = "api";
+const IS_LOCAL_RUNTIME = ["127.0.0.1", "localhost"].includes(window.location.hostname);
 const DEFAULT_CATALOG_VIEWER_HTML = window.KhalgaiFlipHtml5.DEFAULT_CODE;
 const DEFAULT_CATALOG_DRAG_HINT_HTML = window.KhalgaiFlipHtml5.DEFAULT_HINT_HTML;
 const DEFAULT_CATALOG_DRAG_HINT_CSS = window.KhalgaiFlipHtml5.DEFAULT_HINT_CSS;
@@ -17,15 +18,21 @@ let bookingDropdownCloseBound = false;
 let nativeSelectCloseBound = false;
 let serverStorageReady = false;
 let serverStorageRevision = 0;
+let serverScopeRevision = 0;
+const viewServerRevisions = new Map();
 let serverSaveTimer = null;
 let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
 let localStateMutationVersion = 0;
 let localStateSaveTimer = null;
+let saveContextView = "";
 let persistedStateCacheVersion = -1;
 let persistedStateCache = null;
 let persistedStateCacheJson = "";
+const pendingServerSections = new Map();
+const renderedViews = new Set();
+const virtualViews = new Map();
 const pendingCustomerProfileUpdates = new Map();
 const pendingPaymentMutations = new Map();
 let serverSaveRetryDelay = 1000;
@@ -197,8 +204,10 @@ function resetPrototypeOperationalData() {
   state.permanentlyDeletedCustomerIds = [];
   state.databaseOperationalDataCleared = true;
   state.prototypeDataResetVersion = PROTOTYPE_DATA_RESET_VERSION;
-  localStorage.removeItem(DATABASE_BACKUP_KEY);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+  if (IS_LOCAL_RUNTIME) {
+    localStorage.removeItem(DATABASE_BACKUP_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+  }
 }
 
 resetPrototypeOperationalData();
@@ -271,7 +280,7 @@ state.homepageSettings = {
   results: { ...structuredClone(defaultState.homepageSettings.results), ...(state.homepageSettings?.results || {}) }
 };
 stripLegacyEmbeddedImages(state);
-localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
+if (IS_LOCAL_RUNTIME) localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(state)));
 state.diagnosisTypes = Array.isArray(state.diagnosisTypes) && state.diagnosisTypes.length ? state.diagnosisTypes : [...defaultState.diagnosisTypes];
 normalizeStoredNames();
 // Бодит ажилтны мэдээллийг source code-д seed хэлбэрээр хадгалахгүй.
@@ -295,6 +304,7 @@ state.assignments = (Array.isArray(state.assignments) ? state.assignments : []).
 });
 removePaginationDemoData();
 let activeView = "bookings";
+let activeScheduleSection = "holidays";
 let bookingTimeOptions = [];
 let branchEditingId = null;
 let branchGalleryDraft = [];
@@ -580,6 +590,7 @@ function refreshProductGroupCounts() {
 }
 
 function loadState() {
+  if (!IS_LOCAL_RUNTIME) return structuredClone(defaultState);
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (!saved) return structuredClone(defaultState);
@@ -589,8 +600,8 @@ function loadState() {
   }
 }
 
-function clearTransientState(source) {
-  const next = structuredClone(source);
+function clearTransientState(source, { clone = true } = {}) {
+  const next = clone ? structuredClone(source) : source;
   next.selectedCustomerId = null;
   (next.customers || []).forEach(customer => {
     clearCustomerUiState(customer);
@@ -634,8 +645,12 @@ function flushLocalStateSave() {
 }
 
 function queueLocalStateSave() {
+  // Production is server-backed. Serializing the entire application into localStorage
+  // after every click blocks low-power cashier devices for noticeable periods.
+  if (!IS_LOCAL_RUNTIME) return;
   clearTimeout(localStateSaveTimer);
-  localStateSaveTimer = setTimeout(flushLocalStateSave, 0);
+  const schedule = window.requestIdleCallback || (callback => setTimeout(callback, 50));
+  localStateSaveTimer = schedule(flushLocalStateSave, { timeout: 500 });
 }
 
 function clearCustomerUiState(customer) {
@@ -661,13 +676,41 @@ function clearCustomerUiState(customer) {
   });
 }
 
-function saveState() {
+function dirtySectionsForView(viewName = "") {
+  return ({
+    bookings: ["bookings"],
+    customers: ["customers"],
+    profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
+    kass: ["kassSchedules"],
+    vouchers: ["voucherRoles", "voucherLogs"],
+    giftCards: ["giftCards"],
+    settingsDiscounts: ["discounts"],
+    settingsHumanResources: ["staff", "assignments"],
+    settingsSchedule: ["salons", "holidays"],
+    settingsCatalog: ["homepageSettings"],
+    branches: ["salons", "homepageSettings"],
+    settingsResults: ["homepageSettings"],
+    settingsServices: ["_serviceSettings"],
+    settingsPricing: ["pricePolicy", "customerTypes", "customerTypeRules", "customers"],
+    groups: ["customers", "customerGroups"],
+    settingsGeneral: ["generalSettings", "diagnosisTypes"]
+  })[viewName] || null;
+}
+
+function saveState(sectionKeys = null) {
   localStateMutationVersion += 1;
   invalidatePersistedStateCache();
   const createdAt = auditNowText();
-  state.audit.forEach(item => {
-    if (!Object.prototype.hasOwnProperty.call(item, "createdAt")) item.createdAt = createdAt;
+  for (const item of state.audit) {
+    if (Object.prototype.hasOwnProperty.call(item, "createdAt")) break;
+    item.createdAt = createdAt;
+  }
+  const inferredKeys = dirtySectionsForView(saveContextView);
+  const keys = Array.isArray(sectionKeys) ? sectionKeys : (inferredKeys || Object.keys(state));
+  keys.forEach(key => {
+    if (key && key !== "selectedCustomerId") pendingServerSections.set(key, localStateMutationVersion);
   });
+  if (state.audit.length && !keys.includes("audit")) pendingServerSections.set("audit", localStateMutationVersion);
   queueLocalStateSave();
   queueServerStateSave();
 }
@@ -712,15 +755,20 @@ function serverStateData() {
 }
 
 function serverStateRequestBody(revision) {
-  const stateJson = persistedStateJson();
-  const settingsJson = JSON.stringify({
-    data: serviceSettingsData,
-    groups: productGroups
+  const keys = pendingServerSections.size ? Array.from(pendingServerSections.keys()) : Object.keys(state).filter(key => key !== "selectedCustomerId");
+  const data = {};
+  keys.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(state, key)) data[key] = state[key];
   });
-  const dataJson = stateJson === "{}"
-    ? `{"_serviceSettings":${settingsJson}}`
-    : `${stateJson.slice(0, -1)},"_serviceSettings":${settingsJson}}`;
-  return `{"revision":${Number(revision) || 0},"data":${dataJson}}`;
+  if (keys.includes("_serviceSettings")) {
+    data._serviceSettings = { data: serviceSettingsData, groups: productGroups };
+  }
+  return JSON.stringify({
+    revision: Number(revision) || 0,
+    scopeRevision: Number(serverScopeRevision) || 0,
+    partial: true,
+    data
+  });
 }
 
 function entityId(prefix = "item") {
@@ -858,12 +906,18 @@ async function serverApi(path, options = {}) {
   return payload;
 }
 
-function applyServerData(data = {}) {
+function applyServerData(data = {}, { partial = false } = {}) {
   const selectedCustomerId = Number(state?.selectedCustomerId || 0);
   const incoming = structuredClone(data || {});
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
-  state = clearTransientState({ ...structuredClone(defaultState), ...incoming });
+  if (partial) {
+    Object.entries(incoming).forEach(([key, value]) => {
+      state[key] = value;
+    });
+  } else {
+    state = clearTransientState({ ...structuredClone(defaultState), ...incoming }, { clone: false });
+  }
   invalidatePersistedStateCache();
   const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
   applyPendingCustomerProfileUpdates(state);
@@ -873,10 +927,12 @@ function applyServerData(data = {}) {
   }
   const customerNamesChanged = normalizeCustomerNamesWithoutSurname(state);
   const embeddedImagesRemoved = stripLegacyEmbeddedImages(state);
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (storageError) {
-    localStorage.removeItem(STORAGE_KEY);
+  if (IS_LOCAL_RUNTIME) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (storageError) {
+      localStorage.removeItem(STORAGE_KEY);
+    }
   }
   if (serviceSettings) {
     if (serviceSettings.data) {
@@ -898,12 +954,16 @@ function applyServerData(data = {}) {
 
 async function saveServerStateNow() {
   if (!serverStorageReady) return;
+  if (!pendingServerSections.size) return;
   if (serverSaveInFlight) {
     serverSavePending = true;
     return;
   }
   serverSaveInFlight = true;
   const savingMutationVersion = localStateMutationVersion;
+  const savingSections = Array.from(pendingServerSections.entries())
+    .filter(([, version]) => Number(version) <= savingMutationVersion)
+    .map(([key]) => key);
   let nextSaveDelay = 100;
   try {
     const result = await serverApi("state.php", {
@@ -911,6 +971,11 @@ async function saveServerStateNow() {
       body: serverStateRequestBody(serverStorageRevision)
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
+    serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
+    viewServerRevisions.set(activeView, serverScopeRevision);
+    savingSections.forEach(key => {
+      if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+    });
     serverSaveRetryDelay = 1000;
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerProfileUpdates.delete(customerId);
@@ -924,9 +989,10 @@ async function saveServerStateNow() {
       try {
         const remote = await serverApi("state.php");
         serverStorageRevision = Number(remote.revision || 0);
+        serverScopeRevision = Number(remote.scopeRevision || 0);
+        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
-        rerenderAll();
-        setView(activeView);
+        renderActiveView(activeView, { force: true });
         const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 || pendingPaymentMutations.size > 0;
         if (retryingLocalMutation) serverSavePending = true;
         showToast(retryingLocalMutation
@@ -1010,27 +1076,53 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
   overlay.querySelector("#serverLoginMessage").textContent = message;
 }
 
-async function synchronizeServerState(expectedLocalVersion = null) {
-  const remote = await serverApi("state.php");
+const VIEW_SERVER_SECTIONS = {
+  bookings: ["bookings", "salons", "holidays"],
+  customers: ["customers", "customerGroups"],
+  profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
+  kass: ["kassSchedules", "staff", "assignments", "salons"],
+  performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons"],
+  vouchers: ["voucherRoles", "voucherLogs"],
+  giftCards: ["giftCards"],
+  groups: ["customers", "customerGroups"],
+  audit: ["audit"],
+  dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons"]
+};
+
+async function synchronizeServerState(expectedLocalVersion = null, sectionKeys = null, viewName = null) {
+  const query = Array.isArray(sectionKeys) && sectionKeys.length ? `?sections=${encodeURIComponent(sectionKeys.join(","))}` : "";
+  const remote = await serverApi(`state.php${query}`);
   if (expectedLocalVersion !== null && expectedLocalVersion !== localStateMutationVersion) return false;
   serverStorageRevision = Number(remote.revision || 0);
+  serverScopeRevision = Number(remote.scopeRevision || 0);
+  if (viewName) viewServerRevisions.set(viewName, serverScopeRevision);
   if (remote.empty) {
     serverStorageReady = true;
+    if (remote.partial || query) return false;
+    Object.keys(state).forEach(key => {
+      if (key !== "selectedCustomerId") pendingServerSections.set(key, localStateMutationVersion);
+    });
     await saveServerStateNow();
     showToast("Одоогийн мэдээллийг server database-д хадгаллаа");
     return false;
   }
-  const customerNamesChanged = applyServerData(remote.data || {});
+  const customerNamesChanged = applyServerData(remote.data || {}, { partial: Boolean(remote.partial || query) });
+  if (!query) pendingServerSections.clear();
+  if (!query) virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
   serverStorageReady = true;
-  if (customerNamesChanged) await saveServerStateNow();
+  if (customerNamesChanged) {
+    Object.keys(state).forEach(key => {
+      if (key !== "selectedCustomerId") pendingServerSections.set(key, localStateMutationVersion);
+    });
+    await saveServerStateNow();
+  }
   return true;
 }
 
 async function initializeServerStorage() {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
     hideServerLogin();
-    rerenderAll();
-    setView(activeView);
+    renderActiveView(activeView, { force: true });
     return;
   }
   try {
@@ -1044,8 +1136,7 @@ async function initializeServerStorage() {
     await loadDatabaseBackups({ silent: true });
     await loadFullBackups({ silent: true });
     void ensureScheduledFullBackup();
-    rerenderAll();
-    setView(activeView);
+    renderActiveView(activeView, { force: true });
   } catch (error) {
     if (error.status === 401) {
       showServerLogin(error.message);
@@ -1065,10 +1156,12 @@ async function refreshServerStateForView(viewName = activeView) {
   serverRefreshInFlight = true;
   try {
     const revisionResult = await serverApi("revision.php");
-    if (Number(revisionResult.revision || 0) === serverStorageRevision) return;
-    const changed = await synchronizeServerState(refreshVersion);
+    const remoteScopeRevision = Number(revisionResult.scopeRevision ?? revisionResult.revision ?? 0);
+    const viewRevision = Number(viewServerRevisions.get(viewName) ?? 0);
+    if (remoteScopeRevision === viewRevision) return;
+    const changed = await synchronizeServerState(refreshVersion, VIEW_SERVER_SECTIONS[viewName] || null, viewName);
     if (!changed || activeView !== viewName) return;
-    rerenderAll();
+    renderActiveView(activeView, { force: true });
     if (activeView !== "performance") renderInfoHeader(activeView);
   } catch (error) {
     console.error("Server refresh failed", error);
@@ -1426,6 +1519,7 @@ function renderScheduleSettings(selectedName = selectedScheduleSalonName()) {
 
 function setScheduleSection(name = "holidays") {
   const selected = name === "holidays" ? "holidays" : "schedule";
+  activeScheduleSection = selected;
   document.querySelectorAll("[data-schedule-section]").forEach(button => {
     const active = button.dataset.scheduleSection === selected;
     button.classList.toggle("active", active);
@@ -2634,6 +2728,7 @@ function renderKassRevenue() {
 }
 
 function renderKassSchedule() {
+  if (!document.getElementById("kassView")?.isConnected) return;
   populateKassSelects();
   if (!document.getElementById("kassStartDate")?.value) resetKassForm();
   const rows = document.getElementById("kassRows");
@@ -3864,6 +3959,7 @@ function dashboardSystemHtml(month, salon) {
 }
 
 function renderDashboard() {
+  if (!document.getElementById("dashboardView")?.isConnected) return;
   const content = document.getElementById("dashboardContent");
   const modeSelect = document.getElementById("dashboardViewMode");
   const monthSelect = document.getElementById("dashboardMonth");
@@ -4113,29 +4209,83 @@ function nextId(collection) {
 }
 
 function rerenderAll() {
-  renderSalons();
-  renderBranches();
-  renderSettingsServices();
-  renderPricePolicySettings();
-  renderDiscountSettings();
-  renderGeneralSettings();
-  renderKassSchedule();
-  renderHumanResources();
-  renderHolidaySettings();
-  renderAssignments();
-  renderCustomers();
-  renderProfile();
-  renderCatalog();
-  renderStaff();
-  renderBookings();
-  renderServices();
-  renderVouchers();
-  renderGiftCards();
-  renderGroupDirectory();
-  renderPerformance();
-  renderAudit();
-  renderHomepageSettings();
-  if (systemUsersLoaded) renderSystemUsers();
+  renderActiveView(activeView, { force: true });
+}
+
+function initializeViewVirtualization() {
+  document.querySelectorAll(".view[id$='View']").forEach(view => {
+    const name = String(view.id).replace(/View$/, "");
+    const anchor = document.createComment(`view:${name}`);
+    view.parentNode?.insertBefore(anchor, view);
+    virtualViews.set(name, { element: view, anchor });
+    if (name !== activeView) view.remove();
+  });
+}
+
+function mountOnlyView(name) {
+  virtualViews.forEach(({ element, anchor }, viewName) => {
+    if (viewName === name) {
+      if (!element.isConnected) anchor.parentNode?.insertBefore(element, anchor.nextSibling);
+    } else if (element.isConnected) {
+      element.remove();
+    }
+  });
+}
+
+function renderActiveView(name = activeView, { force = false } = {}) {
+  const startedAt = performance.now();
+  if (name === "bookings") renderBookings();
+  else if (name === "customers") renderCustomers();
+  else if (name === "profile") renderProfile();
+  else if (name === "kass") renderKassSchedule();
+  else if (name === "performance") setPerformanceTab(activePerformanceTab);
+  else if (name === "vouchers") renderVouchers();
+  else if (name === "giftCards") renderGiftCards();
+  else if (name === "settingsDiscounts") renderDiscountSettings();
+  else if (name === "dashboard") renderDashboard();
+  else if (name === "settingsHumanResources") renderHumanResources();
+  else if (name === "settingsSchedule") setScheduleSection(activeScheduleSection || "holidays");
+  else if (name === "settingsCatalog") {
+    activeHomepageSettingsTab = "catalog";
+    renderHomepageSettings();
+  } else if (name === "branches") renderBranches();
+  else if (name === "settingsResults") {
+    homepageSettings();
+    document.getElementById("homepageResultsPanel")?.classList.remove("hidden");
+    renderHomepageResults();
+    enhanceNativeSelects(["homepageResultPublished"]);
+  } else if (name === "settingsServices") renderSettingsServices();
+  else if (name === "settingsPricing") renderPricePolicySettings();
+  else if (name === "groups") renderGroupDirectory();
+  else if (name === "settingsUsers") loadSystemUsers();
+  else if (name === "settingsDatabase") renderDatabaseSettings();
+  else if (name === "settingsGeneral") renderGeneralSettings();
+  else if (name === "audit") renderAudit();
+  else if (name === "catalog") renderCatalog();
+  else if (name === "staff") renderStaff();
+  else if (name === "services") renderServices();
+  renderedViews.add(name);
+  if (name !== "performance") renderInfoHeader(name);
+  if (performance.now() - startedAt > 120) console.info(`[performance] ${name} render ${Math.round(performance.now() - startedAt)}ms`);
+}
+
+function releaseRenderedView(name) {
+  const view = document.getElementById(`${name}View`);
+  if (!view) return;
+  view.querySelectorAll("tbody, .pagination").forEach(container => {
+    container.innerHTML = "";
+  });
+  const generatedContainers = {
+    customers: ["activeTreatmentStrip"],
+    groups: ["groupDirectoryRows", "deletedCustomerRows"],
+    dashboard: ["dashboardCharts", "dashboardSummary"],
+    audit: ["auditRows"]
+  }[name] || [];
+  generatedContainers.forEach(id => {
+    const container = document.getElementById(id);
+    if (container) container.innerHTML = "";
+  });
+  renderedViews.delete(name);
 }
 
 function setView(name) {
@@ -4150,14 +4300,23 @@ function setView(name) {
   }
   const previousView = activeView;
   if (previousView !== name) {
-    state.customers.forEach(customer => clearCustomerUiState(customer));
-    state.customerGroups.forEach(group => {
-      group.editingName = false;
-      group.directoryExpanded = false;
-    });
+    if (previousView === "profile") {
+      const selected = state.customers.find(customer => Number(customer.id) === Number(state.selectedCustomerId));
+      if (selected) clearCustomerUiState(selected);
+    }
+    if (previousView === "groups") {
+      const expanded = state.customerGroups.find(group => group.editingName || group.directoryExpanded);
+      if (expanded) {
+        expanded.editingName = false;
+        expanded.directoryExpanded = false;
+      }
+    }
+    releaseRenderedView(previousView);
     resetIncomingViewState(name);
   }
   activeView = name;
+  saveContextView = name;
+  mountOnlyView(name);
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
   document.querySelectorAll(".nav-subitem").forEach(item => item.classList.toggle("active", item.dataset.view === name));
@@ -4169,33 +4328,8 @@ function setView(name) {
   const view = document.getElementById(`${name}View`);
   if (view) view.classList.add("active");
 
-  if (name === "settingsServices") renderSettingsServices();
-  if (name === "settingsHumanResources") renderHumanResources();
-  if (name === "settingsSchedule") setScheduleSection(requestedScheduleSection || "holidays");
-  if (name === "settingsPricing") renderPricePolicySettings();
-  if (name === "settingsDiscounts") renderDiscountSettings();
-  if (name === "settingsGeneral") renderGeneralSettings();
-  if (name === "settingsCatalog") {
-    activeHomepageSettingsTab = "catalog";
-    renderHomepageSettings();
-  }
-  if (name === "settingsResults") {
-    homepageSettings();
-    document.getElementById("homepageResultsPanel")?.classList.remove("hidden");
-    renderHomepageResults();
-    enhanceNativeSelects(["homepageResultPublished"]);
-  }
-  if (name === "settingsDatabase") renderDatabaseSettings();
-  if (name === "settingsUsers") loadSystemUsers();
-  if (name === "dashboard") renderDashboard();
-  if (name === "kass") renderKassSchedule();
-  if (name === "vouchers") renderVouchers();
-  if (name === "giftCards") renderGiftCards();
-  if (name === "performance") setPerformanceTab("revenue");
-  if (name === "groups") renderGroupDirectory();
-  if (name === "audit") renderAudit();
-  if (name === "profile") renderProfile();
-  if (name !== "performance") renderInfoHeader(name);
+  if (name === "settingsSchedule" && requestedScheduleSection) activeScheduleSection = requestedScheduleSection;
+  renderActiveView(name, { force: true });
   document.getElementById("sidebar").classList.remove("open");
   void refreshServerStateForView(name);
 }
@@ -4368,6 +4502,7 @@ async function uploadBranchImage(file, scope = "public", options = {}) {
 }
 
 function renderBranches() {
+  if (!document.getElementById("branchesView")?.isConnected) return;
   ensureBranchStatusField();
   const directoryHeadline = document.getElementById("branchDirectoryHeadline");
   if (directoryHeadline) directoryHeadline.value = homepageSettings().booking.directoryHeadline || "ТА ӨӨРТ ОЙР САЛБАРТАА ЦАГ ЗАХИАЛААРАЙ";
@@ -5492,6 +5627,7 @@ function customerRegistrationHtml(customer = {}) {
 }
 
 function renderCustomers() {
+  if (!document.getElementById("customersView")?.isConnected) return;
   renderCustomerTypeFilter();
   renderCustomerInlineForm();
   const districtFilter = document.getElementById("customerDistrictFilter");
@@ -6189,6 +6325,7 @@ function buildPerformanceReport() {
 }
 
 function renderPerformance() {
+  if (!document.getElementById("performanceView")?.isConnected) return;
   const month = document.getElementById("performanceMonth");
   const from = document.getElementById("performanceFrom");
   const to = document.getElementById("performanceTo");
@@ -6577,6 +6714,7 @@ function permanentlyDeleteCustomer(customerId) {
 }
 
 function renderGroupDirectory() {
+  if (!document.getElementById("groupsView")?.isConnected) return;
   const view = document.getElementById("groupsView");
   if (!view) return;
   if (!document.getElementById("groupDirectoryList")) {
@@ -9385,6 +9523,7 @@ function resetHumanResourceForm() {
 }
 
 function renderHumanResources() {
+  if (!document.getElementById("settingsHumanResourcesView")?.isConnected) return;
   ensureHumanResourceShell();
   const rows = document.getElementById("hrStaffRows");
   if (!rows) return;
@@ -9713,6 +9852,7 @@ function renderStaff() {
 }
 
 function renderBookings() {
+  if (!document.getElementById("bookingsView")?.isConnected) return;
   const activeEditForm = document.getElementById("bookingRowEditSlot")?.querySelector("#bookingForm");
   const editDraft = activeEditForm ? {
     salon: activeEditForm.querySelector(".booking-salon")?.value || "",
@@ -9869,6 +10009,7 @@ function nextVoucherRoleId() {
 }
 
 function renderVouchers() {
+  if (!document.getElementById("vouchersView")?.isConnected) return;
   const roleRows = document.getElementById("voucherRoleRows");
   const logRows = document.getElementById("voucherLogRows");
   const pagination = document.getElementById("voucherPagination");
@@ -9981,6 +10122,7 @@ function resetGiftCardForm() {
 }
 
 function renderGiftCards() {
+  if (!document.getElementById("giftCardsView")?.isConnected) return;
   const rows = document.getElementById("giftCardRows");
   const pagination = document.getElementById("giftCardPagination");
   if (!rows) return;
@@ -10999,6 +11141,7 @@ function auditCreatedAtText(value = "", demoIndex = 0) {
 }
 
 function renderAudit() {
+  if (!document.getElementById("auditView")?.isConnected) return;
   const list = document.getElementById("auditList");
   const filter = document.getElementById("auditActionFilter");
   const pagination = document.getElementById("auditPagination");
@@ -12394,42 +12537,46 @@ function initializeSidebarNavigation() {
   });
 }
 
+function initializeActionLocks() {
+  document.addEventListener("submit", event => {
+    const button = event.submitter;
+    if (!(button instanceof HTMLButtonElement)) return;
+    if (button.dataset.actionLocked === "true") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    button.dataset.actionLocked = "true";
+    button.disabled = true;
+    window.setTimeout(() => {
+      button.disabled = false;
+      delete button.dataset.actionLocked;
+    }, 1200);
+  }, true);
+}
+
 function init() {
-  removeRetiredViews();
-  applyActiveAccount(activeAccount);
-  ensureHumanResourceShell();
-  initializeSidebarNavigation();
-  loadServiceSettings();
-  restoreCoreServiceSettingsIfMissing();
-  migrateSalonSchedules();
-  refreshBookingTimeOptions();
-  renderScheduleSettings();
-  renderSalons();
-  renderBranches();
-  renderHolidaySettings();
-  renderAssignments();
-  renderCustomers();
-  renderProfile();
-  renderCatalog();
-  renderStaff();
-  renderHumanResources();
-  renderPricePolicySettings();
-  renderDiscountSettings();
-  renderGeneralSettings();
-  renderKassSchedule();
-  renderKassRevenue();
-  renderVouchers();
-  renderGiftCards();
-  renderDashboard();
-  renderGroupDirectory();
-  renderPerformance();
-  renderBookings();
-  renderServices();
-  renderAudit();
-  resetSystemUserForm();
-  bindEvents();
-  openBookingModal();
-  setView("bookings");
+  const step = name => document.body.dataset.initStep = name;
+  try {
+    step("retired"); removeRetiredViews();
+    step("account"); applyActiveAccount(activeAccount);
+    step("human-resource-shell"); ensureHumanResourceShell();
+    step("sidebar"); initializeSidebarNavigation();
+    step("service-settings"); loadServiceSettings();
+    step("service-restore"); restoreCoreServiceSettingsIfMissing();
+    step("schedule-migration"); migrateSalonSchedules();
+    step("booking-options"); refreshBookingTimeOptions();
+    step("user-form"); resetSystemUserForm();
+    step("events"); bindEvents();
+    step("action-locks"); initializeActionLocks();
+    step("view-virtualization"); initializeViewVirtualization();
+    step("booking-form"); openBookingModal();
+    step("view"); setView("bookings");
+    step("ready");
+  } catch (error) {
+    document.body.dataset.initError = String(error?.message || error);
+    console.error("Application initialization failed", error);
+  }
 }
 
 init();

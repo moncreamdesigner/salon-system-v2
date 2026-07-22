@@ -92,6 +92,11 @@ function ensure_schema(PDO $pdo): void
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         CHECK (JSON_VALID(payload))
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_scope_revisions (
+        scope_key VARCHAR(190) PRIMARY KEY,
+        revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS app_backups (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         revision BIGINT UNSIGNED NOT NULL,
@@ -116,6 +121,7 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_users_salon (salon_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
+    $pdo->exec("INSERT IGNORE INTO app_scope_revisions (scope_key, revision) VALUES ('global', 0)");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '7')");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_policy_version', '0')");
     $backupPolicyVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_policy_version'")->fetchColumn();
@@ -124,6 +130,57 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec("UPDATE app_meta SET meta_value = '1' WHERE meta_key = 'backup_policy_version'");
     }
     $ready = true;
+}
+
+function revision_scope_key(array $user): string
+{
+    if (($user['role'] ?? '') !== 'salon') return 'global';
+    return 'salon:' . trim((string)($user['salon'] ?? ''));
+}
+
+function scope_revision(PDO $pdo, array $user, bool $lock = false): int
+{
+    $key = revision_scope_key($user);
+    $sql = 'SELECT revision FROM app_scope_revisions WHERE scope_key = ?' . ($lock ? ' FOR UPDATE' : '');
+    $statement = $pdo->prepare($sql);
+    $statement->execute([$key]);
+    $revision = $statement->fetchColumn();
+    if ($revision !== false) return (int)$revision;
+    $insert = $pdo->prepare('INSERT IGNORE INTO app_scope_revisions (scope_key, revision) VALUES (?, 0)');
+    $insert->execute([$key]);
+    $statement->execute([$key]);
+    return (int)$statement->fetchColumn();
+}
+
+function known_salon_scope_keys(PDO $pdo): array
+{
+    $statement = $pdo->prepare("SELECT payload FROM app_sections WHERE section_key = 'salons' LIMIT 1");
+    $statement->execute();
+    $salons = json_decode((string)($statement->fetchColumn() ?: '[]'), true);
+    if (!is_array($salons)) return [];
+    $keys = [];
+    foreach ($salons as $salon) {
+        $name = trim((string)($salon['name'] ?? ''));
+        if ($name !== '') $keys[] = 'salon:' . $name;
+    }
+    return array_values(array_unique($keys));
+}
+
+function bump_scope_revisions(PDO $pdo, array $user, array $sectionKeys = [], ?string $salonOverride = null): int
+{
+    $sharedSections = ['customers', 'customerGroups', 'voucherRoles', 'voucherLogs', 'giftCards', 'salons', 'staff', 'assignments', 'holidays', 'homepageSettings', 'pricePolicy', 'discounts', 'customerTypes', 'customerTypeRules', '_serviceSettings'];
+    $touchAllSalons = ($user['role'] ?? '') !== 'salon' || count(array_intersect($sharedSections, $sectionKeys)) > 0;
+    $keys = ['global'];
+    if ($touchAllSalons) $keys = array_merge($keys, known_salon_scope_keys($pdo));
+    $salonName = trim((string)($salonOverride ?? (($user['role'] ?? '') === 'salon' ? ($user['salon'] ?? '') : '')));
+    if ($salonName !== '') $keys[] = 'salon:' . $salonName;
+    $keys = array_values(array_unique($keys));
+    $upsert = $pdo->prepare('INSERT INTO app_scope_revisions (scope_key, revision) VALUES (?, 1) ON DUPLICATE KEY UPDATE revision = revision + 1, updated_at = CURRENT_TIMESTAMP');
+    foreach ($keys as $key) $upsert->execute([$key]);
+    $currentKey = $salonName !== '' && ($user['role'] ?? '') === 'salon' ? 'salon:' . $salonName : 'global';
+    $read = $pdo->prepare('SELECT revision FROM app_scope_revisions WHERE scope_key = ?');
+    $read->execute([$currentKey]);
+    return (int)$read->fetchColumn();
 }
 
 function session_user_from_row(array $row): array
