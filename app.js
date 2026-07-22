@@ -4178,11 +4178,32 @@ function exportDashboardExcel() {
   showToast("Хяналтын самбарын Excel файл бэлтгэгдлээ");
 }
 
-function showToast(text = "Амжилттай хадгаллаа") {
+let toastHideTimer = null;
+
+function toastToneForText(text = "") {
+  const normalized = String(text).toLowerCase();
+  if (/алдаа|алдаатай|боломжгүй|буруу|олдохгүй|олдсонгүй|шаардлагатай|дүүрсэн|дууссан|чадсангүй|хадгалсангүй|өөрчлөгдсөнгүй|нэвтрэх эрхгүй|зөвхөн өөрийн|хэтэрсэн|сонгоно уу|оруулна уу|зөв оруулна уу|үлдэх хэрэгтэй/.test(normalized)) return "error";
+  if (/түр амжилтгүй|дахин оролдож/.test(normalized)) return "warning";
+  return "success";
+}
+
+function showToast(text = "Амжилттай хадгаллаа", tone = "") {
   const toast = document.getElementById("toast");
+  if (!toast) return;
+  const resolvedTone = tone || toastToneForText(text);
+  if (toastHideTimer) clearTimeout(toastHideTimer);
   toast.textContent = text;
+  toast.classList.remove("show", "success", "error", "warning");
+  toast.classList.add(resolvedTone);
+  toast.setAttribute("role", resolvedTone === "error" ? "alert" : "status");
+  toast.setAttribute("aria-live", resolvedTone === "error" ? "assertive" : "polite");
+  // Re-trigger the entrance animation when two actions happen consecutively.
+  void toast.offsetWidth;
   toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 1900);
+  toastHideTimer = setTimeout(() => {
+    toast.classList.remove("show");
+    toastHideTimer = null;
+  }, 3200);
 }
 
 function openModal(title, subtitle, bodyHtml, afterRender) {
@@ -11409,7 +11430,7 @@ function updateBookingStatus(id, status) {
   renderBookings();
   renderAudit();
   renderInfoHeader(activeView);
-  showToast(status === "confirmed" ? "Цаг батлагдлаа" : "Цаг цуцлагдлаа");
+  showToast(status === "confirmed" ? "Цаг амжилттай баталгаажлаа" : "Цаг амжилттай цуцлагдлаа");
 }
 
 function requireDeleteCode() {
@@ -11440,7 +11461,7 @@ function deleteBooking(id) {
   renderBookings();
   renderAudit();
   renderInfoHeader(activeView);
-  showToast("Цаг устгагдлаа");
+  showToast("Цаг амжилттай устгагдлаа");
 }
 
 function setupCustomSelect() {
@@ -11971,7 +11992,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
     renderBookings();
     renderAudit();
     renderInfoHeader(activeView);
-    showToast(editing ? "Цаг өөрчлөгдлөө" : "Цаг баталгаажлаа");
+    showToast(editing ? "Цагийн мэдээлэл амжилттай засагдлаа" : "Цаг амжилттай бүртгэгдлээ");
   });
   if (!editing) slot.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
