@@ -6070,10 +6070,12 @@ function renderCustomers() {
   const groupById = new Map((state.customerGroups || []).map(group => [Number(group.id), group]));
   let rows = state.customers
     .filter(c => !c.deleted)
-    .filter(c => !isSalonAccount() || customerRegisteredSalon(c) === activeAccount.salon)
     .filter(c => {
       const registeredDate = customerRegisteredDate(c);
-      if (!hasHistorySearch) return registeredDate === todayText();
+      if (!hasHistorySearch) {
+        return registeredDate === todayText() &&
+          (!isSalonAccount() || customerRegisteredSalon(c) === activeAccount.salon);
+      }
       if (fromDate && registeredDate < fromDate) return false;
       if (toDate && registeredDate > toDate) return false;
       return true;
