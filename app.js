@@ -1559,9 +1559,15 @@ function generateTimeOptions(start, end, duration) {
   return options;
 }
 
-function bookingOptionsForSalon(salonName) {
+function bookingOptionsForSalon(salonName, date = todayText()) {
   const config = scheduleConfig(salonName || state.salons[0]?.name);
-  return generateTimeOptions(config.workStart, config.workEnd, config.duration);
+  const selectedDate = new Date(`${date}T00:00:00`);
+  const weekend = [0, 6].includes(selectedDate.getDay());
+  return generateTimeOptions(
+    weekend ? config.weekendStart : config.workStart,
+    weekend ? config.weekendEnd : config.workEnd,
+    config.duration
+  );
 }
 
 function refreshBookingTimeOptions(salonName) {
@@ -12282,6 +12288,7 @@ function bookedCountForSlot(salonName, date, time, editingId) {
     booking.salon === salonName &&
     booking.date === date &&
     booking.time === time &&
+    !["cancelled", "rejected"].includes(booking.status) &&
     Number(booking.id) !== Number(editingId)
   ).length;
 }
@@ -12291,7 +12298,7 @@ function bookingSlotMarkup(index, values, editing = false) {
   const requestedSalon = isSalonAccount() ? activeAccount.salon : values.salon;
   const selectedSalon = salons.some(salon => salon.name === requestedSalon) ? requestedSalon : salons[0]?.name || "";
   const selectedDate = values.date || todayText();
-  const selectedTime = values.time || bookingOptionsForSalon(selectedSalon)[0] || "";
+  const selectedTime = values.time || bookingOptionsForSalon(selectedSalon, selectedDate)[0] || "";
   return `
     <div class="booking-slot-row${index > 0 ? " extra-slot-row" : ""}" data-slot-index="${index}">
       <label>Салон
@@ -12321,12 +12328,12 @@ function bookingSlotMarkup(index, values, editing = false) {
   `;
 }
 
-function renderBookingTimeOptions(editingId, row) {
+function renderBookingTimeOptions(editingId, row, preferFirstAvailable = false) {
   const rows = row ? [row] : Array.from(document.querySelectorAll(".booking-slot-row"));
-  rows.forEach(slotRow => renderBookingTimeOptionsForRow(editingId, slotRow));
+  rows.forEach(slotRow => renderBookingTimeOptionsForRow(editingId, slotRow, preferFirstAvailable));
 }
 
-function renderBookingTimeOptionsForRow(editingId, slotRow) {
+function renderBookingTimeOptionsForRow(editingId, slotRow, preferFirstAvailable = false) {
   const dropdown = slotRow.querySelector(".booking-time-dropdown");
   const menu = slotRow.querySelector(".booking-time-menu");
   const input = slotRow.querySelector(".booking-time");
@@ -12335,7 +12342,7 @@ function renderBookingTimeOptionsForRow(editingId, slotRow) {
   const date = slotRow.querySelector(".booking-date")?.value || "";
   if (!dropdown || !menu || !input || !triggerText) return;
   const capacity = getSalonCapacity(salonName);
-  const timeOptions = bookingOptionsForSalon(salonName);
+  const timeOptions = bookingOptionsForSalon(salonName, date);
   const closedHoliday = holidayForDate(salonName, date);
   let firstAvailable = "";
   const availableByTime = timeOptions.map(time => ({
@@ -12344,7 +12351,7 @@ function renderBookingTimeOptionsForRow(editingId, slotRow) {
     past: isPastBookingTime(date, time) || Boolean(closedHoliday)
   }));
   firstAvailable = availableByTime.find(item => !item.past && item.occupied < capacity)?.time || "";
-  if (closedHoliday || !input.value || isPastBookingTime(date, input.value) || bookedCountForSlot(salonName, date, input.value, editingId) >= capacity) {
+  if (preferFirstAvailable || closedHoliday || !input.value || isPastBookingTime(date, input.value) || bookedCountForSlot(salonName, date, input.value, editingId) >= capacity) {
     input.value = firstAvailable;
   }
   triggerText.textContent = closedHoliday ? "Амралтын өдөр" : input.value || "Сул цаггүй";
@@ -12373,8 +12380,8 @@ function bindBookingSlotRow(row, editId) {
     const isOpen = dropdown.classList.toggle("open");
     dropdown.querySelector(".custom-select-trigger").setAttribute("aria-expanded", String(isOpen));
   });
-  row.querySelector(".booking-salon").addEventListener("change", () => renderBookingTimeOptions(editId, row));
-  row.querySelector(".booking-date").addEventListener("change", () => renderBookingTimeOptions(editId, row));
+  row.querySelector(".booking-salon").addEventListener("change", () => renderBookingTimeOptions(editId, row, true));
+  row.querySelector(".booking-date").addEventListener("change", () => renderBookingTimeOptions(editId, row, true));
 }
 
 function updateBookingSlotCount() {
@@ -12392,7 +12399,7 @@ function setBookingSlotCount(targetCount, editId) {
     const lastRow = rows[rows.length - 1];
     const lastSalon = lastRow?.querySelector(".booking-salon")?.value || state.salons[0]?.name || "";
     const lastDate = lastRow?.querySelector(".booking-date")?.value || todayText();
-    const nextTime = lastRow?.querySelector(".booking-time")?.value || bookingOptionsForSalon(lastSalon)[0] || "";
+    const nextTime = lastRow?.querySelector(".booking-time")?.value || bookingOptionsForSalon(lastSalon, lastDate)[0] || "";
     slots.insertAdjacentHTML("beforeend", bookingSlotMarkup(index, {
       salon: lastSalon,
       date: lastDate,
@@ -12417,7 +12424,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
   const minDate = todayText();
   const selectedDate = draft?.date || (editing && !isPastDate(editing.date) ? editing.date : minDate);
   const selectedSalon = isSalonAccount() ? activeAccount.salon : (draft?.salon || editing?.salon || state.salons[0]?.name || "");
-  const selectedTime = draft?.time || editing?.time || bookingOptionsForSalon(selectedSalon)[0] || "";
+  const selectedTime = draft?.time || editing?.time || bookingOptionsForSalon(selectedSalon, selectedDate)[0] || "";
   const slot = targetSlot || document.getElementById("bookingInlineSlot");
   if (!slot) return;
   const salonSignature = accountSalons().map(salon => salon.name).join("|");
