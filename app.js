@@ -168,6 +168,7 @@ let state = loadState();
 let currentTreatmentExpiryTimer = null;
 let customerDerivedDataVersion = 0;
 let customerActiveTreatmentCache = { key: "", items: [] };
+let groupPaymentLedgerCache = { key: "", totals: new Map() };
 const submittedListSearches = Object.create(null);
 
 state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : []).map((salon, index) => {
@@ -2032,26 +2033,52 @@ function groupMembers(group) {
 
 function groupPaymentLedgerTotals(group, activeOnly = false) {
   const groupId = Number(group?.id || 0);
-  const totals = { spent: 0, pool: 0, used: 0, dates: [] };
-  if (!groupId) return totals;
-  (state.customers || []).forEach(customer => {
-    (customer.serviceHistory || []).forEach(historyItem => {
-      (historyItem.payments || []).forEach(payment => {
-        const hasGroupSnapshot = ["groupSpentAmount", "groupBonusEarned", "groupBonusUsed"].some(key =>
-          Object.prototype.hasOwnProperty.call(payment, key)
-        );
-        if (Number(payment.groupId || 0) !== groupId || !hasGroupSnapshot) return;
-        const paymentDate = payment.groupPaymentDate || payment.date || "";
-        const age = daysBetween(paymentDate, todayText());
-        if (activeOnly && (age < 0 || age > 730)) return;
-        totals.spent += Math.max(0, Number(payment.groupSpentAmount || 0));
-        totals.pool += Math.max(0, Number(payment.groupBonusEarned || 0));
-        totals.used += Math.max(0, Number(payment.groupBonusUsed ?? payment.bonusAmount ?? 0));
-        if (paymentDate) totals.dates.push(paymentDate);
+  const empty = { spent: 0, pool: 0, used: 0, dates: [] };
+  if (!groupId) return empty;
+  const today = todayText();
+  const cacheKey = `${customerDerivedDataVersion}|${today}`;
+  if (groupPaymentLedgerCache.key !== cacheKey) {
+    const totalsByGroup = new Map();
+    const ensureTotals = id => {
+      if (!totalsByGroup.has(id)) {
+        totalsByGroup.set(id, {
+          all: { spent: 0, pool: 0, used: 0, dates: [] },
+          active: { spent: 0, pool: 0, used: 0, dates: [] }
+        });
+      }
+      return totalsByGroup.get(id);
+    };
+    (state.customers || []).forEach(customer => {
+      (customer.serviceHistory || []).forEach(historyItem => {
+        (historyItem.payments || []).forEach(payment => {
+          const paymentGroupId = Number(payment.groupId || 0);
+          const hasGroupSnapshot = ["groupSpentAmount", "groupBonusEarned", "groupBonusUsed"].some(key =>
+            Object.prototype.hasOwnProperty.call(payment, key)
+          );
+          if (!paymentGroupId || !hasGroupSnapshot) return;
+          const paymentDate = payment.groupPaymentDate || payment.date || "";
+          const values = {
+            spent: Math.max(0, Number(payment.groupSpentAmount || 0)),
+            pool: Math.max(0, Number(payment.groupBonusEarned || 0)),
+            used: Math.max(0, Number(payment.groupBonusUsed ?? payment.bonusAmount ?? 0))
+          };
+          const target = ensureTotals(paymentGroupId);
+          target.all.spent += values.spent;
+          target.all.pool += values.pool;
+          target.all.used += values.used;
+          if (paymentDate) target.all.dates.push(paymentDate);
+          const age = daysBetween(paymentDate, today);
+          if (age < 0 || age > 730) return;
+          target.active.spent += values.spent;
+          target.active.pool += values.pool;
+          target.active.used += values.used;
+          if (paymentDate) target.active.dates.push(paymentDate);
+        });
       });
     });
-  });
-  return totals;
+    groupPaymentLedgerCache = { key: cacheKey, totals: totalsByGroup };
+  }
+  return groupPaymentLedgerCache.totals.get(groupId)?.[activeOnly ? "active" : "all"] || empty;
 }
 
 function groupBonusInfo(group) {
@@ -3397,14 +3424,14 @@ function infoForView(name) {
 
   const info = {
     bookings: ["НИЙТ ЗАХИАЛГА", bookingStats],
-    customers: ["НИЙТ ХЭРЭГЛЭГЧ", [
+    customers: name === "customers" ? ["НИЙТ ХЭРЭГЛЭГЧ", [
       ["Нийт", customers.length],
       ["Идэвхтэй курс", customers.filter(item => item.activeCourse).length],
       ["Төлбөр дутуу", customers.filter(item => item.unpaid).length],
       ["Хүйс", customerGenderSummary(customers)],
       ["Дундаж нас", averageCustomerAge(customers)],
       ["Их дүүрэг", topCustomerDistrict(customers)]
-    ]],
+    ]] : null,
     kass: ["ЭНЭ САРЫН КАСС", currentMonthKassStats.length ? currentMonthKassStats : [["Бүртгэл", "алга"]]],
     kassRevenue: name === "kassRevenue" ? (() => {
       const rows = kassRevenueSourceRows().filter(row => !isSalonAccount() || row.salon === activeAccount.salon);
@@ -3414,12 +3441,12 @@ function infoForView(name) {
         ["Салбар", isSalonAccount() ? activeAccount.salon : new Set(rows.map(row => row.salon)).size]
       ]];
     })() : null,
-    services: ["ҮЙЛЧИЛГЭЭНИЙ БҮРТГЭЛ", [
+    services: name === "services" ? ["ҮЙЛЧИЛГЭЭНИЙ БҮРТГЭЛ", [
       ["Нийт", services.length],
       ["Идэвхтэй курс", customers.filter(item => item.activeCourse).length],
       ["Вип нэмэлттэй", services.filter(item => item.total > 90000).length],
       ["Өнөөдөр", services.length]
-    ]],
+    ]] : null,
     payments: ["КАСС ОРЛОГО", [
       ["Нийт орлого", "4,820,000₮"],
       ["Төлөгдсөн", 2],
@@ -3470,23 +3497,23 @@ function infoForView(name) {
       ["Курс", catalog.filter(item => item.type === "course").length],
       ["Бүтээгдэхүүн", catalog.filter(item => item.type === "product").length]
     ]],
-    loyalty: ["БОНУС / ВАУЧЕР", [
+    loyalty: name === "loyalty" ? ["БОНУС / ВАУЧЕР", [
       ["Бонус үлдэгдэл", "18,900,000₮"],
       ["Тусгай хэрэглэгч", customers.filter(item => item.type === "Тусгай хэрэглэгч").length],
       ["Ажилтан", customers.filter(item => item.type === "Ажилтан").length],
       ["Ваучер", 2]
-    ]],
-    vouchers: ["ВАУЧЕР", [
+    ]] : null,
+    vouchers: name === "vouchers" ? ["ВАУЧЕР", [
       ["Роль", state.voucherRoles.length],
       ["Нийт ашиглалт", state.voucherLogs.length],
       ["Нийт дүн", money(state.voucherLogs.reduce((sum, item) => sum + Number(item.amount || 0), 0))]
-    ]],
-    giftCards: ["БЭЛГИЙН КАРТ", [
+    ]] : null,
+    giftCards: name === "giftCards" ? ["БЭЛГИЙН КАРТ", [
       ["Нийт", state.giftCards.length],
       ["Идэвхтэй", state.giftCards.filter(card => giftCardStatus(card) === "fresh").length],
       ["Ашиглаж байгаа", state.giftCards.filter(card => giftCardStatus(card) === "partial").length],
       ["Дууссан", state.giftCards.filter(card => ["used", "expired"].includes(giftCardStatus(card))).length]
-    ]],
+    ]] : null,
     settings: ["ТОХИРГОО", [
       ["Зургийн тоо", 5],
       ["Вип өрөө", "20,000₮"],
@@ -3522,12 +3549,12 @@ function infoForView(name) {
       ["Нийт", homepageSettings().results.posts.length],
       ["Нийтэлсэн", homepageSettings().results.posts.filter(item => item.published !== false).length]
     ]],
-    settingsDatabase: ["ӨГӨГДЛИЙН САН", [
+    settingsDatabase: name === "settingsDatabase" ? ["ӨГӨГДЛИЙН САН", [
       ["Хэрэглэгч", state.customers.filter(item => !item.deleted).length],
       ["Цаг захиалга", state.bookings.length],
-      ["Төлбөр", name === "settingsDatabase" ? kassRevenueSourceRows().length : 0],
-      ["Backup", name === "settingsDatabase" ? databaseBackups().length : 0]
-    ]],
+      ["Төлбөр", kassRevenueSourceRows().length],
+      ["Backup", databaseBackups().length]
+    ]] : null,
     settingsUsers: ["ХЭРЭГЛЭГЧИЙН ЭРХ", [
       ["Нийт", systemUsers.length],
       ["Админ", systemUsers.filter(item => item.role === "admin" && item.active).length],
@@ -3566,12 +3593,12 @@ function infoForView(name) {
       ["Чухал үйлдэл", 4],
       ["Excel таталт", 1]
     ]],
-    groups: ["ГРУПП", [
+    groups: name === "groups" ? ["ГРУПП", [
       ["Нийт групп", state.customerGroups.length],
       ["Нийт гишүүн", state.customerGroups.reduce((sum, group) => sum + (group.members || []).length, 0)],
       ["Нийт хэрэглээ", money(state.customerGroups.reduce((sum, group) => sum + Number(group.spent2y || 0), 0))],
       ["Бонус үлдэгдэл", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.balance || 0), 0))]
-    ]],
+    ]] : null,
     profile: name === "profile" ? (() => {
       const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId)) || customers[0];
       if (!customer) {
