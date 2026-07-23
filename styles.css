@@ -6056,7 +6056,7 @@ td.empty-state {
   min-height: 0;
   height: 64px;
   vertical-align: middle;
-  text-align: center;
+  text-align: center !important;
   white-space: nowrap;
 }
 
