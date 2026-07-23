@@ -1814,7 +1814,6 @@ function ensureHumanResourceShell() {
     </section>
     <section class="panel assignment-list-card">
       <div class="assignment-list-toolbar">
-        <button class="filter-search-btn" id="hrAssignmentSearchBtn" type="button" aria-label="Хайх" title="Хайх"></button>
         <label>Ажилтны нэр
           <input class="input" id="hrAssignmentNameSearch" type="search" placeholder="Нэрээр хайх">
         </label>
@@ -1825,6 +1824,7 @@ function ensureHumanResourceShell() {
           <input class="input" id="hrAssignmentToSearch" type="date">
         </label>
         <button class="secondary-btn clear-icon-btn" id="hrAssignmentSearchClear" type="button" aria-label="Хайлт цэвэрлэх">×</button>
+        <button class="filter-search-btn" id="hrAssignmentSearchBtn" type="button" aria-label="Хайх" title="Хайх"></button>
       </div>
       <div class="table-wrap assignment-table-wrap">
         <table class="booking-table assignment-table">
@@ -6876,7 +6876,6 @@ function renderGroupDirectory() {
       <section class="panel group-tab-panel group-directory-panel" id="groupDirectoryTabPanel" role="tabpanel">
         <div class="group-directory-toolbar">
           <div class="group-directory-search-row">
-            <button class="filter-search-btn" id="groupDirectorySearchBtn" type="button" aria-label="Хайх" title="Хайх"></button>
             <input class="input" id="groupDirectorySearch" placeholder="8 оронтой дугаар" inputmode="numeric" maxlength="8" aria-label="Групп эсвэл гишүүний утсаар хайх">
             <select class="input" id="groupDirectoryStatusFilter" aria-label="Группийн төлөв">
               <option value="all">Бүх төлөв</option>
@@ -6884,6 +6883,7 @@ function renderGroupDirectory() {
               <option value="without_members">Гишүүнгүй</option>
             </select>
             <button class="secondary-btn group-directory-search-clear" id="groupDirectorySearchClear" type="button" aria-label="Хайлтыг цэвэрлэх">×</button>
+            <button class="filter-search-btn" id="groupDirectorySearchBtn" type="button" aria-label="Хайх" title="Хайх"></button>
           </div>
         </div>
         <div class="group-directory-list" id="groupDirectoryList"></div>

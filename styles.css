@@ -9017,20 +9017,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .group-directory-search-row {
-  grid-template-columns: 44px minmax(0, 1fr) 160px 40px;
+  grid-template-columns: minmax(0, 1fr) 160px 40px 44px;
   width: min(532px, 100%);
 }
 
 .voucher-log-filter {
-  grid-template-columns: 44px 170px 220px 150px 220px 44px;
+  grid-template-columns: 170px 220px 150px 220px 44px 44px;
 }
 
 .gift-card-filter {
-  grid-template-columns: 44px 180px 176px 160px 160px 44px;
+  grid-template-columns: 180px 176px 160px 160px 44px 44px;
 }
 
 .assignment-list-toolbar {
-  grid-template-columns: 44px 240px 170px 170px 40px;
+  grid-template-columns: 240px 170px 170px 40px 44px;
 }
 
 @supports (zoom: 1) {
@@ -9327,7 +9327,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .assignment-list-toolbar {
   display: grid;
-  grid-template-columns: 44px 240px 170px 170px 40px;
+  grid-template-columns: 240px 170px 170px 40px 44px;
   gap: 8px;
   align-items: end;
   margin-bottom: 14px;
