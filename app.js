@@ -4761,36 +4761,37 @@ function resetIncomingViewState(name) {
 
   if (name === "customers") {
     resetValues({ customerSearch: "", customerFromFilter: "", customerToFilter: "", customerTypeFilter: "all", customerWorkFilter: "all" });
-    clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter"]);
+    clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter", "customerTypeFilter", "customerWorkFilter"]);
     customerSortMode = "date";
     customerPage = 1;
     state.selectedCustomerId = null;
   }
   if (name === "bookings") {
     resetValues({ bookingSearch: "", bookingSalonFilter: isSalonAccount() ? activeAccount.salon : "all", bookingDateFilter: "", bookingStatusFilter: "all" });
-    clearSubmittedListSearch(["bookingSearch", "bookingDateFilter"]);
+    clearSubmittedListSearch(["bookingSearch", "bookingSalonFilter", "bookingDateFilter", "bookingStatusFilter"]);
     bookingPage = 1;
     bookingInlineEditingId = null;
   }
   if (name === "kass") {
     resetValues({ kassFromFilter: "", kassToFilter: "", kassSalonFilter: "all", kassStaffFilter: "all" });
+    clearSubmittedListSearch(["kassFromFilter", "kassToFilter", "kassSalonFilter", "kassStaffFilter"]);
     kassPage = 1;
     kassEditingId = null;
   }
   if (name === "vouchers") {
     resetValues({ voucherFromFilter: "", voucherToFilter: "", voucherCustomerFilter: "", voucherPhoneFilter: "", voucherRoleFilter: "all" });
-    clearSubmittedListSearch(["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter"]);
+    clearSubmittedListSearch(["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter", "voucherRoleFilter"]);
     voucherPage = 1;
   }
   if (name === "giftCards") {
     resetValues({ giftCardNumberFilter: "", giftCardStatusFilter: "all", giftCardFromFilter: "", giftCardToFilter: "" });
-    clearSubmittedListSearch(["giftCardNumberFilter"]);
+    clearSubmittedListSearch(["giftCardNumberFilter", "giftCardStatusFilter", "giftCardFromFilter", "giftCardToFilter"]);
     giftCardPage = 1;
     giftCardEditingId = null;
   }
   if (name === "groups") {
     resetValues({ groupDirectorySearch: "", groupDirectoryStatusFilter: "all" });
-    clearSubmittedListSearch(["groupDirectorySearch"]);
+    clearSubmittedListSearch(["groupDirectorySearch", "groupDirectoryStatusFilter"]);
   }
   if (name === "audit") {
     resetValues({ auditActionFilter: "all" });
@@ -4798,7 +4799,7 @@ function resetIncomingViewState(name) {
   }
   if (name === "settingsUsers") {
     resetValues({ systemUserSearch: "", systemUserRoleFilter: "all", systemUserStatusFilter: "all" });
-    clearSubmittedListSearch(["systemUserSearch"]);
+    clearSubmittedListSearch(["systemUserSearch", "systemUserRoleFilter", "systemUserStatusFilter"]);
     systemUserEditingId = null;
   }
 }
@@ -5103,8 +5104,8 @@ function renderSystemUsers() {
   if (!isAdminAccount()) return;
   populateSystemUserSalons();
   const query = submittedListSearchValue("systemUserSearch").trim().toLocaleLowerCase("mn-MN");
-  const role = document.getElementById("systemUserRoleFilter")?.value || "";
-  const status = document.getElementById("systemUserStatusFilter")?.value || "";
+  const role = submittedListSearchValue("systemUserRoleFilter");
+  const status = submittedListSearchValue("systemUserStatusFilter");
   const filtered = systemUsers.filter(user => {
     const matchesQuery = !query || `${user.displayName} ${user.username} ${user.salon || ""}`.toLocaleLowerCase("mn-MN").includes(query);
     const matchesRole = !role || user.role === role;
@@ -6018,7 +6019,7 @@ function saveInlineCustomer(event) {
 }
 
 function clearCustomerFilters() {
-  clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter"]);
+  clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter", "customerTypeFilter", "customerWorkFilter"]);
   ["customerSearch", "customerFromFilter", "customerToFilter"].forEach(id => {
     const input = document.getElementById(id);
     if (input) input.value = "";
@@ -6135,8 +6136,8 @@ function renderCustomers() {
   const fromDate = submittedListSearchValue("customerFromFilter");
   const toDate = submittedListSearchValue("customerToFilter");
   const hasHistorySearch = Boolean(q || fromDate || toDate);
-  const type = document.getElementById("customerTypeFilter")?.value || "all";
-  const workFilter = document.getElementById("customerWorkFilter")?.value || "all";
+  const type = submittedListSearchValue("customerTypeFilter") || "all";
+  const workFilter = submittedListSearchValue("customerWorkFilter") || "all";
   const sortMode = customerSortMode || "date";
   const sortToggle = document.getElementById("customerSortToggle");
   if (sortToggle) {
@@ -7257,15 +7258,14 @@ function renderGroupDirectory() {
         if (tab === "deleted") renderDeletedCustomerDirectory();
       });
     });
-    bindListSearchSubmit("groupDirectorySearchBtn", ["groupDirectorySearch"], () => {
+    bindListSearchSubmit("groupDirectorySearchBtn", ["groupDirectorySearch", "groupDirectoryStatusFilter"], () => {
       renderGroupDirectory();
     });
-    document.getElementById("groupDirectoryStatusFilter")?.addEventListener("change", () => renderGroupDirectory());
     document.getElementById("groupDirectorySearchClear")?.addEventListener("click", () => {
       const input = document.getElementById("groupDirectorySearch");
       const status = document.getElementById("groupDirectoryStatusFilter");
       if (input) input.value = "";
-      clearSubmittedListSearch(["groupDirectorySearch"]);
+      clearSubmittedListSearch(["groupDirectorySearch", "groupDirectoryStatusFilter"]);
       if (status) {
         status.value = "all";
         syncNativeSelectProxy(status);
@@ -7278,7 +7278,7 @@ function renderGroupDirectory() {
 
   const list = document.getElementById("groupDirectoryList");
   const search = submittedListSearchValue("groupDirectorySearch").trim().toLowerCase();
-  const memberStatus = document.getElementById("groupDirectoryStatusFilter")?.value || "all";
+  const memberStatus = submittedListSearchValue("groupDirectoryStatusFilter") || "all";
   const hasDirectorySearch = Boolean(search || memberStatus !== "all");
   const groups = (hasDirectorySearch ? state.customerGroups : [])
     .map(group => ({ group, members: orderedGroupMembers(group) }))
@@ -10129,8 +10129,8 @@ function renderHumanResourceAssignments() {
   if (endDate && !endDate.value) endDate.value = startDate?.value || todayText();
 
   const nameSearch = submittedListSearchValue("hrAssignmentNameSearch").trim().toLowerCase();
-  const fromSearch = document.getElementById("hrAssignmentFromSearch")?.value || "";
-  const toSearch = document.getElementById("hrAssignmentToSearch")?.value || "";
+  const fromSearch = submittedListSearchValue("hrAssignmentFromSearch");
+  const toSearch = submittedListSearchValue("hrAssignmentToSearch");
   const filteredAssignments = state.assignments
     .filter(assignmentCanBeManaged)
     .filter(assignment => !nameSearch || String(assignment.staff || "").toLowerCase().includes(nameSearch))
@@ -10395,8 +10395,8 @@ function renderBookings() {
     phone: activeEditForm.querySelector("#bookingPhone")?.value || ""
   } : null;
   const q = submittedListSearchValue("bookingSearch");
-  const status = document.getElementById("bookingStatusFilter")?.value || "all";
-  const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("bookingSalonFilter")?.value || "all");
+  const status = submittedListSearchValue("bookingStatusFilter") || "all";
+  const salon = isSalonAccount() ? activeAccount.salon : (submittedListSearchValue("bookingSalonFilter") || "all");
   const date = submittedListSearchValue("bookingDateFilter");
   const pagination = document.getElementById("bookingPagination");
   const bookings = state.bookings
@@ -10588,7 +10588,7 @@ function renderVouchers() {
   const toDate = submittedListSearchValue("voucherToFilter") || defaultRange.to;
   const customerFilter = submittedListSearchValue("voucherCustomerFilter").trim().toLowerCase();
   const phoneFilter = submittedListSearchValue("voucherPhoneFilter").trim();
-  const roleFilter = document.getElementById("voucherRoleFilter")?.value || "";
+  const roleFilter = submittedListSearchValue("voucherRoleFilter");
   const logs = state.voucherLogs
     .filter(item => !fromDate || item.date >= fromDate)
     .filter(item => !toDate || item.date <= toDate)
@@ -10652,9 +10652,9 @@ function renderGiftCards() {
   enhanceNativeSelects(["giftCardStatusFilter"]);
 
   const numberFilter = submittedListSearchValue("giftCardNumberFilter").trim().toLowerCase();
-  const statusFilter = document.getElementById("giftCardStatusFilter")?.value || "all";
-  const fromDate = document.getElementById("giftCardFromFilter")?.value || "";
-  const toDate = document.getElementById("giftCardToFilter")?.value || "";
+  const statusFilter = submittedListSearchValue("giftCardStatusFilter") || "all";
+  const fromDate = submittedListSearchValue("giftCardFromFilter");
+  const toDate = submittedListSearchValue("giftCardToFilter");
   const cards = [...state.giftCards]
     .filter(card => !numberFilter || card.cardNumber.toLowerCase().includes(numberFilter))
     .filter(card => statusFilter === "all" || giftCardStatus(card) === statusFilter)
@@ -12049,8 +12049,6 @@ function setupCustomSelect() {
       menu.querySelectorAll("button[data-value]").forEach(item => item.classList.toggle("active", item === option));
       dropdown.classList.remove("open");
       trigger.setAttribute("aria-expanded", "false");
-      bookingPage = 1;
-      renderBookings();
     });
 
     document.addEventListener("click", event => {
@@ -12078,7 +12076,7 @@ function resetCustomSelect(dropdownId, inputId) {
 }
 
 function clearBookingFilters() {
-  clearSubmittedListSearch(["bookingSearch", "bookingDateFilter"]);
+  clearSubmittedListSearch(["bookingSearch", "bookingSalonFilter", "bookingDateFilter", "bookingStatusFilter"]);
   document.getElementById("bookingSearch").value = "";
   document.getElementById("bookingDateFilter").value = "";
   resetCustomSelect("bookingSalonDropdown", "bookingSalonFilter");
@@ -12600,13 +12598,10 @@ function bindEvents() {
   document.getElementById("systemUsername")?.addEventListener("input", event => {
     event.target.value = event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 64);
   });
-  bindListSearchSubmit("systemUserSearchBtn", ["systemUserSearch"], renderSystemUsers);
-  ["systemUserRoleFilter", "systemUserStatusFilter"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", renderSystemUsers);
-  });
+  bindListSearchSubmit("systemUserSearchBtn", ["systemUserSearch", "systemUserRoleFilter", "systemUserStatusFilter"], renderSystemUsers);
   document.getElementById("clearSystemUserFilters")?.addEventListener("click", () => {
     document.getElementById("systemUserSearch").value = "";
-    clearSubmittedListSearch(["systemUserSearch"]);
+    clearSubmittedListSearch(["systemUserSearch", "systemUserRoleFilter", "systemUserStatusFilter"]);
     document.getElementById("systemUserRoleFilter").value = "";
     document.getElementById("systemUserStatusFilter").value = "";
     renderSystemUsers();
@@ -12677,18 +12672,10 @@ function bindEvents() {
     renderInfoHeader(activeView);
     showToast(wasEditing ? "Ваучерийн эрх шинэчлэгдлээ" : "Ваучерийн эрх хадгалагдлаа");
   });
-  ["voucherRoleFilter"].forEach(id => {
-    const rerenderVoucherFirstPage = () => {
-      voucherPage = 1;
-      renderVouchers();
-    };
-    document.getElementById(id)?.addEventListener("input", rerenderVoucherFirstPage);
-    document.getElementById(id)?.addEventListener("change", rerenderVoucherFirstPage);
-  });
   document.getElementById("voucherPhoneFilter")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  bindListSearchSubmit("voucherSearchBtn", ["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter"], () => {
+  bindListSearchSubmit("voucherSearchBtn", ["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter", "voucherRoleFilter"], () => {
     const from = submittedListSearchValue("voucherFromFilter");
     const to = submittedListSearchValue("voucherToFilter");
     if (from && to && to < from) {
@@ -12703,20 +12690,18 @@ function bindEvents() {
       const field = document.getElementById(id);
       if (field) field.value = "";
     });
-    clearSubmittedListSearch(["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter"]);
+    clearSubmittedListSearch(["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter", "voucherRoleFilter"]);
     voucherPage = 1;
     renderVouchers();
   });
   document.getElementById("giftCardForm")?.addEventListener("submit", saveGiftCard);
-  ["giftCardStatusFilter", "giftCardFromFilter", "giftCardToFilter"].forEach(id => {
-    const rerenderGiftCardsFirstPage = () => {
-      giftCardPage = 1;
-      renderGiftCards();
-    };
-    document.getElementById(id)?.addEventListener("input", rerenderGiftCardsFirstPage);
-    document.getElementById(id)?.addEventListener("change", rerenderGiftCardsFirstPage);
-  });
-  bindListSearchSubmit("giftCardSearchBtn", ["giftCardNumberFilter"], () => {
+  bindListSearchSubmit("giftCardSearchBtn", ["giftCardNumberFilter", "giftCardStatusFilter", "giftCardFromFilter", "giftCardToFilter"], () => {
+    const from = submittedListSearchValue("giftCardFromFilter");
+    const to = submittedListSearchValue("giftCardToFilter");
+    if (from && to && to < from) {
+      showToast("Огнооны дарааллыг зөв оруулна уу");
+      return;
+    }
     giftCardPage = 1;
     renderGiftCards();
   });
@@ -12725,7 +12710,7 @@ function bindEvents() {
       const field = document.getElementById(id);
       if (field) field.value = id === "giftCardStatusFilter" ? "all" : "";
     });
-    clearSubmittedListSearch(["giftCardNumberFilter"]);
+    clearSubmittedListSearch(["giftCardNumberFilter", "giftCardStatusFilter", "giftCardFromFilter", "giftCardToFilter"]);
     syncNativeSelectProxy(document.getElementById("giftCardStatusFilter"));
     giftCardPage = 1;
     renderGiftCards();
@@ -12937,16 +12922,13 @@ function bindEvents() {
     resetHumanResourceAssignmentForm();
     renderHumanResourceAssignments();
   });
-  ["hrAssignmentFromSearch", "hrAssignmentToSearch"].forEach(id => {
-    document.getElementById(id)?.addEventListener("input", () => {
-      const from = document.getElementById("hrAssignmentFromSearch")?.value || "";
-      const to = document.getElementById("hrAssignmentToSearch")?.value || "";
-      if (from && to && to < from) return showToast("Огнооны дарааллыг зөв оруулна уу");
-      assignmentPage = 1;
-      renderHumanResourceAssignments();
-    });
-  });
-  bindListSearchSubmit("hrAssignmentSearchBtn", ["hrAssignmentNameSearch"], () => {
+  bindListSearchSubmit("hrAssignmentSearchBtn", ["hrAssignmentNameSearch", "hrAssignmentFromSearch", "hrAssignmentToSearch"], () => {
+    const from = submittedListSearchValue("hrAssignmentFromSearch");
+    const to = submittedListSearchValue("hrAssignmentToSearch");
+    if (from && to && to < from) {
+      showToast("Огнооны дарааллыг зөв оруулна уу");
+      return;
+    }
     assignmentPage = 1;
     renderHumanResourceAssignments();
   });
@@ -12955,7 +12937,7 @@ function bindEvents() {
       const field = document.getElementById(id);
       if (field) field.value = "";
     });
-    clearSubmittedListSearch(["hrAssignmentNameSearch"]);
+    clearSubmittedListSearch(["hrAssignmentNameSearch", "hrAssignmentFromSearch", "hrAssignmentToSearch"]);
     assignmentPage = 1;
     renderHumanResourceAssignments();
   });
@@ -13021,7 +13003,7 @@ function bindEvents() {
   document.getElementById("menuButton")?.addEventListener("click", toggleSidebar);
   document.getElementById("sidebarCollapseBtn")?.addEventListener("click", toggleSidebar);
 
-  bindListSearchSubmit("customerSearchBtn", ["customerSearch", "customerFromFilter", "customerToFilter"], () => {
+  bindListSearchSubmit("customerSearchBtn", ["customerSearch", "customerFromFilter", "customerToFilter", "customerTypeFilter", "customerWorkFilter"], () => {
     const from = submittedListSearchValue("customerFromFilter");
     const to = submittedListSearchValue("customerToFilter");
     if (from && to && to < from) {
@@ -13030,12 +13012,6 @@ function bindEvents() {
     }
     customerPage = 1;
     renderCustomers();
-  });
-  ["customerTypeFilter", "customerWorkFilter"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", () => {
-      customerPage = 1;
-      renderCustomers();
-    });
   });
   document.getElementById("clearCustomerFilters")?.addEventListener("click", clearCustomerFilters);
   document.getElementById("customerSortToggle")?.addEventListener("click", () => {
@@ -13046,7 +13022,7 @@ function bindEvents() {
   document.getElementById("bookingSearch").addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  bindListSearchSubmit("bookingSearchBtn", ["bookingSearch", "bookingDateFilter"], () => {
+  bindListSearchSubmit("bookingSearchBtn", ["bookingSearch", "bookingSalonFilter", "bookingDateFilter", "bookingStatusFilter"], () => {
     bookingPage = 1;
     renderBookings();
   });
