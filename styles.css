@@ -9063,10 +9063,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .filter-search-btn {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 50px;
+  min-width: 50px;
+  height: 40px;
+  min-height: 40px;
   padding: 0;
   border: 1px solid var(--accent);
   border-radius: 10px;
@@ -9074,7 +9074,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
   display: inline-grid;
   place-items: center;
-  flex: 0 0 44px;
+  flex: 0 0 50px;
 }
 
 .filter-search-btn::before {
@@ -9091,20 +9091,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .group-directory-search-row {
-  grid-template-columns: minmax(0, 1fr) 160px 40px 44px;
-  width: min(532px, 100%);
+  grid-template-columns: minmax(0, 1fr) 160px 40px 50px;
+  width: min(538px, 100%);
 }
 
 .voucher-log-filter {
-  grid-template-columns: 150px 150px 200px 140px 200px 44px 44px;
+  grid-template-columns: 150px 150px 200px 140px 200px 44px 50px;
 }
 
 .gift-card-filter {
-  grid-template-columns: 180px 176px 160px 160px 44px 44px;
+  grid-template-columns: 180px 176px 160px 160px 44px 50px;
 }
 
 .assignment-list-toolbar {
-  grid-template-columns: 240px 170px 170px 40px 44px;
+  grid-template-columns: 240px 170px 170px 40px 50px;
 }
 
 @supports (zoom: 1) {
@@ -9401,7 +9401,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .assignment-list-toolbar {
   display: grid;
-  grid-template-columns: 240px 170px 170px 40px 44px;
+  grid-template-columns: 240px 170px 170px 40px 50px;
   gap: 8px;
   align-items: end;
   margin-bottom: 14px;
