@@ -12906,6 +12906,11 @@ function bindEvents() {
   document.getElementById("kassSalon")?.addEventListener("change", () => {
     populateKassSelects();
   });
+  document.getElementById("kassSalonFilter")?.addEventListener("change", () => {
+    const staffFilter = document.getElementById("kassStaffFilter");
+    if (staffFilter) staffFilter.value = "";
+    populateKassSelects();
+  });
   bindListSearchSubmit("kassSearchBtn", ["kassFromFilter", "kassToFilter", "kassStaffFilter", "kassSalonFilter"], () => {
     const from = submittedListSearchValue("kassFromFilter");
     const to = submittedListSearchValue("kassToFilter");
