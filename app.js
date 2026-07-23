@@ -1553,7 +1553,7 @@ function generateTimeOptions(start, end, duration) {
   const endMinutes = timeToMinutes(end);
   if (endMinutes < startMinutes) return [];
   const options = [];
-  for (let current = startMinutes; current <= endMinutes; current += step) {
+  for (let current = startMinutes; current < endMinutes; current += step) {
     options.push(minutesToTime(current));
   }
   return options;
