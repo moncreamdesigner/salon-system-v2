@@ -11974,7 +11974,6 @@ function requestActionCode(action = "edit") {
       actionCodeDialogOpen = false;
       form.onsubmit = null;
       cancel.onclick = null;
-      overlay.onclick = null;
       document.removeEventListener("keydown", onKeydown);
       resolve(result);
     };
@@ -11992,9 +11991,6 @@ function requestActionCode(action = "edit") {
       input.focus();
     };
     cancel.onclick = () => finish(false);
-    overlay.onclick = event => {
-      if (event.target === overlay) finish(false);
-    };
     document.addEventListener("keydown", onKeydown);
     requestAnimationFrame(() => input.focus());
   });
