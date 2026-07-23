@@ -8370,6 +8370,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: rgba(15, 20, 18, 0.48);
 }
 
+.action-code-overlay[hidden] {
+  display: none !important;
+}
+
 .action-code-dialog {
   width: min(390px, 100%);
   padding: 22px;
