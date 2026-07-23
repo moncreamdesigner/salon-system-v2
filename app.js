@@ -937,7 +937,10 @@ async function serverApi(path, options = {}) {
 
 function applyServerData(data = {}, { partial = false } = {}) {
   const selectedCustomerId = Number(state?.selectedCustomerId || 0);
-  const incoming = structuredClone(data || {});
+  // fetch().json() already gives us a detached object graph. Cloning the full
+  // customer section again can freeze cashier devices for several seconds.
+  // Only copy the top level because `_serviceSettings` is removed below.
+  const incoming = { ...(data || {}) };
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   if (partial) {
@@ -1002,7 +1005,10 @@ async function saveServerStateNow() {
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
-    viewServerRevisions.set(activeView, serverScopeRevision);
+    // This browser already owns every mutation in the successful request.
+    // Mark every local view current so switching menus does not immediately
+    // download and render the same sections again.
+    virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
     savingSections.forEach(key => {
       if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
     });
@@ -3365,14 +3371,19 @@ function infoForView(name) {
   const staff = state.staff;
   const catalog = state.catalog;
   const today = todayText();
-  const performanceReport = buildPerformanceReport();
-  const currentMonthKass = state.kassSchedules
+  // `buildPerformanceReport()` traverses all customer service/payment history.
+  // It used to run for every page header and was the main reason a simple menu
+  // switch blocked the UI for 1–3 seconds on cashier computers.
+  const performanceReport = name === "performance"
+    ? buildPerformanceReport()
+    : { periodLabel: "", rows: [], singleCount: 0, courseCount: 0, revenue: 0, commission: 0 };
+  const currentMonthKass = name === "kass" ? state.kassSchedules
     .filter(item => monthText(item.date) === monthText(today))
     .filter(item => !isSalonAccount() || item.salon === activeAccount.salon)
     .reduce((acc, item) => {
       acc[item.staff] = (acc[item.staff] || 0) + 1;
       return acc;
-    }, {});
+    }, {}) : {};
   const currentMonthKassStats = Object.entries(currentMonthKass)
     .sort((a, b) => b[1] - a[1])
     .map(([name, count]) => [name, `${count} өдөр`]);
@@ -3395,14 +3406,14 @@ function infoForView(name) {
       ["Их дүүрэг", topCustomerDistrict(customers)]
     ]],
     kass: ["ЭНЭ САРЫН КАСС", currentMonthKassStats.length ? currentMonthKassStats : [["Бүртгэл", "алга"]]],
-    kassRevenue: (() => {
+    kassRevenue: name === "kassRevenue" ? (() => {
       const rows = kassRevenueSourceRows().filter(row => !isSalonAccount() || row.salon === activeAccount.salon);
       return ["КАСС ОРЛОГО", [
         ["Нийт орлого", money(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0))],
         ["Төлбөр", rows.length],
         ["Салбар", isSalonAccount() ? activeAccount.salon : new Set(rows.map(row => row.salon)).size]
       ]];
-    })(),
+    })() : null,
     services: ["ҮЙЛЧИЛГЭЭНИЙ БҮРТГЭЛ", [
       ["Нийт", services.length],
       ["Идэвхтэй курс", customers.filter(item => item.activeCourse).length],
@@ -3415,7 +3426,7 @@ function infoForView(name) {
       ["Дутуу", 1],
       ["Бонус ашиглалт", "180,000₮"]
     ]],
-    dashboard: (() => {
+    dashboard: name === "dashboard" ? (() => {
       const month = dashboardSelectedMonth();
       const salon = dashboardSelectedSalon();
       const snapshot = dashboardSnapshot(month, salon);
@@ -3428,7 +3439,7 @@ function infoForView(name) {
         system: [["Хамрах хүрээ", salon || "Нийт систем"], ["Өнөөдрийн үйлдэл", Math.round(512 * (salon ? dashboardBranch(salon).share : 1))], ["Сүүлийн backup", "03:10"], ["Анхааруулга", 28]]
       };
       return [modeTitles[mode] || modeTitles.overview, modeStats[mode] || modeStats.overview];
-    })(),
+    })() : null,
     performance: ["ГҮЙЦЭТГЭЛ", [
       ["Хугацаа", performanceReport.periodLabel],
       ["Ажилтан", performanceReport.rows.length],
@@ -3514,8 +3525,8 @@ function infoForView(name) {
     settingsDatabase: ["ӨГӨГДЛИЙН САН", [
       ["Хэрэглэгч", state.customers.filter(item => !item.deleted).length],
       ["Цаг захиалга", state.bookings.length],
-      ["Төлбөр", kassRevenueSourceRows().length],
-      ["Backup", databaseBackups().length]
+      ["Төлбөр", name === "settingsDatabase" ? kassRevenueSourceRows().length : 0],
+      ["Backup", name === "settingsDatabase" ? databaseBackups().length : 0]
     ]],
     settingsUsers: ["ХЭРЭГЛЭГЧИЙН ЭРХ", [
       ["Нийт", systemUsers.length],
@@ -3561,7 +3572,7 @@ function infoForView(name) {
       ["Нийт хэрэглээ", money(state.customerGroups.reduce((sum, group) => sum + Number(group.spent2y || 0), 0))],
       ["Бонус үлдэгдэл", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.balance || 0), 0))]
     ]],
-    profile: (() => {
+    profile: name === "profile" ? (() => {
       const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId)) || customers[0];
       if (!customer) {
         return ["ХЭРЭГЛЭГЧИЙН СТАТИСТИК", [
@@ -3584,7 +3595,7 @@ function infoForView(name) {
         ["Курс", stats.course],
         ["Касс", stats.kass]
       ]];
-    })()
+    })() : null
   };
 
   return info[name] || info.bookings;
@@ -5892,8 +5903,6 @@ function renderCustomers() {
     });
   });
 
-  const serviceCustomer = document.getElementById("serviceCustomer");
-  if (serviceCustomer) serviceCustomer.innerHTML = state.customers.filter(c => !c.deleted).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
 }
 
 function renderCustomerSideProfile() {
@@ -10120,6 +10129,13 @@ function renderBookings() {
 function renderServices() {
   const serviceList = document.getElementById("serviceList");
   if (!serviceList) return;
+  const serviceCustomer = document.getElementById("serviceCustomer");
+  if (serviceCustomer) {
+    serviceCustomer.innerHTML = state.customers
+      .filter(customer => !customer.deleted)
+      .map(customer => `<option value="${customer.id}">${customer.name}</option>`)
+      .join("");
+  }
   serviceList.innerHTML = state.services.map(service => `
     <div class="stack-item">
       <strong>${service.customer} • ${money(service.total)}</strong>
