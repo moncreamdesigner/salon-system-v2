@@ -8375,7 +8375,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .action-code-dialog {
-  width: min(520px, 100%);
+  width: min(370px, 100%);
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -8398,8 +8398,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .action-code-row .input {
-  min-width: 0;
-  flex: 1 1 auto;
+  width: 120px;
+  min-width: 90px;
+  flex: 1 1 120px;
 }
 
 .action-code-row .secondary-btn,

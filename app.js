@@ -265,6 +265,9 @@ state.generalSettings = {
   ...structuredClone(defaultState.generalSettings),
   ...(state.generalSettings || {})
 };
+state.generalSettings.deleteCode = /^\d{4}$/.test(String(state.generalSettings.deleteCode || ""))
+  ? String(state.generalSettings.deleteCode)
+  : DELETE_CODE;
 state.homepageSettings = {
   ...structuredClone(defaultState.homepageSettings),
   ...(state.homepageSettings || {}),
@@ -2596,9 +2599,15 @@ function toggleDiagnosisCaptureSizeSetting() {
 
 function saveGeneralSettings(event) {
   event.preventDefault();
+  const deleteCode = formValue("deleteActionCode");
+  if (!/^\d{4}$/.test(deleteCode)) {
+    showToast("Засах, устгах код 4 оронтой тоо байна");
+    document.getElementById("deleteActionCode")?.focus();
+    return;
+  }
   state.generalSettings = {
     ...generalSettings(),
-    deleteCode: formValue("deleteActionCode") || "1989",
+    deleteCode,
     kassEditDays: Number(formValue("kassEditDays")) || generalSettings().kassEditDays,
     serviceEditDays: Number(formValue("serviceEditDays")) || generalSettings().serviceEditDays,
     diagnosisCaptureMode: formValue("diagnosisCaptureMode") === "native" ? "native" : "fixed",
@@ -12736,6 +12745,11 @@ function bindEvents() {
   document.getElementById("customerTypeForm")?.addEventListener("submit", saveCustomerType);
   document.getElementById("discountForm")?.addEventListener("submit", saveDiscount);
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);
+  ["deleteActionCode", "actionCodeInput"].forEach(id => {
+    document.getElementById(id)?.addEventListener("input", event => {
+      event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
+    });
+  });
   document.querySelectorAll("[data-homepage-tab]").forEach(button => {
     button.addEventListener("click", () => setHomepageSettingsTab(button.dataset.homepageTab));
   });
