@@ -6,6 +6,8 @@ const moneyInputValue = value => Number(value || 0) > 0 ? formatNumber(value) : 
 const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
 const PENDING_PAYMENT_MUTATIONS_KEY = "khalgai_salon_pending_payments_v1";
+const ACTIVE_VIEW_SESSION_KEY = "khalgai_salon_active_view_v1";
+const ACTIVE_CUSTOMER_SESSION_KEY = "khalgai_salon_active_customer_v1";
 const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
@@ -35,6 +37,7 @@ const renderedViews = new Set();
 const virtualViews = new Map();
 const pendingCustomerProfileUpdates = new Map();
 const pendingPaymentMutations = new Map();
+let pendingServiceSettingsMutation = null;
 let serverSaveRetryDelay = 1000;
 let sidebarManualCollapsed = null;
 
@@ -165,6 +168,12 @@ function initialStateForRuntime() {
 }
 
 let state = loadState();
+try {
+  const rememberedCustomerId = Number(sessionStorage.getItem(ACTIVE_CUSTOMER_SESSION_KEY) || 0);
+  if (rememberedCustomerId) state.selectedCustomerId = rememberedCustomerId;
+} catch (error) {
+  // Session storage can be disabled by browser privacy settings.
+}
 let currentTreatmentExpiryTimer = null;
 let customerDerivedDataVersion = 0;
 let customerActiveTreatmentCache = { key: "", items: [] };
@@ -321,7 +330,13 @@ state.assignments = (Array.isArray(state.assignments) ? state.assignments : []).
   };
 });
 removePaginationDemoData();
-let activeView = "bookings";
+let activeView = (() => {
+  try {
+    return sessionStorage.getItem(ACTIVE_VIEW_SESSION_KEY) || "bookings";
+  } catch (error) {
+    return "bookings";
+  }
+})();
 let activeScheduleSection = "holidays";
 let bookingTimeOptions = [];
 let branchEditingId = null;
@@ -528,6 +543,9 @@ const serviceSettingsData = {
 const defaultServiceSettingsData = structuredClone(serviceSettingsData);
 
 function restoreCoreServiceSettingsIfMissing() {
+  // Production is database-backed. Never recreate the prototype catalog when
+  // the server section is empty or temporarily unavailable.
+  if (!IS_LOCAL_RUNTIME) return;
   let changed = false;
   if (!Array.isArray(serviceSettingsData.single) || !serviceSettingsData.single.length) {
     serviceSettingsData.single = structuredClone(defaultServiceSettingsData.single);
@@ -549,6 +567,10 @@ function restoreCoreServiceSettingsIfMissing() {
 const SERVICE_SETTINGS_KEY = `${STORAGE_KEY}:service-settings`;
 
 function loadServiceSettings() {
+  if (!IS_LOCAL_RUNTIME) {
+    localStorage.removeItem(SERVICE_SETTINGS_KEY);
+    return;
+  }
   try {
     const saved = JSON.parse(localStorage.getItem(SERVICE_SETTINGS_KEY) || "null");
     if (!saved) return;
@@ -566,11 +588,44 @@ function loadServiceSettings() {
   }
 }
 
-function saveServiceSettings() {
-  localStorage.setItem(SERVICE_SETTINGS_KEY, JSON.stringify({
-    data: serviceSettingsData,
-    groups: productGroups
-  }));
+function serviceSettingsAuditEntry(action, before = null, after = null) {
+  const beforeName = String(before?.name || before?.label || "").trim();
+  const afterName = String(after?.name || after?.label || "").trim();
+  const changeText = beforeName && afterName && beforeName !== afterName
+    ? `${beforeName} → ${afterName}`
+    : afterName || beforeName || "Үйлчилгээний тохиргоо";
+  return {
+    id: entityId("audit"),
+    title: action,
+    createdAt: auditNowText(),
+    meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • ${changeText}`
+  };
+}
+
+function saveServiceSettings({ message = "", action = "", before = null, after = null } = {}) {
+  localStateMutationVersion += 1;
+  invalidatePersistedStateCache();
+  const auditEntry = action ? serviceSettingsAuditEntry(action, before, after) : null;
+  if (auditEntry) state.audit.unshift(auditEntry);
+  pendingServerSections.set("_serviceSettings", localStateMutationVersion);
+  if (auditEntry) pendingServerSections.set("audit", localStateMutationVersion);
+  const previousAuditEntries = pendingServiceSettingsMutation?.auditEntries || [];
+  pendingServiceSettingsMutation = {
+    data: structuredClone(serviceSettingsData),
+    groups: structuredClone(productGroups),
+    auditEntries: auditEntry ? [...previousAuditEntries, auditEntry] : previousAuditEntries,
+    message,
+    mutationVersion: localStateMutationVersion
+  };
+  if (IS_LOCAL_RUNTIME) {
+    localStorage.setItem(SERVICE_SETTINGS_KEY, JSON.stringify({
+      data: serviceSettingsData,
+      groups: productGroups
+    }));
+    if (message) showToast(message);
+  } else {
+    localStorage.removeItem(SERVICE_SETTINGS_KEY);
+  }
   queueServerStateSave();
 }
 
@@ -597,6 +652,13 @@ const productGroups = [
   ["khalgai5000", "Халгай 5000", 4],
   ["other", "Халгай брэнд бусад", 5]
 ];
+
+if (!IS_LOCAL_RUNTIME) {
+  serviceSettingsData.single = [];
+  serviceSettingsData.course = [];
+  serviceSettingsData.products = {};
+  productGroups.splice(0, productGroups.length);
+}
 
 function productGroupCount(key) {
   return serviceSettingsData.products[key]?.length || 0;
@@ -1021,6 +1083,11 @@ async function saveServerStateNow() {
     pendingPaymentMutations.forEach((mutation, mutationId) => {
       if (Number(mutation.mutationVersion || 0) <= savingMutationVersion) pendingPaymentMutations.delete(mutationId);
     });
+    if (pendingServiceSettingsMutation && Number(pendingServiceSettingsMutation.mutationVersion || 0) <= savingMutationVersion) {
+      const successMessage = pendingServiceSettingsMutation.message;
+      pendingServiceSettingsMutation = null;
+      if (successMessage) showToast(successMessage);
+    }
     persistPendingPaymentMutations();
   } catch (error) {
     if (error.status === 409 && error.payload?.conflict) {
@@ -1031,7 +1098,23 @@ async function saveServerStateNow() {
         virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
         renderActiveView(activeView, { force: true });
-        const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 || pendingPaymentMutations.size > 0;
+        if (pendingServiceSettingsMutation) {
+          serviceSettingsData.single = structuredClone(pendingServiceSettingsMutation.data.single || []);
+          serviceSettingsData.course = structuredClone(pendingServiceSettingsMutation.data.course || []);
+          serviceSettingsData.products = structuredClone(pendingServiceSettingsMutation.data.products || {});
+          productGroups.splice(0, productGroups.length, ...structuredClone(pendingServiceSettingsMutation.groups || []));
+          (pendingServiceSettingsMutation.auditEntries || []).slice().reverse().forEach(entry => {
+            if (!state.audit.some(item => String(item.id || "") === String(entry.id || ""))) state.audit.unshift(structuredClone(entry));
+          });
+          pendingServerSections.set("_serviceSettings", pendingServiceSettingsMutation.mutationVersion);
+          if (pendingServiceSettingsMutation.auditEntries?.length) {
+            pendingServerSections.set("audit", pendingServiceSettingsMutation.mutationVersion);
+          }
+          if (activeView === "settingsServices") renderSettingsServices();
+        }
+        const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 ||
+          pendingPaymentMutations.size > 0 ||
+          Boolean(pendingServiceSettingsMutation);
         if (retryingLocalMutation) serverSavePending = true;
         showToast(retryingLocalMutation
           ? "Шинэ мэдээлэлтэй нэгтгээд өөрчлөлтийг дахин хадгалж байна"
@@ -1122,6 +1205,7 @@ const VIEW_SERVER_SECTIONS = {
   performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons"],
   vouchers: ["voucherRoles", "voucherLogs"],
   giftCards: ["giftCards"],
+  settingsServices: ["_serviceSettings"],
   groups: ["customers", "customerGroups"],
   audit: ["audit"],
   dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons"]
@@ -2982,10 +3066,15 @@ function renderProductGroupControls() {
         }
         if (!requireDeleteCode()) return;
         const index = productGroups.findIndex(group => group[0] === key);
+        const deletedGroup = index >= 0 ? { label: productGroups[index][1] } : null;
         if (index >= 0) productGroups.splice(index, 1);
         delete serviceSettingsData.products[key];
         if (activeProductGroup === key) activeProductGroup = productGroups[0][0];
-        saveServiceSettings();
+        saveServiceSettings({
+          message: "Ангилал устлаа",
+          action: "service_category_deleted",
+          before: deletedGroup
+        });
         renderSettingsServices();
       });
     });
@@ -3073,6 +3162,10 @@ function bindServiceSettingsForm() {
       const price = Number(formValue("servicePrice")) || 0;
       if (!name || !price) return;
       const wasEditing = Boolean(serviceEditingRef);
+      const beforeItem = serviceEditingRef
+        ? structuredClone(serviceCollectionForRef(serviceEditingRef)[serviceEditingRef.index] || null)
+        : null;
+      let savedItem = null;
       const itemPayload = { code, name: standardServiceName(name, selectedKind), price };
       if (selectedKind === "products") {
         const brand = document.getElementById("serviceBrand").value || activeProductGroup;
@@ -3093,6 +3186,7 @@ function bindServiceSettingsForm() {
         } else {
           serviceSettingsData.products[brand].unshift(productPayload);
         }
+        savedItem = productPayload;
         activeServiceMainTab = "products";
         activeProductGroup = brand;
       } else {
@@ -3112,12 +3206,17 @@ function bindServiceSettingsForm() {
         } else {
           serviceSettingsData[selectedKind].unshift(item);
         }
+        savedItem = item;
         activeServiceMainTab = selectedKind;
       }
       resetServiceForm();
-      saveServiceSettings();
+      saveServiceSettings({
+        message: wasEditing ? "Үйлчилгээ шинэчлэгдлээ" : "Үйлчилгээ нэмэгдлээ",
+        action: wasEditing ? "service_settings_updated" : "service_settings_created",
+        before: beforeItem,
+        after: savedItem
+      });
       renderSettingsServices();
-      showToast(wasEditing ? "Үйлчилгээ шинэчлэгдлээ" : "Үйлчилгээ нэмэгдлээ");
     });
     form.dataset.bound = "1";
   }
@@ -3132,9 +3231,12 @@ function bindServiceSettingsForm() {
       activeServiceMainTab = "products";
       activeProductGroup = key;
       document.getElementById("productGroupName").value = "";
-      saveServiceSettings();
+      saveServiceSettings({
+        message: "Ангилал нэмэгдлээ",
+        action: "service_category_created",
+        after: { label: name }
+      });
       renderSettingsServices();
-      showToast("Ангилал нэмэгдлээ");
     });
     groupForm.dataset.bound = "1";
   }
@@ -3239,11 +3341,15 @@ function renderSettingsServices() {
         group: button.dataset.group || ""
       };
       const collection = serviceCollectionForRef(ref);
+      const deletedItem = structuredClone(collection[ref.index] || null);
       collection.splice(ref.index, 1);
       if (serviceEditingRef && serviceEditingRef.kind === ref.kind && serviceEditingRef.index === ref.index && serviceEditingRef.group === ref.group) resetServiceForm();
-      saveServiceSettings();
+      saveServiceSettings({
+        message: "Үйлчилгээ устлаа",
+        action: "service_settings_deleted",
+        before: deletedItem
+      });
       renderSettingsServices();
-      showToast("Үйлчилгээ устлаа");
     });
   });
 }
@@ -4633,6 +4739,16 @@ function setView(name) {
   }
   activeView = name;
   saveContextView = name;
+  try {
+    sessionStorage.setItem(ACTIVE_VIEW_SESSION_KEY, name);
+    if (name === "profile" && Number(state.selectedCustomerId || 0)) {
+      sessionStorage.setItem(ACTIVE_CUSTOMER_SESSION_KEY, String(state.selectedCustomerId));
+    } else if (name !== "profile") {
+      sessionStorage.removeItem(ACTIVE_CUSTOMER_SESSION_KEY);
+    }
+  } catch (error) {
+    // The view still works when session storage is unavailable.
+  }
   mountOnlyView(name);
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
@@ -8352,14 +8468,15 @@ function deleteProfileCustomer(customerId) {
   customer.deletedBy = "Менежер";
   customer.deleted = true;
   customer.profileInfoEditing = false;
-  state.selectedCustomerId = state.customers.find(item => !item.deleted && !item.deletedAt)?.id || null;
+  state.selectedCustomerId = null;
   state.audit.unshift({ title: "customer_deleted", meta: `Менежер • ${customer.name} • ${customer.phone || ""}` });
-  saveState();
-  renderCustomers();
-  renderCustomerSideProfile();
-  renderProfile();
-  renderAudit();
-  renderInfoHeader(activeView);
+  saveState(["customers", "customerGroups", "audit"]);
+  try {
+    sessionStorage.removeItem(ACTIVE_CUSTOMER_SESSION_KEY);
+  } catch (error) {
+    // Ignore unavailable session storage.
+  }
+  setView("customers");
   showToast("Хэрэглэгч устлаа");
 }
 
@@ -9034,6 +9151,15 @@ function deleteCustomerHistoryItem(customerId, historyIndex) {
 }
 
 function saveAndRefreshCustomerProfile(message) {
+  const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId) && !item.deleted);
+  if (customer) {
+    const snapshot = structuredClone(customer);
+    clearCustomerUiState(snapshot);
+    pendingCustomerProfileUpdates.set(Number(customer.id), {
+      ...snapshot,
+      mutationVersion: localStateMutationVersion + 1
+    });
+  }
   saveState();
   renderCustomers();
   renderCustomerSideProfile();
@@ -11479,6 +11605,11 @@ function auditActionText(title = "") {
     customer_permanently_deleted: "Хэрэглэгчийг бүр мөсөн устгасан",
     service_created: "Үйлчилгээ бүртгэсэн",
     service_deleted: "Үйлчилгээ устгасан",
+    service_settings_created: "Үйлчилгээний тохиргоонд нэмсэн",
+    service_settings_updated: "Үйлчилгээний тохиргоог зассан",
+    service_settings_deleted: "Үйлчилгээний тохиргооноос устгасан",
+    service_category_created: "Барааны ангилал нэмсэн",
+    service_category_deleted: "Барааны ангилал устгасан",
     booking_created: "Шинэ цаг захиалга бүртгэсэн",
     booking_updated: "Цаг захиалгыг зассан",
     booking_status_updated: "Цаг захиалгын төлөв өөрчилсөн",
@@ -13013,7 +13144,7 @@ function init() {
     step("action-locks"); initializeActionLocks();
     step("view-virtualization"); initializeViewVirtualization();
     step("booking-form"); openBookingModal();
-    step("view"); setView("bookings");
+    step("view"); setView(activeView);
     step("ready");
   } catch (error) {
     document.body.dataset.initError = String(error?.message || error);
