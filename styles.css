@@ -6328,9 +6328,16 @@ tr:last-child td {
 }
 
 .payment-open-arrow {
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 700;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform .16s ease;
+}
+
+.payment-open-arrow.open {
+  transform: rotate(-135deg) translate(-1px, -1px);
 }
 
 .payment-history-chips {

@@ -6485,7 +6485,7 @@ function renderServicePaymentSummary(item, paid, historyIndex) {
       ${extras.vipRoomFee ? `<span>Вип өрөө <strong>${money(extras.vipRoomFee)}</strong></span>` : ""}
       <span class="payment-total">Нийт үнэ <strong>${money(total)}</strong></span>
       ${overpaid ? `<span class="payment-overpaid">Илүү төлөлт <strong>${money(overpaid)}</strong></span>` : (balance ? `<span class="red">Үлдэгдэл <strong>${money(balance)}</strong></span>` : `<span>Төлбөр хаагдсан</span>`)}
-      ${balance ? `<button class="secondary-btn profile-payment-open" type="button" data-history-index="${historyIndex}"><span>Төлбөр төлөх</span><span class="payment-open-arrow">${item.paymentFormOpen ? "↑" : "↓"}</span></button>` : ""}
+      ${balance ? `<button class="primary-btn profile-payment-open" type="button" data-history-index="${historyIndex}" aria-expanded="${item.paymentFormOpen ? "true" : "false"}"><span>Төлбөр төлөх</span><span class="payment-open-arrow${item.paymentFormOpen ? " open" : ""}" aria-hidden="true"></span></button>` : ""}
     </div>
     ${item.paymentFormOpen ? renderInlinePaymentForm(item, historyIndex, balance) : ""}
     ${paymentChips}
