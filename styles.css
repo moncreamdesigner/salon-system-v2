@@ -8375,7 +8375,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .action-code-dialog {
-  width: min(290px, 100%);
+  width: fit-content;
+  max-width: 100%;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -8423,6 +8424,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   margin: 5px 0 -5px;
   color: var(--danger);
   font-size: 13px;
+}
+
+.action-code-error:empty {
+  display: none;
 }
 
 .modal-backdrop {
