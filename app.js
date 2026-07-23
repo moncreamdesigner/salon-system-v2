@@ -10471,7 +10471,9 @@ function renderBookings() {
     const createSlot = document.getElementById("bookingInlineSlot");
     const createForm = createSlot?.querySelector("#bookingForm");
     const salonSignature = accountSalons().map(salon => salon.name).join("|");
-    if (createForm && createForm.dataset.salonSignature !== salonSignature) {
+    if (createSlot && !createForm) {
+      openBookingModal(null, createSlot);
+    } else if (createForm && createForm.dataset.salonSignature !== salonSignature) {
       const firstRow = createForm.querySelector(".booking-slot-row");
       openBookingModal(null, createSlot, {
         salon: firstRow?.querySelector(".booking-salon")?.value || "",
