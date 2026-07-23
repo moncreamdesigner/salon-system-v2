@@ -6040,12 +6040,24 @@ tr:last-child td {
 
 .empty-state {
   min-height: 48px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
   display: grid;
   place-items: center;
+  text-align: center;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
+}
+
+td.empty-state {
+  display: table-cell;
+  min-height: 0;
+  height: 64px;
+  vertical-align: middle;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .profile-empty-action {
