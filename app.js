@@ -8,6 +8,8 @@ const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
 const PENDING_PAYMENT_MUTATIONS_KEY = "khalgai_salon_pending_payments_v1";
 const ACTIVE_VIEW_SESSION_KEY = "khalgai_salon_active_view_v1";
 const ACTIVE_CUSTOMER_SESSION_KEY = "khalgai_salon_active_customer_v1";
+const LOCAL_DATA_SOURCE_KEY = `${STORAGE_KEY}:data-source`;
+const LOCAL_LIVE_DATA_SOURCE = "live-import";
 const PROTOTYPE_DATA_RESET_VERSION = 2;
 const PROTOTYPE_SERVICE_RESET_KEY = `${STORAGE_KEY}:service-data-reset-v1`;
 const DELETE_CODE = "1989";
@@ -42,20 +44,11 @@ let serverSaveRetryDelay = 1000;
 let sidebarManualCollapsed = null;
 
 const defaultState = {
-  salons: [
-    { id: 1, name: "Хан-Уул салбар", address: "Хан-Уул дүүрэг, 2-р хороо, АПУ ХХК-ийн замын эсрэг талд, 75-р сургуулийн хойно 35Б байр.", phone: "80024373", active: true, bookings: 18, revenue: 1820000, staff: "8/9", status: "Ачаалал хэвийн", slotCapacity: 4 },
-    { id: 2, name: "Төв салбар", address: "Чингэлтэй дүүрэг, 3-р хороо, Peace mall худалдааны төвийн хойно.", phone: "89894373", active: true, bookings: 22, revenue: 2140000, staff: "6/8", status: "Ажилтан хэрэгтэй", slotCapacity: 6 },
-    { id: 3, name: "Вип салбар", address: "Хан-Уул дүүрэг, Вип өрөөтэй салбар.", phone: "80024444", active: true, bookings: 8, revenue: 860000, staff: "5/5", status: "Вип өрөөтэй", slotCapacity: 4 }
-  ],
+  salons: [],
   customers: [],
   customerGroups: [],
   catalog: [],
-  staff: [
-    { id: 1, name: "Хулан", salon: "Хан-Уул салбар", vip: true, commission: "10%", status: "active" },
-    { id: 2, name: "Болор", salon: "Төв салбар", vip: false, commission: "8%", status: "active" },
-    { id: 3, name: "Номин", salon: "Вип салбар", vip: true, commission: "12%", status: "active" },
-    { id: 4, name: "Солонго", salon: "Хан-Уул салбар", vip: false, commission: "9%", status: "active" }
-  ],
+  staff: [],
   bookings: [],
   holidays: [],
   assignments: [],
@@ -99,17 +92,7 @@ const defaultState = {
     salons: {},
     results: {
       categories: ["Бүгд"],
-      posts: [{
-        id: 1,
-        title: "Үсний уналт багассан үр дүн",
-        duration: "3 сарын үр дүн",
-        description: "Үсний уналт багасаж, шинэ үсний ургалт нэмэгдсэн бодит үр дүн.",
-        webUrl: "",
-        images: ["", ""],
-        beforeImage: "",
-        afterImage: "",
-        published: true
-      }]
+      posts: []
     }
   },
   diagnosisTypes: [
@@ -157,13 +140,8 @@ const defaultState = {
 
 function initialStateForRuntime() {
   const initial = structuredClone(defaultState);
-  if (IS_LOCAL_RUNTIME) return initial;
-
-  // Production must never render or persist prototype entities while the
-  // server state is loading (or when a server section is unavailable).
-  initial.salons = [];
-  initial.staff = [];
-  initial.homepageSettings.results.posts = [];
+  // Neither production nor localhost may fall back to prototype entities.
+  // Localhost receives real data only through an explicit live JSON import.
   return initial;
 }
 
@@ -540,34 +518,18 @@ const serviceSettingsData = {
   }
 };
 
-const defaultServiceSettingsData = structuredClone(serviceSettingsData);
-
 function restoreCoreServiceSettingsIfMissing() {
-  // Production is database-backed. Never recreate the prototype catalog when
-  // the server section is empty or temporarily unavailable.
-  if (!IS_LOCAL_RUNTIME) return;
-  let changed = false;
-  if (!Array.isArray(serviceSettingsData.single) || !serviceSettingsData.single.length) {
-    serviceSettingsData.single = structuredClone(defaultServiceSettingsData.single);
-    changed = true;
-  }
-  if (!Array.isArray(serviceSettingsData.course) || !serviceSettingsData.course.length) {
-    serviceSettingsData.course = structuredClone(defaultServiceSettingsData.course);
-    changed = true;
-  }
-  const productCount = Object.values(serviceSettingsData.products || {})
-    .reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0);
-  if (!productCount) {
-    serviceSettingsData.products = structuredClone(defaultServiceSettingsData.products);
-    changed = true;
-  }
-  if (changed) saveServiceSettings();
+  // Legacy prototype catalogs must never be recreated automatically.
 }
 
 const SERVICE_SETTINGS_KEY = `${STORAGE_KEY}:service-settings`;
 
 function loadServiceSettings() {
   if (!IS_LOCAL_RUNTIME) {
+    localStorage.removeItem(SERVICE_SETTINGS_KEY);
+    return;
+  }
+  if (localStorage.getItem(LOCAL_DATA_SOURCE_KEY) !== LOCAL_LIVE_DATA_SOURCE) {
     localStorage.removeItem(SERVICE_SETTINGS_KEY);
     return;
   }
@@ -653,12 +615,10 @@ const productGroups = [
   ["other", "Халгай брэнд бусад", 5]
 ];
 
-if (!IS_LOCAL_RUNTIME) {
-  serviceSettingsData.single = [];
-  serviceSettingsData.course = [];
-  serviceSettingsData.products = {};
-  productGroups.splice(0, productGroups.length);
-}
+serviceSettingsData.single = [];
+serviceSettingsData.course = [];
+serviceSettingsData.products = {};
+productGroups.splice(0, productGroups.length);
 
 function productGroupCount(key) {
   return serviceSettingsData.products[key]?.length || 0;
@@ -673,11 +633,16 @@ function refreshProductGroupCounts() {
 function loadState() {
   if (!IS_LOCAL_RUNTIME) return initialStateForRuntime();
   try {
+    if (localStorage.getItem(LOCAL_DATA_SOURCE_KEY) !== LOCAL_LIVE_DATA_SOURCE) {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SERVICE_SETTINGS_KEY);
+      return initialStateForRuntime();
+    }
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (!saved) return structuredClone(defaultState);
-    return clearTransientState({ ...structuredClone(defaultState), ...saved });
+    if (!saved) return initialStateForRuntime();
+    return clearTransientState({ ...initialStateForRuntime(), ...saved });
   } catch (error) {
-    return structuredClone(defaultState);
+    return initialStateForRuntime();
   }
 }
 
@@ -11533,13 +11498,19 @@ async function importDatabaseFile(event) {
     const mode = document.getElementById("databaseImportMode")?.value || "merge";
     if (mode === "replace" && !requireEditCode()) return;
     if (!window.confirm(mode === "replace" ? "Одоогийн өгөгдлийг бүрэн солих уу?" : "Өгөгдлийг одоогийн сантай нэгтгэх үү?")) return;
-    await createDatabaseBackup("Өгөгдөл импортлохын өмнөх автомат backup");
+    if (!IS_LOCAL_RUNTIME) await createDatabaseBackup("Өгөгдөл импортлохын өмнөх автомат backup");
     const stateIncoming = structuredClone(incoming);
     delete stateIncoming._serviceSettings;
     const nextState = mode === "replace"
       ? databaseReplaceCategoryState(state, stateIncoming, category)
       : databaseMergeState(state, stateIncoming);
     persistImportedServiceSettings(incoming);
+    if (IS_LOCAL_RUNTIME) {
+      localStorage.setItem(LOCAL_DATA_SOURCE_KEY, LOCAL_LIVE_DATA_SOURCE);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(clearTransientState(nextState)));
+      window.location.reload();
+      return;
+    }
     if (!serverStorageReady) throw new Error("Server database-д нэвтэрсний дараа импорт хийнэ үү");
     const nextServerData = {
       ...clearTransientState(nextState),

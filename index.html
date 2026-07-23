@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202607240340">
+  <meta name="app-build" content="202607240600">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -800,7 +800,7 @@
         <section class="panel general-settings-panel">
           <form class="general-settings-form" id="generalSettingsForm">
             <label>Засах, устгах код
-              <input class="input" id="deleteActionCode" maxlength="12">
+              <input class="input" id="deleteActionCode" type="password" maxlength="12" autocomplete="new-password">
             </label>
             <label>Үйлчилгээ засах, устгах хоног
               <input class="input" id="serviceEditDays" type="number" min="1">
@@ -1235,7 +1235,7 @@
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
   <script src="fliphtml5.js?v=202607210130"></script>
   <script src="diagnostics.js?v=202607240130"></script>
-  <script src="app.js?v=202607240500"></script>
+  <script src="app.js?v=202607240600"></script>
 </body>
 </html>
 
