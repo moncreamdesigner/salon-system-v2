@@ -1551,9 +1551,10 @@ function generateTimeOptions(start, end, duration) {
   const step = Math.max(Number(duration) || 30, 5);
   const startMinutes = timeToMinutes(start);
   const endMinutes = timeToMinutes(end);
-  if (endMinutes < startMinutes) return [];
+  const latestBookingMinutes = endMinutes - 120;
+  if (latestBookingMinutes < startMinutes) return [];
   const options = [];
-  for (let current = startMinutes; current < endMinutes; current += step) {
+  for (let current = startMinutes; current <= latestBookingMinutes; current += step) {
     options.push(minutesToTime(current));
   }
   return options;

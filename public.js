@@ -329,8 +329,9 @@ function timeOptions(salon, date) {
   const [endHour, endMinute] = schedule.end.split(":").map(Number);
   const start = startHour * 60 + startMinute;
   const end = endHour * 60 + endMinute;
+  const latestBookingTime = end - 120;
   const slots = [];
-  for (let time = start; time < end; time += Math.max(schedule.duration, 5)) {
+  for (let time = start; time <= latestBookingTime; time += Math.max(schedule.duration, 5)) {
     slots.push(`${String(Math.floor(time / 60)).padStart(2, "0")}:${String(time % 60).padStart(2, "0")}`);
   }
   return slots;

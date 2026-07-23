@@ -121,7 +121,7 @@ try {
     $endMinutes = $toMinutes($endText);
     $bookingMinutes = $toMinutes($booking['time']);
     $validSlot = $startMinutes !== null && $endMinutes !== null && $bookingMinutes !== null
-        && $bookingMinutes >= $startMinutes && $bookingMinutes < $endMinutes
+        && $bookingMinutes >= $startMinutes && $bookingMinutes <= ($endMinutes - 120)
         && (($bookingMinutes - $startMinutes) % $duration === 0);
     if (!$validSlot) {
         $pdo->rollBack();
