@@ -11945,17 +11945,15 @@ function requestActionCode(action = "edit") {
   const form = document.getElementById("actionCodeForm");
   const input = document.getElementById("actionCodeInput");
   const cancel = document.getElementById("actionCodeCancel");
-  const title = document.getElementById("actionCodeTitle");
   const label = document.getElementById("actionCodeLabel");
   const errorText = document.getElementById("actionCodeError");
-  if (!overlay || !form || !input || !cancel || !title || !label || !errorText) {
+  if (!overlay || !form || !input || !cancel || !label || !errorText) {
     showToast("Нууц кодын цонх ачаалсангүй");
     return Promise.resolve(false);
   }
 
   const deleting = action === "delete";
-  title.textContent = deleting ? "Устгах эрх баталгаажуулах" : "Засах эрх баталгаажуулах";
-  label.textContent = deleting ? "Устгах код оруулна уу" : "Засах код оруулна уу";
+  label.textContent = "Код оруулах";
   input.value = "";
   errorText.textContent = "";
   overlay.hidden = false;
