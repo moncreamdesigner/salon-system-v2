@@ -9874,6 +9874,10 @@ function renderStaff() {
 
 function renderBookings() {
   if (!document.getElementById("bookingsView")?.isConnected) return;
+  // The booking view is mounted before the server state finishes loading.
+  // Rebuild its branch filter from the current branch records, otherwise the
+  // initial prototype branches remain visible after real data is applied.
+  renderSalons();
   const activeEditForm = document.getElementById("bookingRowEditSlot")?.querySelector("#bookingForm");
   const editDraft = activeEditForm ? {
     salon: activeEditForm.querySelector(".booking-salon")?.value || "",
@@ -9962,6 +9966,19 @@ function renderBookings() {
     const editSlot = document.getElementById("bookingRowEditSlot");
     if (editSlot) openBookingModal(bookingInlineEditingId, editSlot, editDraft);
     else bookingInlineEditingId = null;
+  } else {
+    const createSlot = document.getElementById("bookingInlineSlot");
+    const createForm = createSlot?.querySelector("#bookingForm");
+    const salonSignature = accountSalons().map(salon => salon.name).join("|");
+    if (createForm && createForm.dataset.salonSignature !== salonSignature) {
+      const firstRow = createForm.querySelector(".booking-slot-row");
+      openBookingModal(null, createSlot, {
+        salon: firstRow?.querySelector(".booking-salon")?.value || "",
+        date: firstRow?.querySelector(".booking-date")?.value || "",
+        time: firstRow?.querySelector(".booking-time")?.value || "",
+        phone: createForm.querySelector("#bookingPhone")?.value || ""
+      });
+    }
   }
 
   renderInfoHeader(activeView);
@@ -11857,8 +11874,9 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
   const selectedTime = draft?.time || editing?.time || bookingOptionsForSalon(selectedSalon)[0] || "";
   const slot = targetSlot || document.getElementById("bookingInlineSlot");
   if (!slot) return;
+  const salonSignature = accountSalons().map(salon => salon.name).join("|");
   slot.innerHTML = `
-    <form id="bookingForm" class="clean-form inline-booking-form${editing ? " is-editing" : ""}">
+    <form id="bookingForm" class="clean-form inline-booking-form${editing ? " is-editing" : ""}" data-salon-signature="${htmlSafe(salonSignature)}">
       <div class="inline-form-head">
         <strong>${editing ? "Цаг засах" : "Цаг захиалга"}</strong>
       </div>
