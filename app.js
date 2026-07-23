@@ -1184,7 +1184,7 @@ async function initializeServerStorage() {
   }
 }
 
-const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers", "giftCards", "groups", "audit", "dashboard", "performance"]);
+const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers", "giftCards", "groups", "audit", "performance"]);
 
 async function refreshServerStateForView(viewName = activeView) {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return;
@@ -2592,6 +2592,16 @@ function monthText(dateText = todayText()) {
   return String(dateText).slice(0, 7);
 }
 
+function currentMonthDateRange(dateText = todayText()) {
+  const month = monthText(dateText);
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return {
+    from: `${month}-01`,
+    to: `${month}-${String(lastDay).padStart(2, "0")}`
+  };
+}
+
 function daysBetween(fromDate, toDate) {
   const from = new Date(`${fromDate}T00:00:00`);
   const to = new Date(`${toDate}T00:00:00`);
@@ -2807,18 +2817,16 @@ function renderKassSchedule() {
   const toDate = document.getElementById("kassToFilter")?.value || "";
   const staffSearch = document.getElementById("kassStaffFilter")?.value.trim().toLowerCase() || "";
   const salonFilter = isSalonAccount() ? activeAccount.salon : (document.getElementById("kassSalonFilter")?.value || "");
+  const hasDateSearch = Boolean(fromDate || toDate);
   const filtered = [...state.kassSchedules]
+    .filter(item => hasDateSearch || item.date === todayText())
     .filter(item => !fromDate || item.date >= fromDate)
     .filter(item => !toDate || item.date <= toDate)
     .filter(item => !staffSearch || item.staff.toLowerCase().includes(staffSearch))
     .filter(item => !salonFilter || item.salon === salonFilter)
     .sort((a, b) => b.date.localeCompare(a.date));
-  const pageSize = 100;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  kassPage = Math.min(Math.max(kassPage, 1), pageCount);
-  const pageRows = filtered.slice((kassPage - 1) * pageSize, kassPage * pageSize);
   if (rows) {
-    rows.innerHTML = pageRows.map(item => {
+    rows.innerHTML = filtered.map(item => {
       const editable = canEditKassSchedule(item);
       return `
         <tr class="${editable ? "" : "locked-row"}">
@@ -2833,25 +2841,11 @@ function renderKassSchedule() {
           </td>
         </tr>
       `;
-    }).join("");
+    }).join("") || `<tr><td colspan="4" class="empty-state">${hasDateSearch ? "Сонгосон хугацаанд кассын хуваарь алга" : "Өнөөдөр кассын хуваарь бүртгэгдээгүй"}</td></tr>`;
     rows.querySelectorAll(".kass-edit").forEach(button => button.addEventListener("click", () => editKassSchedule(Number(button.dataset.id))));
     rows.querySelectorAll(".kass-delete").forEach(button => button.addEventListener("click", () => deleteKassSchedule(Number(button.dataset.id))));
   }
-  if (pagination) {
-    pagination.innerHTML = filtered.length > pageSize ? `
-      <button class="secondary-btn" type="button" id="kassPrevPage" ${kassPage <= 1 ? "disabled" : ""}>Өмнөх</button>
-      <span>${kassPage} / ${pageCount}</span>
-      <button class="secondary-btn" type="button" id="kassNextPage" ${kassPage >= pageCount ? "disabled" : ""}>Дараах</button>
-    ` : "";
-    document.getElementById("kassPrevPage")?.addEventListener("click", () => {
-      kassPage -= 1;
-      renderKassSchedule();
-    });
-    document.getElementById("kassNextPage")?.addEventListener("click", () => {
-      kassPage += 1;
-      renderKassSchedule();
-    });
-  }
+  if (pagination) pagination.innerHTML = "";
 }
 
 function saveKassSchedule(event) {
@@ -3391,6 +3385,50 @@ function customerGenderSummary(customers) {
   return `Эм ${female} / Эр ${male}`;
 }
 
+function selectedSalonScopeForView(viewName) {
+  if (isSalonAccount()) return activeAccount.salon;
+  const filterIds = {
+    bookings: "bookingSalonFilter",
+    kass: "kassSalonFilter"
+  };
+  const value = document.getElementById(filterIds[viewName])?.value || "";
+  return value && value !== "all" ? value : "";
+}
+
+function customerRegisteredDate(customer = {}) {
+  return serviceDateKey(customer.registeredAt || customer.last || "");
+}
+
+function customerRegisteredSalon(customer = {}) {
+  return customer.registeredSalon || customer.salon || "";
+}
+
+function customerTodayHeaderStats() {
+  const today = todayText();
+  const salon = isSalonAccount() ? activeAccount.salon : "";
+  const customers = state.customers.filter(customer =>
+    !customer.deleted &&
+    !customer.deletedAt &&
+    customerRegisteredDate(customer) === today &&
+    (!salon || customerRegisteredSalon(customer) === salon)
+  );
+  const serviceCounts = new Map();
+  state.customers.forEach(customer => {
+    if (customer.deleted || customer.deletedAt) return;
+    (customer.serviceHistory || []).forEach(item => {
+      const itemDate = serviceDateKey(item.date || item.createdAt || "");
+      const itemSalon = item.salon || customerRegisteredSalon(customer);
+      if (itemDate !== today || (salon && itemSalon !== salon)) return;
+      const kind = item.kind === "course" ? "Курс" : item.kind === "kass" || item.kind === "product" ? "Касс" : "Нэг удаа";
+      serviceCounts.set(kind, (serviceCounts.get(kind) || 0) + 1);
+    });
+  });
+  return [
+    ["Шинэ хэрэглэгч", customers.length],
+    ...["Нэг удаа", "Курс", "Касс"].map(label => [label, serviceCounts.get(label) || 0])
+  ];
+}
+
 function infoForView(name) {
   const bookings = state.bookings;
   const customers = state.customers;
@@ -3404,9 +3442,10 @@ function infoForView(name) {
   const performanceReport = name === "performance"
     ? buildPerformanceReport()
     : { periodLabel: "", rows: [], singleCount: 0, courseCount: 0, revenue: 0, commission: 0 };
+  const kassSalonScope = selectedSalonScopeForView("kass");
   const currentMonthKass = name === "kass" ? state.kassSchedules
     .filter(item => monthText(item.date) === monthText(today))
-    .filter(item => !isSalonAccount() || item.salon === activeAccount.salon)
+    .filter(item => !kassSalonScope || item.salon === kassSalonScope)
     .reduce((acc, item) => {
       acc[item.staff] = (acc[item.staff] || 0) + 1;
       return acc;
@@ -3415,23 +3454,21 @@ function infoForView(name) {
     .sort((a, b) => b[1] - a[1])
     .map(([name, count]) => [name, `${count} өдөр`]);
 
+  const bookingSalon = selectedSalonScopeForView("bookings");
+  const currentBookings = bookings.filter(item =>
+    item.date >= today &&
+    (!bookingSalon || item.salon === bookingSalon)
+  );
   const bookingStats = [
-    ["Нийт", bookings.length],
-    ["Баталгаажсан", bookings.filter(item => item.status === "confirmed").length],
-    ["Хүлээгдэж буй", bookings.filter(item => item.status === "pending").length],
-    ["Өнөөдөр", bookings.filter(item => item.date === today).length]
+    ["Нийт", currentBookings.length],
+    ["Баталгаажсан", currentBookings.filter(item => item.status === "confirmed").length],
+    ["Хүлээгдэж буй", currentBookings.filter(item => item.status === "pending").length],
+    ["Өнөөдөр", currentBookings.filter(item => item.date === today).length]
   ];
 
   const info = {
     bookings: ["НИЙТ ЗАХИАЛГА", bookingStats],
-    customers: name === "customers" ? ["НИЙТ ХЭРЭГЛЭГЧ", [
-      ["Нийт", customers.length],
-      ["Идэвхтэй курс", customers.filter(item => item.activeCourse).length],
-      ["Төлбөр дутуу", customers.filter(item => item.unpaid).length],
-      ["Хүйс", customerGenderSummary(customers)],
-      ["Дундаж нас", averageCustomerAge(customers)],
-      ["Их дүүрэг", topCustomerDistrict(customers)]
-    ]] : null,
+    customers: name === "customers" ? ["ӨНӨӨДРИЙН ХЭРЭГЛЭГЧ", customerTodayHeaderStats()] : null,
     kass: ["ЭНЭ САРЫН КАСС", currentMonthKassStats.length ? currentMonthKassStats : [["Бүртгэл", "алга"]]],
     kassRevenue: name === "kassRevenue" ? (() => {
       const rows = kassRevenueSourceRows().filter(row => !isSalonAccount() || row.salon === activeAccount.salon);
@@ -4438,15 +4475,15 @@ function resetIncomingViewState(name) {
   });
 
   if (name === "customers") {
-    resetValues({ customerSearch: "", customerDistrictFilter: "all", customerKhorooFilter: "", customerTypeFilter: "all", customerWorkFilter: "all" });
-    clearSubmittedListSearch(["customerSearch", "customerKhorooFilter"]);
+    resetValues({ customerSearch: "", customerFromFilter: "", customerToFilter: "", customerTypeFilter: "all", customerWorkFilter: "all" });
+    clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter"]);
     customerSortMode = "date";
     customerPage = 1;
     state.selectedCustomerId = null;
   }
   if (name === "bookings") {
     resetValues({ bookingSearch: "", bookingSalonFilter: isSalonAccount() ? activeAccount.salon : "all", bookingDateFilter: "", bookingStatusFilter: "all" });
-    clearSubmittedListSearch(["bookingSearch"]);
+    clearSubmittedListSearch(["bookingSearch", "bookingDateFilter"]);
     bookingPage = 1;
     bookingInlineEditingId = null;
   }
@@ -4456,8 +4493,8 @@ function resetIncomingViewState(name) {
     kassEditingId = null;
   }
   if (name === "vouchers") {
-    resetValues({ voucherDateFilter: "", voucherCustomerFilter: "", voucherPhoneFilter: "", voucherRoleFilter: "all" });
-    clearSubmittedListSearch(["voucherCustomerFilter", "voucherPhoneFilter"]);
+    resetValues({ voucherFromFilter: "", voucherToFilter: "", voucherCustomerFilter: "", voucherPhoneFilter: "", voucherRoleFilter: "all" });
+    clearSubmittedListSearch(["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter"]);
     voucherPage = 1;
   }
   if (name === "giftCards") {
@@ -5691,16 +5728,17 @@ function saveInlineCustomer(event) {
   enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType"]);
   renderCustomers();
   renderAudit();
+  renderInfoHeader("customers");
   showToast("Хэрэглэгч нэмэгдлээ");
 }
 
 function clearCustomerFilters() {
-  clearSubmittedListSearch(["customerSearch", "customerKhorooFilter"]);
-  ["customerSearch", "customerDistrictFilter", "customerKhorooFilter"].forEach(id => {
+  clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter"]);
+  ["customerSearch", "customerFromFilter", "customerToFilter"].forEach(id => {
     const input = document.getElementById(id);
-    if (input) input.value = id === "customerDistrictFilter" ? "all" : "";
+    if (input) input.value = "";
   });
-  ["customerDistrictFilter", "customerTypeFilter", "customerWorkFilter"].forEach(id => {
+  ["customerTypeFilter", "customerWorkFilter"].forEach(id => {
     const select = document.getElementById(id);
     if (!select) return;
     select.value = "all";
@@ -5807,20 +5845,11 @@ function renderCustomers() {
   if (!document.getElementById("customersView")?.isConnected) return;
   renderCustomerTypeFilter();
   renderCustomerInlineForm();
-  const districtFilter = document.getElementById("customerDistrictFilter");
-  if (districtFilter) {
-    const districtValue = districtFilter.value || "all";
-    const districtMarkup = districtFilterOptions(districtValue);
-    if (districtFilter.dataset.optionMarkup !== districtMarkup) {
-      districtFilter.innerHTML = districtMarkup;
-      districtFilter.dataset.optionMarkup = districtMarkup;
-    }
-    districtFilter.value = districtValue;
-  }
-  enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType", "customerDistrictFilter", "customerTypeFilter", "customerWorkFilter"]);
+  enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType", "customerTypeFilter", "customerWorkFilter"]);
   const q = submittedListSearchValue("customerSearch").toLowerCase();
-  const districtQuery = document.getElementById("customerDistrictFilter")?.value || "all";
-  const khorooQuery = submittedListSearchValue("customerKhorooFilter").toLowerCase();
+  const fromDate = submittedListSearchValue("customerFromFilter");
+  const toDate = submittedListSearchValue("customerToFilter");
+  const hasHistorySearch = Boolean(q || fromDate || toDate);
   const type = document.getElementById("customerTypeFilter")?.value || "all";
   const workFilter = document.getElementById("customerWorkFilter")?.value || "all";
   const sortMode = customerSortMode || "date";
@@ -5855,6 +5884,14 @@ function renderCustomers() {
   const groupById = new Map((state.customerGroups || []).map(group => [Number(group.id), group]));
   let rows = state.customers
     .filter(c => !c.deleted)
+    .filter(c => !isSalonAccount() || customerRegisteredSalon(c) === activeAccount.salon)
+    .filter(c => {
+      const registeredDate = customerRegisteredDate(c);
+      if (!hasHistorySearch) return registeredDate === todayText();
+      if (fromDate && registeredDate < fromDate) return false;
+      if (toDate && registeredDate > toDate) return false;
+      return true;
+    })
     .filter(c => type === "all" || c.type === type)
     .filter(c => {
       if (workFilter === "active") {
@@ -5866,8 +5903,6 @@ function renderCustomers() {
       if (workFilter === "no-group") return !groupById.has(Number(c.groupId));
       return true;
     })
-    .filter(c => districtQuery === "all" || String(c.district || "") === districtQuery)
-    .filter(c => !khorooQuery || String(c.khoroo || "").toLowerCase().includes(khorooQuery))
     .filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q));
 
   rows = rows.sort((a, b) => {
@@ -5877,15 +5912,10 @@ function renderCustomers() {
     return bRegistered.localeCompare(aRegistered) || b.id - a.id;
   });
 
-  const pageSize = 100;
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  customerPage = Math.min(customerPage, totalPages);
-  const pageRows = rows.slice((customerPage - 1) * pageSize, customerPage * pageSize);
-
   const body = document.getElementById("customerRows");
   if (body) {
     const groupBonusCache = new Map();
-    body.innerHTML = pageRows.map(customer => {
+    body.innerHTML = rows.map(customer => {
       const balance = customerBalance(customer);
       const bonusPercent = customerBonusPercent(customer, groupById, groupBonusCache);
       return `
@@ -5907,19 +5937,11 @@ function renderCustomers() {
           <td><button class="secondary-btn compact-action customer-detail-open" data-id="${customer.id}" type="button">Дэлгэрэнгүй</button></td>
         </tr>
       `;
-    }).join("");
+    }).join("") || `<tr><td colspan="8" class="empty-state">${hasHistorySearch ? "Хайлтад тохирох хэрэглэгч олдсонгүй" : "Өнөөдөр шинэ хэрэглэгч бүртгэгдээгүй"}</td></tr>`;
   }
 
   const pagination = document.getElementById("customerPagination");
-  if (pagination) {
-    pagination.innerHTML = totalPages > 1 ? `
-      <button class="secondary-btn" id="customerPrevPage" ${customerPage <= 1 ? "disabled" : ""}>Өмнөх</button>
-      <span>${customerPage} / ${totalPages}</span>
-      <button class="secondary-btn" id="customerNextPage" ${customerPage >= totalPages ? "disabled" : ""}>Дараах</button>
-    ` : "";
-    document.getElementById("customerPrevPage")?.addEventListener("click", () => { customerPage -= 1; renderCustomers(); });
-    document.getElementById("customerNextPage")?.addEventListener("click", () => { customerPage += 1; renderCustomers(); });
-  }
+  if (pagination) pagination.innerHTML = "";
 
   document.querySelectorAll(".customer-detail-open").forEach(button => {
     button.addEventListener("click", () => {
@@ -6912,7 +6934,7 @@ function renderGroupDirectory() {
       <section class="panel group-tab-panel group-directory-panel" id="groupDirectoryTabPanel" role="tabpanel">
         <div class="group-directory-toolbar">
           <div class="group-directory-search-row">
-            <input class="input" id="groupDirectorySearch" placeholder="8 оронтой дугаар" inputmode="numeric" maxlength="8" aria-label="Групп эсвэл гишүүний утсаар хайх">
+            <input class="input" id="groupDirectorySearch" placeholder="Групп, нэр эсвэл утас хайх" aria-label="Групп, админ эсвэл гишүүнээр хайх">
             <select class="input" id="groupDirectoryStatusFilter" aria-label="Группийн төлөв">
               <option value="all">Бүх төлөв</option>
               <option value="with_members">Гишүүнтэй</option>
@@ -6948,9 +6970,6 @@ function renderGroupDirectory() {
         if (tab === "deleted") renderDeletedCustomerDirectory();
       });
     });
-    document.getElementById("groupDirectorySearch")?.addEventListener("input", event => {
-      event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
-    });
     bindListSearchSubmit("groupDirectorySearchBtn", ["groupDirectorySearch"], () => {
       renderGroupDirectory();
     });
@@ -6973,7 +6992,8 @@ function renderGroupDirectory() {
   const list = document.getElementById("groupDirectoryList");
   const search = submittedListSearchValue("groupDirectorySearch").trim().toLowerCase();
   const memberStatus = document.getElementById("groupDirectoryStatusFilter")?.value || "all";
-  const groups = state.customerGroups
+  const hasDirectorySearch = Boolean(search || memberStatus !== "all");
+  const groups = (hasDirectorySearch ? state.customerGroups : [])
     .map(group => ({ group, members: orderedGroupMembers(group) }))
     .filter(({ group, members }) => {
       if (memberStatus === "all") return true;
@@ -6987,7 +7007,8 @@ function renderGroupDirectory() {
     .sort((a, b) => Number(b.group.spent2y || 0) - Number(a.group.spent2y || 0));
   const groupCount = document.getElementById("groupDirectoryTabCount");
   if (groupCount) groupCount.textContent = state.customerGroups.length;
-  renderDeletedCustomerDirectory();
+  const deletedCount = document.getElementById("groupDeletedTabCount");
+  if (deletedCount) deletedCount.textContent = deletedCustomers().length;
 
   list.innerHTML = groups.length ? `
     <div class="table-wrap group-list-table-wrap">
@@ -7071,7 +7092,7 @@ function renderGroupDirectory() {
         </tbody>
       </table>
     </div>
-  ` : `<div class="empty-state">Хайлтад тохирох групп олдсонгүй</div>`;
+  ` : `<div class="empty-state">${hasDirectorySearch ? "Хайлтад тохирох групп олдсонгүй" : "Группийн дугаар, админ эсвэл гишүүний нэр, утсаар хайна уу"}</div>`;
 
   list.querySelectorAll(".group-member-open").forEach(button => {
     button.addEventListener("click", () => {
@@ -10057,10 +10078,11 @@ function renderBookings() {
   const q = submittedListSearchValue("bookingSearch");
   const status = document.getElementById("bookingStatusFilter")?.value || "all";
   const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("bookingSalonFilter")?.value || "all");
-  const date = document.getElementById("bookingDateFilter")?.value || "";
+  const date = submittedListSearchValue("bookingDateFilter");
   const pagination = document.getElementById("bookingPagination");
   const bookings = state.bookings
     .filter(b => !q || b.phone.includes(q))
+    .filter(b => q || date || b.date >= todayText())
     .filter(b => salon === "all" || b.salon === salon)
     .filter(b => !date || b.date === date)
     .filter(b => status === "all" || b.status === status)
@@ -10068,18 +10090,16 @@ function renderBookings() {
     .sort((a, b) => {
       const pendingOrder = Number(b.status === "pending") - Number(a.status === "pending");
       if (pendingOrder) return pendingOrder;
-      const dateTimeOrder = `${b.date || ""} ${b.time || ""}`.localeCompare(`${a.date || ""} ${a.time || ""}`);
+      const aDateTime = `${a.date || ""} ${a.time || ""}`;
+      const bDateTime = `${b.date || ""} ${b.time || ""}`;
+      const dateTimeOrder = q ? bDateTime.localeCompare(aDateTime) : aDateTime.localeCompare(bDateTime);
       return dateTimeOrder || Number(b.id || 0) - Number(a.id || 0);
     });
-  const pageSize = 100;
-  const pageCount = Math.max(1, Math.ceil(bookings.length / pageSize));
-  bookingPage = Math.min(Math.max(bookingPage, 1), pageCount);
-  const pageRows = bookings.slice((bookingPage - 1) * pageSize, bookingPage * pageSize);
-  document.getElementById("bookingRows").innerHTML = pageRows.map((booking, index) => {
+  document.getElementById("bookingRows").innerHTML = bookings.map((booking, index) => {
     const editingThisBooking = Number(bookingInlineEditingId) === Number(booking.id);
     return `
     <tr class="${editingThisBooking ? "booking-row-editing" : ""}">
-      <td>${bookings.length - ((bookingPage - 1) * pageSize + index)}</td>
+      <td>${bookings.length - index}</td>
       <td>${booking.salon}</td>
       <td>${dateWithWeekday(booking.date)}</td>
       <td>${booking.time}</td>
@@ -10100,7 +10120,7 @@ function renderBookings() {
     </tr>
     ${editingThisBooking ? `<tr class="booking-inline-edit-row"><td colspan="8"><div class="booking-row-edit-shell" id="bookingRowEditSlot"></div></td></tr>` : ""}
   `;
-  }).join("");
+  }).join("") || `<tr><td colspan="8" class="empty-state">${q || date ? "Хайлтад тохирох цаг олдсонгүй" : "Өнөөдөр болон ирээдүйд бүртгэлтэй цаг алга"}</td></tr>`;
 
   document.querySelectorAll(".booking-confirm").forEach(button => {
     button.addEventListener("click", () => updateBookingStatus(Number(button.dataset.id), "confirmed"));
@@ -10115,21 +10135,7 @@ function renderBookings() {
       renderBookings();
     });
   });
-  if (pagination) {
-    pagination.innerHTML = bookings.length > pageSize ? `
-      <button class="secondary-btn" type="button" id="bookingPrevPage" ${bookingPage <= 1 ? "disabled" : ""}>Өмнөх</button>
-      <span>${bookingPage} / ${pageCount}</span>
-      <button class="secondary-btn" type="button" id="bookingNextPage" ${bookingPage >= pageCount ? "disabled" : ""}>Дараах</button>
-    ` : "";
-    document.getElementById("bookingPrevPage")?.addEventListener("click", () => {
-      bookingPage -= 1;
-      renderBookings();
-    });
-    document.getElementById("bookingNextPage")?.addEventListener("click", () => {
-      bookingPage += 1;
-      renderBookings();
-    });
-  }
+  if (pagination) pagination.innerHTML = "";
 
   if (bookingInlineEditingId) {
     const editSlot = document.getElementById("bookingRowEditSlot");
@@ -10258,22 +10264,20 @@ function renderVouchers() {
     </div>
   `).join("");
 
-  const dateFilter = document.getElementById("voucherDateFilter")?.value || "";
+  const defaultRange = currentMonthDateRange();
+  const fromDate = submittedListSearchValue("voucherFromFilter") || defaultRange.from;
+  const toDate = submittedListSearchValue("voucherToFilter") || defaultRange.to;
   const customerFilter = submittedListSearchValue("voucherCustomerFilter").trim().toLowerCase();
   const phoneFilter = submittedListSearchValue("voucherPhoneFilter").trim();
   const roleFilter = document.getElementById("voucherRoleFilter")?.value || "";
   const logs = state.voucherLogs
-    .filter(item => !dateFilter || item.date === dateFilter)
+    .filter(item => !fromDate || item.date >= fromDate)
+    .filter(item => !toDate || item.date <= toDate)
     .filter(item => !customerFilter || item.customer.toLowerCase().includes(customerFilter))
     .filter(item => !phoneFilter || item.phone.includes(phoneFilter))
     .filter(item => !roleFilter || voucherLogRoleKey(item) === roleFilter)
     .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
-  const pageSize = 100;
-  const pageCount = Math.max(1, Math.ceil(logs.length / pageSize));
-  voucherPage = Math.min(Math.max(voucherPage, 1), pageCount);
-  const pageRows = logs.slice((voucherPage - 1) * pageSize, voucherPage * pageSize);
-
-  logRows.innerHTML = pageRows.map(log => `
+  logRows.innerHTML = logs.map(log => `
     <tr>
       <td>${log.date}</td>
       <td>${log.time || ""}</td>
@@ -10283,7 +10287,7 @@ function renderVouchers() {
       <td><strong>${money(log.amount)}</strong></td>
       <td>${log.note || ""}</td>
     </tr>
-  `).join("");
+  `).join("") || `<tr><td colspan="7" class="empty-state">Сонгосон хугацаанд ваучер ашиглаагүй</td></tr>`;
 
   roleRows.querySelectorAll(".voucher-role-delete").forEach(button => {
     button.addEventListener("click", () => {
@@ -10311,21 +10315,7 @@ function renderVouchers() {
       renderInfoHeader(activeView);
     });
   });
-  if (pagination) {
-    pagination.innerHTML = logs.length > pageSize ? `
-      <button class="secondary-btn" type="button" id="voucherPrevPage" ${voucherPage <= 1 ? "disabled" : ""}>Өмнөх</button>
-      <span>${voucherPage} / ${pageCount}</span>
-      <button class="secondary-btn" type="button" id="voucherNextPage" ${voucherPage >= pageCount ? "disabled" : ""}>Дараах</button>
-    ` : "";
-    document.getElementById("voucherPrevPage")?.addEventListener("click", () => {
-      voucherPage -= 1;
-      renderVouchers();
-    });
-    document.getElementById("voucherNextPage")?.addEventListener("click", () => {
-      voucherPage += 1;
-      renderVouchers();
-    });
-  }
+  if (pagination) pagination.innerHTML = "";
 }
 
 function resetGiftCardForm() {
@@ -11716,7 +11706,7 @@ function resetCustomSelect(dropdownId, inputId) {
 }
 
 function clearBookingFilters() {
-  clearSubmittedListSearch(["bookingSearch"]);
+  clearSubmittedListSearch(["bookingSearch", "bookingDateFilter"]);
   document.getElementById("bookingSearch").value = "";
   document.getElementById("bookingDateFilter").value = "";
   resetCustomSelect("bookingSalonDropdown", "bookingSalonFilter");
@@ -12315,7 +12305,7 @@ function bindEvents() {
     renderInfoHeader(activeView);
     showToast(wasEditing ? "Ваучерийн эрх шинэчлэгдлээ" : "Ваучерийн эрх хадгалагдлаа");
   });
-  ["voucherDateFilter", "voucherRoleFilter"].forEach(id => {
+  ["voucherRoleFilter"].forEach(id => {
     const rerenderVoucherFirstPage = () => {
       voucherPage = 1;
       renderVouchers();
@@ -12326,16 +12316,22 @@ function bindEvents() {
   document.getElementById("voucherPhoneFilter")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  bindListSearchSubmit("voucherSearchBtn", ["voucherCustomerFilter", "voucherPhoneFilter"], () => {
+  bindListSearchSubmit("voucherSearchBtn", ["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter"], () => {
+    const from = submittedListSearchValue("voucherFromFilter");
+    const to = submittedListSearchValue("voucherToFilter");
+    if (from && to && to < from) {
+      showToast("Огнооны дарааллыг зөв оруулна уу");
+      return;
+    }
     voucherPage = 1;
     renderVouchers();
   });
   document.getElementById("voucherClearBtn")?.addEventListener("click", () => {
-    ["voucherDateFilter", "voucherCustomerFilter", "voucherPhoneFilter", "voucherRoleFilter"].forEach(id => {
+    ["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter", "voucherRoleFilter"].forEach(id => {
       const field = document.getElementById(id);
       if (field) field.value = "";
     });
-    clearSubmittedListSearch(["voucherCustomerFilter", "voucherPhoneFilter"]);
+    clearSubmittedListSearch(["voucherFromFilter", "voucherToFilter", "voucherCustomerFilter", "voucherPhoneFilter"]);
     voucherPage = 1;
     renderVouchers();
   });
@@ -12479,6 +12475,20 @@ function bindEvents() {
     });
   });
   document.getElementById("dashboardExportExcel")?.addEventListener("click", exportDashboardExcel);
+  document.getElementById("dashboardRefresh")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await refreshServerStateForView("dashboard");
+      if (activeView === "dashboard") {
+        renderDashboard();
+        renderInfoHeader("dashboard");
+      }
+      showToast("Хяналтын самбар шинэчлэгдлээ");
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById("dashboardContent")?.addEventListener("click", event => {
     const button = event.target.closest("[data-dashboard-chart]");
     if (!button) return;
@@ -12523,6 +12533,7 @@ function bindEvents() {
     const rerenderKassFirstPage = () => {
       kassPage = 1;
       renderKassSchedule();
+      renderInfoHeader("kass");
     };
     document.getElementById(id)?.addEventListener("input", rerenderKassFirstPage);
     document.getElementById(id)?.addEventListener("change", rerenderKassFirstPage);
@@ -12534,6 +12545,7 @@ function bindEvents() {
     document.getElementById("kassSalonFilter").value = "";
     kassPage = 1;
     renderKassSchedule();
+    renderInfoHeader("kass");
   });
   document.getElementById("hrCancelEdit")?.addEventListener("click", resetHumanResourceForm);
   document.getElementById("hrAssignmentCancel")?.addEventListener("click", () => {
@@ -12624,11 +12636,17 @@ function bindEvents() {
   document.getElementById("menuButton")?.addEventListener("click", toggleSidebar);
   document.getElementById("sidebarCollapseBtn")?.addEventListener("click", toggleSidebar);
 
-  bindListSearchSubmit("customerSearchBtn", ["customerSearch", "customerKhorooFilter"], () => {
+  bindListSearchSubmit("customerSearchBtn", ["customerSearch", "customerFromFilter", "customerToFilter"], () => {
+    const from = submittedListSearchValue("customerFromFilter");
+    const to = submittedListSearchValue("customerToFilter");
+    if (from && to && to < from) {
+      showToast("Огнооны дарааллыг зөв оруулна уу");
+      return;
+    }
     customerPage = 1;
     renderCustomers();
   });
-  ["customerDistrictFilter", "customerTypeFilter", "customerWorkFilter"].forEach(id => {
+  ["customerTypeFilter", "customerWorkFilter"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => {
       customerPage = 1;
       renderCustomers();
@@ -12643,11 +12661,7 @@ function bindEvents() {
   document.getElementById("bookingSearch").addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  bindListSearchSubmit("bookingSearchBtn", ["bookingSearch"], () => {
-    bookingPage = 1;
-    renderBookings();
-  });
-  document.getElementById("bookingDateFilter").addEventListener("change", () => {
+  bindListSearchSubmit("bookingSearchBtn", ["bookingSearch", "bookingDateFilter"], () => {
     bookingPage = 1;
     renderBookings();
   });

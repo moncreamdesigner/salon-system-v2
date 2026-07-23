@@ -760,6 +760,10 @@ body.sidebar-collapsed .sidebar-logout {
   width: 168px;
 }
 
+.customer-filter-group .native-date {
+  width: 154px;
+}
+
 .customer-filter-group .custom-select {
   width: 168px;
 }
@@ -9022,7 +9026,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .voucher-log-filter {
-  grid-template-columns: 170px 220px 150px 220px 44px 44px;
+  grid-template-columns: 150px 150px 200px 140px 200px 44px 44px;
 }
 
 .gift-card-filter {
