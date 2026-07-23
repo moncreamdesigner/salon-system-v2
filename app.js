@@ -365,6 +365,7 @@ const dashboardDemoData = {
   ],
   topServices: []
 };
+let dashboardDataCache = null;
 let activeServiceMainTab = "single";
 let activeProductGroup = "gift";
 let activeDatabaseTab = "import";
@@ -2707,6 +2708,7 @@ function kassRevenueSourceRows() {
             phone: customer.phone || "—",
             service,
             salon,
+            kind: item.kind || "single",
             method: payment.method || "card",
             amount
           });
@@ -2723,6 +2725,7 @@ function kassRevenueSourceRows() {
         phone: customer.phone || "—",
         service,
         salon,
+        kind: item.kind || "single",
         method: item.paymentMethod || "card",
         amount: paid
       });
@@ -2818,8 +2821,9 @@ function renderKassSchedule() {
   const staffSearch = document.getElementById("kassStaffFilter")?.value.trim().toLowerCase() || "";
   const salonFilter = isSalonAccount() ? activeAccount.salon : (document.getElementById("kassSalonFilter")?.value || "");
   const hasDateSearch = Boolean(fromDate || toDate);
+  const currentMonth = monthText(todayText());
   const filtered = [...state.kassSchedules]
-    .filter(item => hasDateSearch || item.date === todayText())
+    .filter(item => hasDateSearch || monthText(item.date) === currentMonth)
     .filter(item => !fromDate || item.date >= fromDate)
     .filter(item => !toDate || item.date <= toDate)
     .filter(item => !staffSearch || item.staff.toLowerCase().includes(staffSearch))
@@ -2841,7 +2845,7 @@ function renderKassSchedule() {
           </td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="4" class="empty-state">${hasDateSearch ? "Сонгосон хугацаанд кассын хуваарь алга" : "Өнөөдөр кассын хуваарь бүртгэгдээгүй"}</td></tr>`;
+    }).join("") || `<tr><td colspan="4" class="empty-state">${hasDateSearch ? "Сонгосон хугацаанд кассын хуваарь алга" : "Энэ сард кассын хуваарь бүртгэгдээгүй"}</td></tr>`;
     rows.querySelectorAll(".kass-edit").forEach(button => button.addEventListener("click", () => editKassSchedule(Number(button.dataset.id))));
     rows.querySelectorAll(".kass-delete").forEach(button => button.addEventListener("click", () => deleteKassSchedule(Number(button.dataset.id))));
   }
@@ -3495,12 +3499,14 @@ function infoForView(name) {
       const salon = dashboardSelectedSalon();
       const snapshot = dashboardSnapshot(month, salon);
       const mode = dashboardSelectedViewMode();
+      const todayBookings = state.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
+      const todayActions = state.audit.filter(item => String(item.createdAt || "").startsWith(today)).length;
       const modeTitles = { overview: "ЕРӨНХИЙ ТОЙМ", operations: "ӨДРИЙН АЖИЛЛАГАА", cashflow: "МӨНГӨН УРСГАЛ", system: "СИСТЕМИЙН ХЯНАЛТ" };
       const modeStats = {
         overview: [["Хугацаа", month.label], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Орлого", money(snapshot.revenue)], ["Үйлчилгээ", formatNumber(snapshot.visits)]],
-        operations: [["Өдөр", today], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Захиалга", Math.max(12, Math.round(96 * (salon ? dashboardBranch(salon).share : 1)))], ["Дүүргэлт", `${snapshot.occupancy}%`]],
+        operations: [["Өдөр", today], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Захиалга", todayBookings.length], ["Дүүргэлт", `${snapshot.occupancy}%`]],
         cashflow: [["Хугацаа", month.label], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Орлого", money(snapshot.revenue)], ["Авлага", money(snapshot.outstanding)]],
-        system: [["Хамрах хүрээ", salon || "Нийт систем"], ["Өнөөдрийн үйлдэл", Math.round(512 * (salon ? dashboardBranch(salon).share : 1))], ["Сүүлийн backup", "03:10"], ["Анхааруулга", 28]]
+        system: [["Хамрах хүрээ", salon || "Нийт систем"], ["Өнөөдрийн үйлдэл", todayActions], ["Backup", databaseBackups().length], ["Устгасан хэрэглэгч", state.customers.filter(item => item.deleted || item.deletedAt).length]]
       };
       return [modeTitles[mode] || modeTitles.overview, modeStats[mode] || modeStats.overview];
     })() : null,
@@ -3674,6 +3680,126 @@ function renderInfoHeader(name = activeView) {
   document.getElementById("infoExcelBtn")?.classList.toggle("hidden", !["vouchers", "giftCards", "performance"].includes(name));
 }
 
+function dashboardMonthMeta(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  return {
+    key,
+    label: `${year} оны ${month} сар`,
+    short: `${month} сар`
+  };
+}
+
+function dashboardRefreshDataCatalog() {
+  const monthKeys = new Set([monthText(todayText())]);
+  const paymentRows = dashboardDataCache?.paymentRows || kassRevenueSourceRows();
+  paymentRows.forEach(row => monthKeys.add(monthText(row.date)));
+  state.bookings.forEach(item => monthKeys.add(monthText(item.date)));
+  state.customers.forEach(customer => {
+    monthKeys.add(monthText(customerRegisteredDate(customer)));
+    (customer.serviceHistory || []).forEach(item => {
+      monthKeys.add(monthText(serviceDateKey(item.date || item.createdAt || "")));
+      (item.visits || []).forEach(visit => monthKeys.add(monthText(serviceDateKey(visit.date || visit.createdAt || ""))));
+      (item.diagnosisHistory || []).forEach(entry => monthKeys.add(monthText(serviceDateKey(entry.date || entry.createdAt || ""))));
+    });
+  });
+  dashboardDemoData.months = [...monthKeys]
+    .filter(key => /^\d{4}-\d{2}$/.test(key))
+    .sort()
+    .map(dashboardMonthMeta);
+  dashboardDemoData.branches = state.salons.map(item => ({
+    name: item.name,
+    share: 0,
+    completionDelta: 0,
+    occupancyDelta: 0
+  }));
+}
+
+function dashboardRowsForMonth(month, salon = "") {
+  const key = typeof month === "string" ? month : month?.key;
+  const paymentRows = dashboardDataCache?.paymentRows || kassRevenueSourceRows();
+  return paymentRows.filter(row =>
+    monthText(row.date) === key &&
+    (!salon || row.salon === salon)
+  );
+}
+
+function dashboardServiceRows(month, salon = "") {
+  const key = typeof month === "string" ? month : month?.key;
+  const cacheKey = `${key}|${salon}`;
+  if (dashboardDataCache?.serviceRows?.has(cacheKey)) return dashboardDataCache.serviceRows.get(cacheKey);
+  const rows = [
+    { name: "Курс эмчилгээ", key: "course", count: 0, color: "#60bf63" },
+    { name: "Нэг удаагийн үйлчилгээ", key: "single", count: 0, color: "#91cf86" },
+    { name: "Касс бүтээгдэхүүн", key: "kass", count: 0, color: "#bfdcae" },
+    { name: "Оношилгоо", key: "diagnosis", count: 0, color: "#dfe9d7" }
+  ];
+  const counts = Object.fromEntries(rows.map(item => [item.key, 0]));
+  state.customers.forEach(customer => {
+    if (customer.deleted || customer.deletedAt) return;
+    (customer.serviceHistory || []).forEach(item => {
+      if (!item || item.deleted) return;
+      const itemSalon = item.salon || item.branch || customer.salon || "";
+      if (salon && itemSalon !== salon) return;
+      const itemDate = serviceDateKey(item.date || item.createdAt || customer.registeredAt || "");
+      if (item.kind === "course") {
+        const visits = (item.visits || []).filter(visit =>
+          !visit.deleted &&
+          monthText(serviceDateKey(visit.date || visit.createdAt || itemDate)) === key &&
+          (!salon || (visit.salon || itemSalon) === salon)
+        );
+        counts.course += visits.length;
+      } else if (item.kind === "kass" || item.kind === "product") {
+        if (monthText(itemDate) === key) {
+          counts.kass += (item.products || []).reduce((sum, product) => sum + Math.max(1, Number(product.qty || product.quantity || 1)), 0) || 1;
+        }
+      } else if (monthText(itemDate) === key) {
+        counts.single += 1;
+      }
+      counts.diagnosis += (item.diagnosisHistory || []).filter(entry =>
+        monthText(serviceDateKey(entry.date || entry.createdAt || "")) === key
+      ).length;
+    });
+  });
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  const result = rows.map(item => ({
+    ...item,
+    count: counts[item.key],
+    share: total ? Math.round(counts[item.key] / total * 100) : 0
+  }));
+  dashboardDataCache?.serviceRows?.set(cacheKey, result);
+  return result;
+}
+
+function dashboardPaymentRows(month, salon = "") {
+  const colors = ["#60bf63", "#87c77e", "#b7d9aa", "#dfe9d7", "#9bcf91", "#c9dfbd", "#76b96f"];
+  const totals = new Map();
+  dashboardRowsForMonth(month, salon).forEach(row => {
+    const name = paymentMethodOptionsLabel(row.method) || row.method || "Тодорхойгүй";
+    totals.set(name, Number(totals.get(name) || 0) + Number(row.amount || 0));
+  });
+  const total = [...totals.values()].reduce((sum, value) => sum + value, 0);
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, amount], index) => ({
+      name,
+      amount,
+      share: total ? Math.round(amount / total * 100) : 0,
+      color: colors[index % colors.length]
+    }));
+}
+
+function dashboardTopServices(month, salon = "") {
+  const grouped = new Map();
+  dashboardRowsForMonth(month, salon).forEach(row => {
+    const name = row.service || "Үйлчилгээ";
+    const current = grouped.get(name) || { name, count: 0, revenue: 0 };
+    current.count += 1;
+    current.revenue += Number(row.amount || 0);
+    grouped.set(name, current);
+  });
+  return [...grouped.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+}
+
 function dashboardSelectedMonth() {
   const key = document.getElementById("dashboardMonth")?.value;
   return dashboardDemoData.months.find(item => item.key === key) || dashboardDemoData.months.at(-1);
@@ -3685,35 +3811,57 @@ function dashboardSelectedSalon() {
 }
 
 function dashboardBranch(name) {
-  const exact = dashboardDemoData.branches.find(item => item.name === name);
-  if (exact) return exact;
-  const normalized = String(name || "").toLowerCase();
-  const alias = normalized.includes("чингэлтэй")
-    ? dashboardDemoData.branches.find(item => item.name === "Төв салбар")
-    : normalized.includes("хан-уул") || normalized.includes("хан уул")
-      ? dashboardDemoData.branches.find(item => item.name === "Хан-Уул салбар")
-      : normalized.includes("вип")
-        ? dashboardDemoData.branches.find(item => item.name === "Вип салбар")
-        : null;
-  if (alias) return { ...alias, name };
-  const salonIndex = Math.max(0, state.salons.findIndex(item => item.name === name));
-  const template = dashboardDemoData.branches[salonIndex % dashboardDemoData.branches.length];
-  return { ...template, name: name || template.name };
+  return dashboardDemoData.branches.find(item => item.name === name) || {
+    name: name || "Салбар",
+    share: 0,
+    completionDelta: 0,
+    occupancyDelta: 0
+  };
 }
 
 function dashboardSnapshot(month, salon = "") {
-  const branch = salon ? dashboardBranch(salon) : null;
-  const share = branch?.share || 1;
-  return {
-    revenue: Math.round(month.revenue * share),
-    payments: Math.round(month.payments * share),
-    visits: Math.round(month.visits * share),
-    products: Math.round(month.products * share),
-    newCustomers: month.newCustomers,
-    outstanding: Math.round(month.outstanding * share),
-    completion: Math.max(0, Math.min(100, month.completion + (branch?.completionDelta || 0))),
-    occupancy: Math.max(0, Math.min(100, month.occupancy + (branch?.occupancyDelta || 0)))
+  const key = typeof month === "string" ? month : month?.key;
+  const cacheKey = `${key}|${salon}`;
+  if (dashboardDataCache?.snapshots?.has(cacheKey)) return dashboardDataCache.snapshots.get(cacheKey);
+  const paymentRows = dashboardRowsForMonth(key, salon);
+  const serviceRows = dashboardServiceRows(key, salon);
+  const bookings = state.bookings.filter(item =>
+    monthText(item.date) === key &&
+    (!salon || item.salon === salon)
+  );
+  const completedBookings = bookings.filter(item => item.status === "confirmed").length;
+  const activeBookings = bookings.filter(item => item.status !== "cancelled").length;
+  const outstanding = state.customers.reduce((customerTotal, customer) => {
+    return customerTotal + (customer.serviceHistory || []).reduce((sum, item) => {
+      const itemSalon = item.salon || item.branch || customer.salon || "";
+      const itemDate = serviceDateKey(item.date || item.createdAt || customer.registeredAt || "");
+      if (monthText(itemDate) !== key || (salon && itemSalon !== salon)) return sum;
+      return sum + Math.max(0, Number(item.balance || 0));
+    }, 0);
+  }, 0);
+  const revenue = paymentRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const products = paymentRows
+    .filter(row => row.kind === "kass" || row.kind === "product")
+    .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const visits = serviceRows.reduce((sum, item) => sum + Number(item.count || 0), 0);
+  const newCustomers = state.customers.filter(customer =>
+    !customer.deleted &&
+    !customer.deletedAt &&
+    monthText(customerRegisteredDate(customer)) === key &&
+    (!salon || customerRegisteredSalon(customer) === salon)
+  ).length;
+  const result = {
+    revenue,
+    payments: paymentRows.length,
+    visits,
+    products,
+    newCustomers,
+    outstanding,
+    completion: activeBookings ? Math.round(completedBookings / activeBookings * 100) : 0,
+    occupancy: bookings.length ? Math.round(activeBookings / bookings.length * 100) : 0
   };
+  dashboardDataCache?.snapshots?.set(cacheKey, result);
+  return result;
 }
 
 function dashboardCompactMoney(value) {
@@ -3738,7 +3886,8 @@ function dashboardTrendSvg(monthKey, salon) {
   const guides = [0, 1, 2, 3].map(index => {
     const guideY = 24 + index * (chartHeight / 3);
     const value = max - index * ((max - min) / 3);
-    return `<line x1="54" y1="${guideY}" x2="650" y2="${guideY}" class="dashboard-chart-grid"/><text x="46" y="${guideY + 4}" text-anchor="end" class="dashboard-chart-axis">${Math.round(value / 1000000)}с</text>`;
+    const axisValue = dashboardCompactMoney(Math.max(0, value)).replace(" ₮", "");
+    return `<line x1="54" y1="${guideY}" x2="650" y2="${guideY}" class="dashboard-chart-grid"/><text x="46" y="${guideY + 4}" text-anchor="end" class="dashboard-chart-axis">${axisValue}</text>`;
   }).join("");
   const labels = months.map((month, index) => `<text x="${x(index)}" y="215" text-anchor="middle" class="dashboard-chart-axis">${month.short}</text>`).join("");
   const dots = values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="4" class="dashboard-chart-dot"><title>${monthLabelForDashboard(months[index])}: ${money(value)}</title></circle>`).join("");
@@ -3816,7 +3965,8 @@ function dashboardDonutMarkup(items, total, valueKey = "share") {
     return part;
   }).join(",");
   const totalText = Number(total) >= 1000000 ? `${(Number(total) / 1000000).toFixed(1)}сая` : formatNumber(total);
-  return `<div class="dashboard-donut-layout"><div class="dashboard-donut" style="background:conic-gradient(${gradient})"><span><strong>${totalText}</strong><small>нийт</small></span></div><div class="dashboard-legend">${items.map(item => `<div><i style="background:${item.color}"></i><span>${htmlSafe(item.name)}</span><strong>${item.share}%</strong></div>`).join("")}</div></div>`;
+  const chartGradient = gradient || "#e9f0e5 0% 100%";
+  return `<div class="dashboard-donut-layout"><div class="dashboard-donut" style="background:conic-gradient(${chartGradient})"><span><strong>${totalText}</strong><small>нийт</small></span></div><div class="dashboard-legend">${items.map(item => `<div><i style="background:${item.color}"></i><span>${htmlSafe(item.name)}</span><strong>${item.share}%</strong></div>`).join("") || `<div class="muted">Мэдээлэл алга</div>`}</div></div>`;
 }
 
 function dashboardCustomerDemographics() {
@@ -3853,18 +4003,33 @@ function dashboardCustomerDemographics() {
 }
 
 function dashboardStaffRows(month, salon) {
-  const available = state.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon));
-  const fallback = ["Ариундулам", "Номинзул", "Мөнхзул", "Урантогоос", "Уранцэцэг", "Энхзул", "Оюундарь", "Бадамханд"];
-  const source = available.length ? available.slice(0, 8) : fallback.map((name, index) => ({ name, salon: salon || state.salons[index % Math.max(state.salons.length, 1)]?.name || "Хан-Уул салбар" }));
-  const snapshot = dashboardSnapshot(month, salon);
-  return source.map((item, index) => {
-    const rate = Math.max(.035, .105 - index * .009);
-    const revenue = Math.round(snapshot.revenue * rate);
-    const visits = Math.max(0, Math.round(snapshot.visits * rate * 1.55));
-    const serviceReward = Math.round(revenue * .1);
-    const kassReward = index % 3 === 0 ? Math.round(snapshot.products * rate * .02) : 0;
-    return { name: item.name, homeSalon: item.salon || salon || "Үндсэн салбар", workedSalon: salon || item.salon || "Олон салбар", revenue, visits, serviceReward, kassReward, totalReward: serviceReward + kassReward };
-  }).sort((a, b) => b.revenue - a.revenue);
+  const key = typeof month === "string" ? month : month?.key;
+  const grouped = new Map();
+  const performanceRows = dashboardDataCache
+    ? (dashboardDataCache.performanceRows ||= performanceTransactions())
+    : performanceTransactions();
+  performanceRows
+    .filter(item => monthText(item.date) === key)
+    .filter(item => !salon || item.salon === salon)
+    .forEach(item => {
+      const current = grouped.get(item.staff) || {
+        name: item.staff,
+        homeSalon: item.homeSalon || "",
+        workedSalon: item.salon || "",
+        revenue: 0,
+        visits: 0,
+        serviceReward: 0,
+        kassReward: 0,
+        totalReward: 0
+      };
+      current.revenue += Number(item.revenue || 0);
+      current.visits += 1;
+      if (item.type === "kass") current.kassReward += Number(item.commission || 0);
+      else current.serviceReward += Number(item.commission || 0);
+      current.totalReward += Number(item.commission || 0);
+      grouped.set(item.staff, current);
+    });
+  return [...grouped.values()].sort((a, b) => b.revenue - a.revenue);
 }
 
 const dashboardViewModes = [
@@ -3946,11 +4111,25 @@ function dashboardOperationsHtml(month, salon, snapshot) {
 
 function dashboardCashflowHtml(month, salon, snapshot) {
   const scope = salon || "Нийт салбар";
-  const payments = dashboardDemoData.payments.map(item => ({ ...item, amount: Math.round(snapshot.revenue * item.share / 100) }));
+  const payments = dashboardPaymentRows(month, salon);
+  const rawPayments = dashboardRowsForMonth(month, salon);
+  const sourceAmount = kind => rawPayments
+    .filter(item => kind === "product"
+      ? item.kind === "kass" || item.kind === "product"
+      : item.kind === kind)
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const sourceValues = [
+    ["Үйлчилгээ", sourceAmount("single"), "#60bf63"],
+    ["Курс", sourceAmount("course"), "#91cf86"],
+    ["Бараа", sourceAmount("product"), "#c9dfbd"]
+  ];
   const sources = [
-    { name: "Үйлчилгээ", amount: Math.round(snapshot.revenue * .57), share: 57, color: "#60bf63" },
-    { name: "Курс", amount: Math.round(snapshot.revenue * .24), share: 24, color: "#91cf86" },
-    { name: "Бараа", amount: Math.round(snapshot.revenue * .19), share: 19, color: "#c9dfbd" }
+    ...sourceValues.map(([name, amount, color]) => ({
+      name,
+      amount,
+      share: snapshot.revenue ? Math.round(amount / snapshot.revenue * 100) : 0,
+      color
+    }))
   ];
   const receivables = [
     { name: "0–7 хоног", amount: Math.round(snapshot.outstanding * .54) },
@@ -3981,7 +4160,7 @@ function dashboardCashflowHtml(month, salon, snapshot) {
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Төлбөрийн хэлбэр</h3><p>${formatNumber(snapshot.payments)} гүйлгээ</p></div></div>
         <div class="dashboard-payment-bar">${payments.map(item => `<span style="width:${item.share}%;background:${item.color}"></span>`).join("")}</div>
-        <div class="dashboard-payment-list">${payments.map(item => `<div><span><i style="background:${item.color}"></i>${item.name}</span><strong>${money(item.amount)} <small>${item.share}%</small></strong></div>`).join("")}</div>
+        <div class="dashboard-payment-list">${payments.map(item => `<div><span><i style="background:${item.color}"></i>${item.name}</span><strong>${money(item.amount)} <small>${item.share}%</small></strong></div>`).join("") || `<div class="empty-state">Төлбөрийн мэдээлэл алга</div>`}</div>
       </section>
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Авлагын насжилт</h3><p>${money(snapshot.outstanding)} нийт</p></div></div>
@@ -4070,6 +4249,13 @@ function dashboardSystemHtml(month, salon) {
 
 function renderDashboard() {
   if (!document.getElementById("dashboardView")?.isConnected) return;
+  dashboardDataCache = {
+    paymentRows: kassRevenueSourceRows(),
+    serviceRows: new Map(),
+    snapshots: new Map(),
+    performanceRows: null
+  };
+  dashboardRefreshDataCatalog();
   const content = document.getElementById("dashboardContent");
   const modeSelect = document.getElementById("dashboardViewMode");
   const monthSelect = document.getElementById("dashboardMonth");
@@ -4081,9 +4267,10 @@ function renderDashboard() {
   modeSelect.innerHTML = allowedModes.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
   modeSelect.value = allowedModes.some(item => item.value === previousMode) ? previousMode : allowedModes[0]?.value || "overview";
 
-  const previousMonth = monthSelect.value || dashboardDemoData.months.at(-1).key;
+  const currentMonthKey = monthText(todayText());
+  const previousMonth = monthSelect.value || currentMonthKey;
   monthSelect.innerHTML = dashboardDemoData.months.slice().reverse().map(month => `<option value="${month.key}">${month.label}</option>`).join("");
-  monthSelect.value = dashboardDemoData.months.some(month => month.key === previousMonth) ? previousMonth : dashboardDemoData.months.at(-1).key;
+  monthSelect.value = dashboardDemoData.months.some(month => month.key === previousMonth) ? previousMonth : currentMonthKey;
 
   const previousSalon = dashboardSelectedSalon();
   const allowedSalons = isSalonAccount() ? state.salons.filter(item => item.name === activeAccount.salon) : state.salons;
@@ -4118,8 +4305,8 @@ function renderDashboard() {
   }
 
   const branchRows = dashboardRowsForBranches(month);
-  const serviceRows = dashboardDemoData.services.map(item => ({ ...item, count: Math.round(snapshot.visits * item.share / 100) }));
-  const paymentRows = dashboardDemoData.payments.map(item => ({ ...item, amount: Math.round(snapshot.revenue * item.share / 100) }));
+  const serviceRows = dashboardServiceRows(month, salon);
+  const paymentRows = dashboardPaymentRows(month, salon);
   const monthIndex = dashboardDemoData.months.findIndex(item => item.key === month.key);
   const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
   const demographics = dashboardCustomerDemographics();
@@ -4129,8 +4316,7 @@ function renderDashboard() {
   const activeCourseCount = activeCustomers.filter(customer => customer.activeCourse || (customer.serviceHistory || []).some(item => item.kind === "course" && item.completed !== true)).length;
   const bonusBalance = activeCustomers.reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
   const staffRows = dashboardStaffRows(month, salon);
-  const topScale = salon ? dashboardBranch(salon).share : 1;
-  const topServices = dashboardDemoData.topServices.map(([name, count, revenue]) => ({ name, count: Math.round(count * topScale), revenue: Math.round(revenue * topScale) }));
+  const topServices = dashboardTopServices(month, salon);
 
   const revenueVisual = dashboardChartModes.revenue === "bar"
     ? dashboardVerticalBars(trendMonths, "value", dashboardCompactMoney)
@@ -4161,7 +4347,7 @@ function renderDashboard() {
       <article class="dashboard-kpi"><span>Үйлчилгээний оролт</span><strong>${formatNumber(snapshot.visits)}</strong><small>${snapshot.completion}% амжилттай дууссан</small></article>
       <article class="dashboard-kpi"><span>Барааны борлуулалт</span><strong>${money(snapshot.products)}</strong><small>Нийт орлогын ${Math.round(snapshot.products / Math.max(snapshot.revenue, 1) * 100)}%</small></article>
       <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(snapshot.outstanding)}</strong><small>Нэхэмжлэх шаардлагатай</small></article>
-      <article class="dashboard-kpi customer-kpi"><span>Нийт хэрэглэгч</span><strong>${formatNumber(customerCount)}</strong><small>+${month.newCustomers} шинэ • бүх салбар</small></article>
+      <article class="dashboard-kpi customer-kpi"><span>Нийт хэрэглэгч</span><strong>${formatNumber(customerCount)}</strong><small>+${snapshot.newCustomers} шинэ • бүх салбар</small></article>
     </div>
 
     <div class="dashboard-grid dashboard-grid-top">
@@ -4254,15 +4440,15 @@ function exportDashboardExcel() {
     const row = dashboardSnapshot(item, salon);
     return [item.label, row.revenue, row.payments, row.visits, row.products, row.outstanding, row.completion, row.occupancy];
   });
-  const serviceRows = dashboardDemoData.services.map(item => [item.name, item.share, Math.round(snapshot.visits * item.share / 100)]);
-  const paymentRows = dashboardDemoData.payments.map(item => [item.name, item.share, Math.round(snapshot.revenue * item.share / 100)]);
+  const serviceRows = dashboardServiceRows(month, salon).map(item => [item.name, item.share, item.count]);
+  const paymentRows = dashboardPaymentRows(month, salon).map(item => [item.name, item.share, item.amount]);
   const demographics = dashboardCustomerDemographics();
   const customerCount = state.customers.filter(item => !item.deleted && !item.deletedAt).length;
   const staffRows = dashboardStaffRows(month, salon);
   const workbook = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
     <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
       ${dashboardWorksheet("Нэгдсэн үзүүлэлт", [
-        ["Харагдац", viewMode], ["Хугацаа", month.label], ["Хамрах хүрээ", scope], ["Нийт орлого", snapshot.revenue], ["Төлбөрийн тоо", snapshot.payments], ["Үйлчилгээний оролт", snapshot.visits], ["Барааны борлуулалт", snapshot.products], ["Дутуу төлбөр", snapshot.outstanding], ["Дуусгалт %", snapshot.completion], ["Дүүргэлт %", snapshot.occupancy], ["Нийт хэрэглэгч", customerCount], ["Шинэ хэрэглэгч", month.newCustomers]
+        ["Харагдац", viewMode], ["Хугацаа", month.label], ["Хамрах хүрээ", scope], ["Нийт орлого", snapshot.revenue], ["Төлбөрийн тоо", snapshot.payments], ["Үйлчилгээний оролт", snapshot.visits], ["Барааны борлуулалт", snapshot.products], ["Дутуу төлбөр", snapshot.outstanding], ["Дуусгалт %", snapshot.completion], ["Дүүргэлт %", snapshot.occupancy], ["Нийт хэрэглэгч", customerCount], ["Шинэ хэрэглэгч", snapshot.newCustomers]
       ])}
       ${dashboardWorksheet("Сарын өөрчлөлт", [["Сар", "Орлого", "Төлбөр", "Оролт", "Бараа", "Дутуу төлбөр", "Дуусгалт %", "Дүүргэлт %"], ...trendRows])}
       ${dashboardWorksheet("Салбар", [["Салбар", "Орлого", "Төлбөр", "Оролт", "Дутуу төлбөр", "Дуусгалт %", "Дүүргэлт %"], ...branchRows.map(item => [item.name, item.revenue, item.payments, item.visits, item.outstanding, item.completion, item.occupancy])])}
@@ -10088,18 +10274,18 @@ function renderBookings() {
     .filter(b => status === "all" || b.status === status)
     .slice()
     .sort((a, b) => {
-      const pendingOrder = Number(b.status === "pending") - Number(a.status === "pending");
-      if (pendingOrder) return pendingOrder;
       const aDateTime = `${a.date || ""} ${a.time || ""}`;
       const bDateTime = `${b.date || ""} ${b.time || ""}`;
       const dateTimeOrder = q ? bDateTime.localeCompare(aDateTime) : aDateTime.localeCompare(bDateTime);
-      return dateTimeOrder || Number(b.id || 0) - Number(a.id || 0);
+      if (dateTimeOrder) return dateTimeOrder;
+      const pendingOrder = Number(b.status === "pending") - Number(a.status === "pending");
+      return pendingOrder || Number(a.id || 0) - Number(b.id || 0);
     });
   document.getElementById("bookingRows").innerHTML = bookings.map((booking, index) => {
     const editingThisBooking = Number(bookingInlineEditingId) === Number(booking.id);
     return `
     <tr class="${editingThisBooking ? "booking-row-editing" : ""}">
-      <td>${bookings.length - index}</td>
+      <td>${index + 1}</td>
       <td>${booking.salon}</td>
       <td>${dateWithWeekday(booking.date)}</td>
       <td>${booking.time}</td>
