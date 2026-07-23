@@ -2507,8 +2507,8 @@ function renderCustomerTypeManager() {
     });
   });
   manager.querySelectorAll(".customer-type-delete").forEach(button => {
-    button.addEventListener("click", () => {
-      if (!requireDeleteCode()) return;
+    button.addEventListener("click", async () => {
+      if (!await requireDeleteCode()) return;
       const type = button.dataset.type;
       state.customerTypes = state.customerTypes.filter(item => item !== type);
       delete state.customerTypeRules[type];
@@ -2620,8 +2620,8 @@ function renderDiagnosisTypes() {
     </span>
   `).join("");
   list.querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", () => {
-      if (!requireDeleteCode()) return;
+    button.addEventListener("click", async () => {
+      if (!await requireDeleteCode()) return;
       state.diagnosisTypes = state.diagnosisTypes.filter(type => type !== button.dataset.type);
       saveState();
       renderDiagnosisTypes();
@@ -2982,13 +2982,13 @@ function editKassSchedule(id) {
   enhanceNativeSelects(["kassSalon", "kassStaff"]);
 }
 
-function deleteKassSchedule(id) {
+async function deleteKassSchedule(id) {
   const item = state.kassSchedules.find(row => Number(row.id) === Number(id));
   if (!item || !canEditKassSchedule(item)) {
     showToast("Устгах хугацаа дууссан байна");
     return;
   }
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.kassSchedules = state.kassSchedules.filter(row => Number(row.id) !== Number(id));
   saveState();
   renderKassSchedule();
@@ -3023,7 +3023,7 @@ function renderProductGroupControls() {
       </span>
     `).join("");
     manager.querySelectorAll("button").forEach(button => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         if (productGroups.length <= 1) {
           showToast("Ядаж нэг ангилал үлдэх хэрэгтэй");
           return;
@@ -3034,7 +3034,7 @@ function renderProductGroupControls() {
           showToast("Бараатай ангиллыг устгах боломжгүй");
           return;
         }
-        if (!requireDeleteCode()) return;
+        if (!await requireDeleteCode()) return;
         const index = productGroups.findIndex(group => group[0] === key);
         const deletedGroup = index >= 0 ? { label: productGroups[index][1] } : null;
         if (index >= 0) productGroups.splice(index, 1);
@@ -3303,8 +3303,8 @@ function renderSettingsServices() {
     });
   });
   rowsEl.querySelectorAll(".service-delete").forEach(button => {
-    button.addEventListener("click", () => {
-      if (!requireDeleteCode()) return;
+    button.addEventListener("click", async () => {
+      if (!await requireDeleteCode()) return;
       const ref = {
         kind: button.dataset.kind,
         index: Number(button.dataset.index),
@@ -4945,9 +4945,9 @@ function renderBranches() {
   });
 }
 
-function openBranchForm(id) {
+async function openBranchForm(id) {
   const branch = state.salons.find(item => Number(item.id) === Number(id));
-  if (branch && !requireEditCode()) return;
+  if (branch && !await requireEditCode()) return;
   branchEditingId = branch ? branch.id : null;
   ensureBranchStatusField();
   document.getElementById("branchSubmit").textContent = branch ? "Хадгалах" : "Хадгалах";
@@ -5401,10 +5401,10 @@ function saveHoliday(event) {
   showToast("Амралтын өдөр хадгалагдлаа");
 }
 
-function deleteHoliday(id) {
+async function deleteHoliday(id) {
   const holiday = state.holidays.find(item => Number(item.id) === Number(id));
   if (!holiday || !canAccessSalon(holiday.salon)) return showToast("Өөр салбарын амралтын өдрийг устгах эрхгүй");
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.holidays = state.holidays.filter(item => Number(item.id) !== Number(id));
   state.audit.unshift({ title: "holiday_deleted", meta: "Менежер • амралтын өдөр устгасан" });
   saveState();
@@ -5696,8 +5696,8 @@ function editDiscount(id) {
   document.getElementById("discountForm")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function deleteDiscount(id) {
-  if (!requireDeleteCode()) return;
+async function deleteDiscount(id) {
+  if (!await requireDeleteCode()) return;
   state.discounts = state.discounts.filter(item => Number(item.id) !== Number(id));
   if (Number(discountEditingId) === Number(id)) resetDiscountForm();
   saveState();
@@ -5770,8 +5770,8 @@ function toggleBranch(id) {
   showToast("Салбарын төлөв өөрчлөгдлөө");
 }
 
-function deleteBranch(id) {
-  if (!requireDeleteCode()) return;
+async function deleteBranch(id) {
+  if (!await requireDeleteCode()) return;
   const branch = state.salons.find(item => Number(item.id) === Number(id));
   state.salons = state.salons.filter(item => Number(item.id) !== Number(id));
   if (branch) state.audit.unshift({ title: "branch_deleted", meta: `Менежер • ${branch.name}` });
@@ -7175,10 +7175,10 @@ function renderDeletedCustomerDirectory() {
   });
 }
 
-function permanentlyDeleteCustomer(customerId) {
+async function permanentlyDeleteCustomer(customerId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId) && (item.deleted || item.deletedAt));
   if (!customer) return;
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.customerGroups.forEach(group => {
     group.members = (group.members || []).filter(id => Number(id) !== Number(customer.id));
     if (Number(group.adminCustomerId) === Number(customer.id)) group.adminCustomerId = null;
@@ -7412,7 +7412,7 @@ function renderGroupDirectory() {
   list.querySelectorAll(".group-directory-name-form").forEach(form => {
     const input = form.querySelector(".group-directory-name-input");
     input?.addEventListener("input", () => { input.value = input.value.replace(/\D/g, "").slice(0, 8); });
-    form.addEventListener("submit", event => {
+    form.addEventListener("submit", async event => {
       event.preventDefault();
       const group = state.customerGroups.find(item => Number(item.id) === Number(form.dataset.groupId));
       const name = String(input?.value || "").trim();
@@ -7421,7 +7421,7 @@ function renderGroupDirectory() {
         showToast("Группийн нэр 8 оронтой дугаар байна");
         return;
       }
-      if (!requireEditCode()) return;
+      if (!await requireEditCode()) return;
       group.name = name;
       delete group.directoryEditingName;
       state.audit.unshift({ title: "group_updated", meta: `Менежер • Групп ${name}` });
@@ -7518,7 +7518,7 @@ function isCustomerInfoEditable(customer) {
   return Boolean(customer);
 }
 
-function requireCustomerEditCodeIfExpired(customer) {
+async function requireCustomerEditCodeIfExpired(customer) {
   return requireEditCode();
 }
 
@@ -7555,10 +7555,10 @@ function renderInlineJoinGroupResults(customer) {
     </button>
   `).join("") || `<div class="empty-state">Групп олдсонгүй</div>`;
   box.querySelectorAll(".inline-join-group-item").forEach(button => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const group = state.customerGroups.find(item => Number(item.id) === Number(button.dataset.id));
       if (!group || customer.groupId) return;
-      if (!requireCustomerEditCodeIfExpired(customer)) return;
+      if (!await requireCustomerEditCodeIfExpired(customer)) return;
       group.members = Array.from(new Set([...(group.members || []), customer.id]));
       customer.groupId = group.id;
       customer.groupRole = "member";
@@ -8282,11 +8282,11 @@ function renderProfile() {
   document.getElementById("profileGroupNameInput")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  document.getElementById("profileGroupNameForm")?.addEventListener("submit", event => {
+  document.getElementById("profileGroupNameForm")?.addEventListener("submit", async event => {
     event.preventDefault();
     const group = customerGroup(customer);
     if (!group) return;
-    if (!requireCustomerEditCodeIfExpired(customer)) return;
+    if (!await requireCustomerEditCodeIfExpired(customer)) return;
     const name = formValue("profileGroupNameInput");
     if (!name) return;
     if (!/^\d{8}$/.test(name)) {
@@ -8412,9 +8412,9 @@ function renderProfile() {
   document.getElementById("profileInfoPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  form.addEventListener("submit", event => {
+  form.addEventListener("submit", async event => {
     event.preventDefault();
-    if (!requireCustomerEditCodeIfExpired(customer)) return;
+    if (!await requireCustomerEditCodeIfExpired(customer)) return;
     const selectedType = document.getElementById("profileInfoType")?.value || "Хэрэглэгч";
     const previousType = customer.type || "Хэрэглэгч";
     const profileUpdate = {
@@ -8447,14 +8447,14 @@ function renderProfile() {
   document.getElementById("profileDeleteCustomerBtn")?.addEventListener("click", () => deleteProfileCustomer(customer.id));
 }
 
-function deleteProfileCustomer(customerId) {
+async function deleteProfileCustomer(customerId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   if (!customer) return;
   if (customer.groupId || isCustomerInAnyGroup(customerId)) {
     showToast("Групптэй хэрэглэгчийг устгах боломжгүй");
     return;
   }
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   customer.deletedAt = todayText();
   customer.deletedBy = "Менежер";
   customer.deleted = true;
@@ -8471,11 +8471,11 @@ function deleteProfileCustomer(customerId) {
   showToast("Хэрэглэгч устлаа");
 }
 
-function leaveCustomerGroup(customerId) {
+async function leaveCustomerGroup(customerId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   const group = customerGroup(customer);
   if (!customer || !group) return;
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   group.members = (group.members || []).filter(id => Number(id) !== Number(customer.id));
   if (Number(group.adminCustomerId) === Number(customer.id)) group.adminCustomerId = null;
   customer.groupId = null;
@@ -8851,12 +8851,12 @@ function renderProfileGroupSuggestions(customer) {
   });
 }
 
-function addCustomerToCurrentGroup(customerId, memberId) {
+async function addCustomerToCurrentGroup(customerId, memberId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   const member = state.customers.find(item => Number(item.id) === Number(memberId));
   const group = customerGroup(customer);
   if (!customer || !member || !group) return;
-  if (!requireCustomerEditCodeIfExpired(customer)) return;
+  if (!await requireCustomerEditCodeIfExpired(customer)) return;
   group.members = Array.from(new Set([...(group.members || []), member.id]));
   member.groupId = group.id;
   member.groupRole = "member";
@@ -9115,7 +9115,7 @@ function bindProfileGroupInlineSearch(customer) {
   });
 }
 
-function deleteCustomerHistoryItem(customerId, historyIndex) {
+async function deleteCustomerHistoryItem(customerId, historyIndex) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   const historyItem = customer?.serviceHistory?.[historyIndex];
   if (!historyItem) return;
@@ -9123,7 +9123,7 @@ function deleteCustomerHistoryItem(customerId, historyIndex) {
     showToast("Үйлчилгээ устгах хугацаа дууссан байна");
     return;
   }
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   const group = customerGroup(customer);
   (historyItem.payments || []).forEach(payment => {
     if (payment.id) pendingPaymentMutations.delete(String(payment.id));
@@ -9947,10 +9947,10 @@ function openJoinGroupModal(customerId) {
   );
 }
 
-function createCustomerGroup(customerId) {
+async function createCustomerGroup(customerId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   if (!customer || customer.groupId) return;
-  if (!requireCustomerEditCodeIfExpired(customer)) return;
+  if (!await requireCustomerEditCodeIfExpired(customer)) return;
   const groupId = nextId(state.customerGroups);
   state.customerGroups.unshift({
     id: groupId,
@@ -10242,10 +10242,10 @@ function resetHumanResourceAssignmentForm() {
   document.getElementById("hrAssignmentCancel")?.classList.add("hidden");
 }
 
-function editHumanResourceAssignment(id) {
+async function editHumanResourceAssignment(id) {
   const assignment = state.assignments.find(item => Number(item.id) === Number(id));
   if (!assignment || !canEditAssignment(assignment)) return showToast("Засах хугацаа дууссан байна");
-  if (!requireEditCode()) return;
+  if (!await requireEditCode()) return;
   assignmentEditingId = id;
   document.getElementById("hrAssignmentStaff").value = assignment.staffId || "";
   document.getElementById("hrAssignmentSalon").value = assignment.to || "";
@@ -10259,11 +10259,11 @@ function editHumanResourceAssignment(id) {
   enhanceNativeSelects(["hrAssignmentStaff", "hrAssignmentSalon", "hrAssignmentStartTime", "hrAssignmentEndTime"]);
 }
 
-function deleteHumanResourceAssignment(id) {
+async function deleteHumanResourceAssignment(id) {
   const assignment = state.assignments.find(item => Number(item.id) === Number(id));
   if (!assignment || !assignmentCanBeManaged(assignment)) return showToast("Энэ томилгоог устгах эрхгүй байна");
   if (!canEditAssignment(assignment)) return showToast("Устгах хугацаа дууссан байна");
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.assignments = state.assignments.filter(item => Number(item.id) !== Number(id));
   if (assignment) state.audit.unshift({ title: "staff_assignment_deleted", meta: `Менежер • ${assignment.staff} • ${assignment.to}` });
   saveState();
@@ -10337,10 +10337,10 @@ function toggleHumanResourceStatus(id) {
   renderAudit();
 }
 
-function deleteHumanResourceStaff(id) {
+async function deleteHumanResourceStaff(id) {
   const staff = state.staff.find(item => item.id === id);
   if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтныг устгах эрхгүй");
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.staff = state.staff.filter(item => item.id !== id);
   if (humanResourceEditingId === id) resetHumanResourceForm();
   state.audit.unshift({ title: "staff_deleted", meta: `Менежер • ${staff?.name || id}` });
@@ -10600,8 +10600,8 @@ function renderVouchers() {
   `).join("") || `<tr><td colspan="7" class="empty-state">Сонгосон хугацаанд ваучер ашиглаагүй</td></tr>`;
 
   roleRows.querySelectorAll(".voucher-role-delete").forEach(button => {
-    button.addEventListener("click", () => {
-      if (!requireDeleteCode()) return;
+    button.addEventListener("click", async () => {
+      if (!await requireDeleteCode()) return;
       const id = Number(button.dataset.id);
       state.voucherRoles = state.voucherRoles.filter(item => Number(item.id) !== id);
       if (Number(voucherRoleEditingId) === id) {
@@ -10778,10 +10778,10 @@ function editGiftCard(id) {
   document.getElementById("giftCardNumbers").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function toggleGiftCard(id) {
+async function toggleGiftCard(id) {
   const card = state.giftCards.find(item => Number(item.id) === Number(id));
   if (!card || giftCardStatus(card) === "used") return;
-  if (!requireEditCode()) return;
+  if (!await requireEditCode()) return;
   card.status = card.status === "inactive" ? "new" : "inactive";
   saveState();
   renderGiftCards();
@@ -10789,10 +10789,10 @@ function toggleGiftCard(id) {
   showToast("Бэлгийн картын төлөв өөрчлөгдлөө");
 }
 
-function deleteGiftCard(id) {
+async function deleteGiftCard(id) {
   const card = state.giftCards.find(item => Number(item.id) === Number(id));
   if (!card || !giftCardCanEdit(card)) return;
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.giftCards = state.giftCards.filter(item => Number(item.id) !== Number(id));
   saveState();
   renderGiftCards();
@@ -11103,8 +11103,8 @@ function saveHomepageResult(event) {
   showToast(wasEditing ? "Үр дүн шинэчлэгдлээ" : "Үр дүн нэмэгдлээ");
 }
 
-function editHomepageResult(id) {
-  if (!requireEditCode()) return;
+async function editHomepageResult(id) {
+  if (!await requireEditCode()) return;
   const post = homepageSettings().results.posts.find(item => Number(item.id) === Number(id));
   if (!post) return;
   homepageResultEditingId = Number(id);
@@ -11123,8 +11123,8 @@ function editHomepageResult(id) {
   document.getElementById("homepageResultTitle").focus();
 }
 
-function deleteHomepageResult(id) {
-  if (!requireDeleteCode()) return;
+async function deleteHomepageResult(id) {
+  if (!await requireDeleteCode()) return;
   const settings = homepageSettings();
   const previousLength = settings.results.posts.length;
   settings.results.posts = settings.results.posts.filter(item => Number(item.id) !== Number(id));
@@ -11417,7 +11417,7 @@ function renderDatabaseBackups() {
   });
   list.querySelectorAll(".database-backup-restore").forEach(button => {
     button.addEventListener("click", async () => {
-      if (!requireEditCode()) return;
+      if (!await requireEditCode()) return;
       const backup = databaseBackups().find(item => Number(item.id) === Number(button.dataset.id));
       if (!backup || !window.confirm("Энэ backup-аас мэдээллийг сэргээх үү?")) return;
       button.disabled = true;
@@ -11437,7 +11437,7 @@ function renderDatabaseBackups() {
   });
   list.querySelectorAll(".database-backup-delete").forEach(button => {
     button.addEventListener("click", async () => {
-      if (!requireDeleteCode()) return;
+      if (!await requireDeleteCode()) return;
       button.disabled = true;
       try {
         await serverApi("backups.php", {
@@ -11485,7 +11485,7 @@ function renderFullBackups() {
   });
   list.querySelectorAll(".database-full-backup-delete").forEach(button => {
     button.addEventListener("click", async () => {
-      if (!requireDeleteCode()) return;
+      if (!await requireDeleteCode()) return;
       const filename = String(button.dataset.file || "");
       if (!filename || !window.confirm("Энэ full backup ZIP-ийг устгах уу?")) return;
       button.disabled = true;
@@ -11527,7 +11527,7 @@ async function importDatabaseFile(event) {
     const imported = databaseImportedState(payload);
     const incoming = databaseCategoryData(category, imported);
     const mode = document.getElementById("databaseImportMode")?.value || "merge";
-    if (mode === "replace" && !requireEditCode()) return;
+    if (mode === "replace" && !await requireEditCode()) return;
     if (!window.confirm(mode === "replace" ? "Одоогийн өгөгдлийг бүрэн солих уу?" : "Өгөгдлийг одоогийн сантай нэгтгэх үү?")) return;
     if (!IS_LOCAL_RUNTIME) await createDatabaseBackup("Өгөгдөл импортлохын өмнөх автомат backup");
     const stateIncoming = structuredClone(incoming);
@@ -11570,7 +11570,7 @@ async function importDatabaseFile(event) {
 }
 
 async function clearOperationalDatabase() {
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   if (!window.confirm("Үйл ажиллагааны бүх өгөгдлийг backup аваад цэвэрлэх үү?")) return;
   try {
     await createDatabaseBackup("Өгөгдөл цэвэрлэхийн өмнөх автомат backup");
@@ -11937,26 +11937,74 @@ function updateBookingStatus(id, status) {
   showToast(status === "confirmed" ? "Цаг амжилттай баталгаажлаа" : "Цаг амжилттай цуцлагдлаа");
 }
 
+let actionCodeDialogOpen = false;
+
+function requestActionCode(action = "edit") {
+  if (actionCodeDialogOpen) return Promise.resolve(false);
+  const overlay = document.getElementById("actionCodeOverlay");
+  const form = document.getElementById("actionCodeForm");
+  const input = document.getElementById("actionCodeInput");
+  const cancel = document.getElementById("actionCodeCancel");
+  const title = document.getElementById("actionCodeTitle");
+  const label = document.getElementById("actionCodeLabel");
+  const errorText = document.getElementById("actionCodeError");
+  if (!overlay || !form || !input || !cancel || !title || !label || !errorText) {
+    showToast("Нууц кодын цонх ачаалсангүй");
+    return Promise.resolve(false);
+  }
+
+  const deleting = action === "delete";
+  title.textContent = deleting ? "Устгах эрх баталгаажуулах" : "Засах эрх баталгаажуулах";
+  label.textContent = deleting ? "Устгах код оруулна уу" : "Засах код оруулна уу";
+  input.value = "";
+  errorText.textContent = "";
+  overlay.hidden = false;
+  actionCodeDialogOpen = true;
+
+  return new Promise(resolve => {
+    const finish = result => {
+      overlay.hidden = true;
+      actionCodeDialogOpen = false;
+      form.onsubmit = null;
+      cancel.onclick = null;
+      overlay.onclick = null;
+      document.removeEventListener("keydown", onKeydown);
+      resolve(result);
+    };
+    const onKeydown = event => {
+      if (event.key === "Escape") finish(false);
+    };
+    form.onsubmit = event => {
+      event.preventDefault();
+      if (input.value.trim() === String(generalSettings().deleteCode || DELETE_CODE)) {
+        finish(true);
+        return;
+      }
+      input.value = "";
+      errorText.textContent = `${deleting ? "Устгах" : "Засах"} код буруу байна`;
+      input.focus();
+    };
+    cancel.onclick = () => finish(false);
+    overlay.onclick = event => {
+      if (event.target === overlay) finish(false);
+    };
+    document.addEventListener("keydown", onKeydown);
+    requestAnimationFrame(() => input.focus());
+  });
+}
+
 function requireDeleteCode() {
-  const code = window.prompt("Устгах код оруулна уу");
-  if (code === null) return false;
-  if (code.trim() === String(generalSettings().deleteCode || DELETE_CODE)) return true;
-  showToast("Устгах код буруу байна");
-  return false;
+  return requestActionCode("delete");
 }
 
 function requireEditCode() {
-  const code = window.prompt("Засах код оруулна уу");
-  if (code === null) return false;
-  if (code.trim() === String(generalSettings().deleteCode || DELETE_CODE)) return true;
-  showToast("Засах код буруу байна");
-  return false;
+  return requestActionCode("edit");
 }
 
-function deleteBooking(id) {
+async function deleteBooking(id) {
   const booking = state.bookings.find(item => Number(item.id) === Number(id));
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг устгах эрхгүй");
-  if (!requireDeleteCode()) return;
+  if (!await requireDeleteCode()) return;
   state.bookings = state.bookings.filter(item => Number(item.id) !== Number(id));
   if (booking) {
     state.audit.unshift({ title: "booking_deleted", meta: `Админ • ${booking.phone} • ${booking.date} ${booking.time}` });
