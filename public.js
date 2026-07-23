@@ -330,14 +330,14 @@ function timeOptions(salon, date) {
   const start = startHour * 60 + startMinute;
   const end = endHour * 60 + endMinute;
   const slots = [];
-  for (let time = start; time <= end; time += Math.max(schedule.duration, 5)) {
+  for (let time = start; time < end; time += Math.max(schedule.duration, 5)) {
     slots.push(`${String(Math.floor(time / 60)).padStart(2, "0")}:${String(time % 60).padStart(2, "0")}`);
   }
   return slots;
 }
 
 function slotFull(salon, date, time) {
-  const count = (publicState.bookings || []).filter(item => item.salon === salon.name && item.date === date && item.time === time && item.status !== "cancelled").length;
+  const count = (publicState.bookings || []).filter(item => item.salon === salon.name && item.date === date && item.time === time && !["cancelled", "rejected"].includes(item.status)).length;
   return count >= Math.max(Number(salon.slotCapacity) || 1, 1);
 }
 
@@ -395,7 +395,7 @@ async function submitPublicBooking() {
   const phone = String(document.getElementById("publicBookingPhone")?.value || "").replace(/\D/g, "").slice(0, 8);
   if (!salon || !selectedDate || !selectedTime) return showPublicToast("Өдөр, цагаа сонгоно уу");
   if (phone.length !== 8) return showPublicToast("8 оронтой утасны дугаар оруулна уу");
-  if ((publicState.bookings || []).some(item => item.phone === phone && item.date === selectedDate && item.status !== "cancelled")) return showPublicToast("Энэ дугаараас тухайн өдөр цаг захиалсан байна");
+  if ((publicState.bookings || []).some(item => item.phone === phone && item.date === selectedDate && !["cancelled", "rejected"].includes(item.status))) return showPublicToast("Энэ дугаараас тухайн өдөр цаг захиалсан байна");
   if (slotFull(salon, selectedDate, selectedTime)) return showPublicToast("Сонгосон цаг дүүрсэн байна");
   const booking = { id: Date.now(), salon: salon.name, date: selectedDate, time: selectedTime, phone, source: "customer", status: "pending" };
   try {
