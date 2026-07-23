@@ -2879,10 +2879,10 @@ function renderKassSchedule() {
   if (!document.getElementById("kassStartDate")?.value) resetKassForm();
   const rows = document.getElementById("kassRows");
   const pagination = document.getElementById("kassPagination");
-  const fromDate = document.getElementById("kassFromFilter")?.value || "";
-  const toDate = document.getElementById("kassToFilter")?.value || "";
-  const staffSearch = document.getElementById("kassStaffFilter")?.value.trim().toLowerCase() || "";
-  const salonFilter = isSalonAccount() ? activeAccount.salon : (document.getElementById("kassSalonFilter")?.value || "");
+  const fromDate = submittedListSearchValue("kassFromFilter");
+  const toDate = submittedListSearchValue("kassToFilter");
+  const staffSearch = submittedListSearchValue("kassStaffFilter").trim().toLowerCase();
+  const salonFilter = isSalonAccount() ? activeAccount.salon : submittedListSearchValue("kassSalonFilter");
   const hasDateSearch = Boolean(fromDate || toDate);
   const currentMonth = monthText(todayText());
   const filtered = [...state.kassSchedules]
@@ -12906,20 +12906,23 @@ function bindEvents() {
   document.getElementById("kassSalon")?.addEventListener("change", () => {
     populateKassSelects();
   });
-  ["kassFromFilter", "kassToFilter", "kassStaffFilter", "kassSalonFilter"].forEach(id => {
-    const rerenderKassFirstPage = () => {
-      kassPage = 1;
-      renderKassSchedule();
-      renderInfoHeader("kass");
-    };
-    document.getElementById(id)?.addEventListener("input", rerenderKassFirstPage);
-    document.getElementById(id)?.addEventListener("change", rerenderKassFirstPage);
+  bindListSearchSubmit("kassSearchBtn", ["kassFromFilter", "kassToFilter", "kassStaffFilter", "kassSalonFilter"], () => {
+    const from = submittedListSearchValue("kassFromFilter");
+    const to = submittedListSearchValue("kassToFilter");
+    if (from && to && to < from) {
+      showToast("Огнооны дарааллыг зөв оруулна уу");
+      return;
+    }
+    kassPage = 1;
+    renderKassSchedule();
+    renderInfoHeader("kass");
   });
   document.getElementById("kassClearBtn")?.addEventListener("click", () => {
     document.getElementById("kassFromFilter").value = "";
     document.getElementById("kassToFilter").value = "";
     document.getElementById("kassStaffFilter").value = "";
     document.getElementById("kassSalonFilter").value = "";
+    clearSubmittedListSearch(["kassFromFilter", "kassToFilter", "kassStaffFilter", "kassSalonFilter"]);
     kassPage = 1;
     renderKassSchedule();
     renderInfoHeader("kass");
