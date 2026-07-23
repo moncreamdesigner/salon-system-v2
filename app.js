@@ -145,13 +145,17 @@ function initialStateForRuntime() {
   return initial;
 }
 
-let state = loadState();
-try {
-  const rememberedCustomerId = Number(sessionStorage.getItem(ACTIVE_CUSTOMER_SESSION_KEY) || 0);
-  if (rememberedCustomerId) state.selectedCustomerId = rememberedCustomerId;
-} catch (error) {
-  // Session storage can be disabled by browser privacy settings.
+function rememberedProfileCustomerId() {
+  try {
+    return Number(sessionStorage.getItem(ACTIVE_CUSTOMER_SESSION_KEY) || 0);
+  } catch (error) {
+    return 0;
+  }
 }
+
+let state = loadState();
+const initialRememberedCustomerId = rememberedProfileCustomerId();
+if (initialRememberedCustomerId) state.selectedCustomerId = initialRememberedCustomerId;
 let currentTreatmentExpiryTimer = null;
 let customerDerivedDataVersion = 0;
 let customerActiveTreatmentCache = { key: "", items: [] };
@@ -216,6 +220,7 @@ function resetPrototypeOperationalData() {
 }
 
 resetPrototypeOperationalData();
+if (initialRememberedCustomerId) state.selectedCustomerId = initialRememberedCustomerId;
 state.audit = (Array.isArray(state.audit) ? state.audit : []).map(item =>
   Object.prototype.hasOwnProperty.call(item, "createdAt") ? item : { ...item, createdAt: "" }
 );
@@ -965,7 +970,7 @@ async function serverApi(path, options = {}) {
 }
 
 function applyServerData(data = {}, { partial = false } = {}) {
-  const selectedCustomerId = Number(state?.selectedCustomerId || 0);
+  const selectedCustomerId = Number(state?.selectedCustomerId || rememberedProfileCustomerId() || 0);
   // fetch().json() already gives us a detached object graph. Cloning the full
   // customer section again can freeze cashier devices for several seconds.
   // Only copy the top level because `_serviceSettings` is removed below.
@@ -3714,7 +3719,11 @@ function infoForView(name) {
       ["Бонус үлдэгдэл", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.balance || 0), 0))]
     ]] : null,
     profile: name === "profile" ? (() => {
-      const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId)) || customers[0];
+      const customer = state.customers.find(item =>
+        Number(item.id) === Number(state.selectedCustomerId || rememberedProfileCustomerId()) &&
+        !item.deleted &&
+        !item.deletedAt
+      );
       if (!customer) {
         return ["ХЭРЭГЛЭГЧИЙН СТАТИСТИК", [
           ["Нийт төлсөн", money(0)],
@@ -8173,11 +8182,28 @@ function isServiceDeletable(item) {
 function renderProfile() {
   const shell = document.getElementById("profileShell");
   if (!shell) return;
-  const customer = state.customers.find(c => c.id === state.selectedCustomerId && !c.deleted) || state.customers.find(c => !c.deleted);
+  const requestedCustomerId = Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0);
+  const customer = state.customers.find(c =>
+    Number(c.id) === requestedCustomerId &&
+    !c.deleted &&
+    !c.deletedAt
+  );
   if (!customer) {
-    shell.innerHTML = `<div class="empty-state">Хэрэглэгч алга</div>`;
+    shell.innerHTML = `<div class="empty-state">${serverStorageReady ? "Хэрэглэгч олдсонгүй" : "Хэрэглэгчийн мэдээлэл ачаалж байна…"}</div>`;
+    if (serverStorageReady) {
+      state.selectedCustomerId = null;
+      try {
+        sessionStorage.removeItem(ACTIVE_CUSTOMER_SESSION_KEY);
+      } catch (error) {
+        // Session storage can be unavailable in privacy mode.
+      }
+      queueMicrotask(() => {
+        if (activeView === "profile") setView("customers");
+      });
+    }
     return;
   }
+  state.selectedCustomerId = customer.id;
   const group = customerGroup(customer);
   const bonusInfo = groupBonusInfo(group);
   const stats = profileServiceStats(customer);
@@ -8457,7 +8483,12 @@ function leaveCustomerGroup(customerId) {
   saveAndRefreshCustomerProfile("Хэрэглэгч группээс гарлаа");
 }
 function selectedCustomer() {
-  return state.customers.find(customer => Number(customer.id) === Number(state.selectedCustomerId) && !customer.deleted) || state.customers.find(customer => !customer.deleted);
+  const requestedCustomerId = Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0);
+  return state.customers.find(customer =>
+    Number(customer.id) === requestedCustomerId &&
+    !customer.deleted &&
+    !customer.deletedAt
+  );
 }
 
 function isChildCustomer(customer) {
