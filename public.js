@@ -39,6 +39,13 @@ const publicFallbackState = {
   homepageSettings: publicDefaultSettings
 };
 
+if (!["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+  // Never expose prototype branches/results on the live page while its API is
+  // loading or unavailable. Production content must come from the database.
+  publicFallbackState.salons = [];
+  publicFallbackState.homepageSettings.results.posts = [];
+}
+
 let publicState = structuredClone(publicFallbackState);
 let publicSettings = structuredClone(publicDefaultSettings);
 let activePublicView = "catalog";

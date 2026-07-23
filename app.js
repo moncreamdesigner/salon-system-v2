@@ -36,7 +36,7 @@ const virtualViews = new Map();
 const pendingCustomerProfileUpdates = new Map();
 const pendingPaymentMutations = new Map();
 let serverSaveRetryDelay = 1000;
-const SIDEBAR_COMPACT_KEY = "khalgai_sidebar_compact_v1";
+let sidebarManualCollapsed = null;
 
 const defaultState = {
   salons: [
@@ -152,11 +152,25 @@ const defaultState = {
   discounts: []
 };
 
+function initialStateForRuntime() {
+  const initial = structuredClone(defaultState);
+  if (IS_LOCAL_RUNTIME) return initial;
+
+  // Production must never render or persist prototype entities while the
+  // server state is loading (or when a server section is unavailable).
+  initial.salons = [];
+  initial.staff = [];
+  initial.homepageSettings.results.posts = [];
+  return initial;
+}
+
 let state = loadState();
 let currentTreatmentExpiryTimer = null;
 
-state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : structuredClone(defaultState.salons)).map((salon, index) => {
-  const fallback = defaultState.salons.find(item => Number(item.id) === Number(salon?.id) || item.name === salon?.name) || {};
+state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : []).map((salon, index) => {
+  const fallback = IS_LOCAL_RUNTIME
+    ? (defaultState.salons.find(item => Number(item.id) === Number(salon?.id) || item.name === salon?.name) || {})
+    : {};
   return {
     ...fallback,
     ...salon,
@@ -590,7 +604,7 @@ function refreshProductGroupCounts() {
 }
 
 function loadState() {
-  if (!IS_LOCAL_RUNTIME) return structuredClone(defaultState);
+  if (!IS_LOCAL_RUNTIME) return initialStateForRuntime();
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (!saved) return structuredClone(defaultState);
@@ -693,7 +707,11 @@ function dirtySectionsForView(viewName = "") {
     settingsServices: ["_serviceSettings"],
     settingsPricing: ["pricePolicy", "customerTypes", "customerTypeRules", "customers"],
     groups: ["customers", "customerGroups"],
-    settingsGeneral: ["generalSettings", "diagnosisTypes"]
+    settingsGeneral: ["generalSettings", "diagnosisTypes"],
+    settingsUsers: ["audit"],
+    staff: ["staff"],
+    catalog: ["catalog"],
+    services: ["services"]
   })[viewName] || null;
 }
 
@@ -916,7 +934,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
       state[key] = value;
     });
   } else {
-    state = clearTransientState({ ...structuredClone(defaultState), ...incoming }, { clone: false });
+    state = clearTransientState({ ...initialStateForRuntime(), ...incoming }, { clone: false });
   }
   invalidatePersistedStateCache();
   const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
@@ -1652,6 +1670,7 @@ function normalizeStoredNames() {
 }
 
 function ensureHumanResourcesData() {
+  const before = JSON.stringify(state.staff || []);
   state.staff = state.staff.map((item, index) => ({
     ...item,
     phone: item.phone || humanResourceSeed[index]?.phone || "",
@@ -1660,7 +1679,7 @@ function ensureHumanResourcesData() {
     kassCommission: Number(item.kassCommission ?? 2),
     status: item.status || "active"
   }));
-  saveState();
+  if (JSON.stringify(state.staff) !== before) saveState(["staff"]);
 }
 
 function assignmentTimeOptions(selected = "09:00") {
@@ -3453,9 +3472,7 @@ function infoForView(name) {
     ]],
     settingsSchedule: ["ЦАГИЙН ХУВААРЬ", [
       ["Салбар", state.salons.length],
-      ["Хан-Уул суудал", state.salons[0]?.slotCapacity || 4],
-      ["Төв суудал", state.salons[1]?.slotCapacity || 6],
-      ["Вип суудал", state.salons[2]?.slotCapacity || 4]
+      ...state.salons.slice(0, 3).map(salon => [`${salon.name} суудал`, Number(salon.slotCapacity) || 0])
     ]],
     settingsHolidays: ["АМРАЛТЫН ӨДӨР", [
       ["Нийт", state.holidays.length],
@@ -10870,7 +10887,7 @@ function databaseMergeState(current, incoming) {
 }
 
 function databaseReplaceCategoryState(current, incoming, category = "all") {
-  if (category === "all") return { ...structuredClone(defaultState), ...structuredClone(incoming) };
+  if (category === "all") return { ...initialStateForRuntime(), ...structuredClone(incoming) };
   const replaced = structuredClone(current);
   databaseCategoryStateKeys(category).forEach(key => {
     if (incoming[key] !== undefined) replaced[key] = structuredClone(incoming[key]);
@@ -12025,7 +12042,7 @@ function bindEvents() {
   document.getElementById("settingsToggle").addEventListener("click", () => {
     if (document.body.classList.contains("sidebar-collapsed")) {
       document.body.classList.remove("sidebar-collapsed");
-      localStorage.setItem(SIDEBAR_COMPACT_KEY, "expanded");
+      sidebarManualCollapsed = false;
     }
     const submenu = document.getElementById("settingsSubmenu");
     const isOpen = submenu.classList.toggle("open");
@@ -12417,7 +12434,7 @@ function bindEvents() {
       return;
     }
     const collapsed = document.body.classList.toggle("sidebar-collapsed");
-    localStorage.setItem(SIDEBAR_COMPACT_KEY, collapsed ? "collapsed" : "expanded");
+    sidebarManualCollapsed = collapsed;
   };
   document.getElementById("menuButton")?.addEventListener("click", toggleSidebar);
   document.getElementById("sidebarCollapseBtn")?.addEventListener("click", toggleSidebar);
@@ -12560,19 +12577,18 @@ function initializeSidebarNavigation() {
     button.addEventListener("blur", hideHoverTooltip);
     button.addEventListener("click", hideHoverTooltip);
   });
-  const compactViewport = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
-  const desktopViewport = window.matchMedia("(min-width: 821px)").matches;
-  const preference = localStorage.getItem(SIDEBAR_COMPACT_KEY);
-  document.body.classList.toggle("sidebar-collapsed", desktopViewport && compactViewport && preference !== "expanded");
-  window.addEventListener("resize", () => {
-    hideHoverTooltip();
+  const applyViewportDefault = () => {
     if (window.matchMedia("(max-width: 820px)").matches) {
       document.body.classList.remove("sidebar-collapsed");
       return;
     }
-    const saved = localStorage.getItem(SIDEBAR_COMPACT_KEY);
-    const compact = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
-    document.body.classList.toggle("sidebar-collapsed", compact && saved !== "expanded");
+    const compactViewport = window.matchMedia("(min-width: 821px) and (max-width: 1180px)").matches;
+    document.body.classList.toggle("sidebar-collapsed", sidebarManualCollapsed ?? compactViewport);
+  };
+  applyViewportDefault();
+  window.addEventListener("resize", () => {
+    hideHoverTooltip();
+    applyViewportDefault();
   });
 }
 
