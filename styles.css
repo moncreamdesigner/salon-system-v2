@@ -9060,6 +9060,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 
+@media (min-width: 1101px) and (max-width: 1400px) {
+  .customer-service-grid.course-visit-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .customer-service-grid.course-visit-row .primary-btn {
+    grid-column: 1 / -1;
+    width: auto;
+    min-width: 0;
+    justify-self: end;
+  }
+}
+
 /* Жагсаалтын шүүлтүүрийг submit хийх бодит хайлтын товч ашиглана. */
 .customer-filter-group::before,
 .booking-filter-group::before,
