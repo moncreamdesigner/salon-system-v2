@@ -6157,11 +6157,15 @@ td.empty-state {
 .profile-side-column,
 .profile-service-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
 }
 
 .profile-add-bar {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: 44px;
   border: 1px solid var(--accent);
   border-radius: 8px;
@@ -6200,6 +6204,9 @@ td.empty-state {
 }
 
 .profile-inline-service-form {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--accent);
   border-top: 0;
   border-radius: 8px;
@@ -6212,6 +6219,13 @@ td.empty-state {
   margin-top: -12px;
   animation: expandDown .2s ease-out;
   transform-origin: top;
+}
+
+@media (min-width: 1101px) and (max-width: 1280px) {
+  .profile-service-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
 }
 
 .profile-inline-service-form .form-actions {
