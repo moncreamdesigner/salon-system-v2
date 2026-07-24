@@ -11594,6 +11594,28 @@ function setDatabaseTab(name = "import") {
   if (activeDatabaseTab === "backup") renderDatabaseBackups();
 }
 
+function formatBackupCreatedAt(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "—";
+  const utcText = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)
+    ? `${text.replace(" ", "T")}Z`
+    : text;
+  const date = new Date(utcText);
+  if (Number.isNaN(date.getTime())) return text;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ulaanbaatar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const part = type => parts.find(item => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
 function renderDatabaseBackups() {
   const list = document.getElementById("databaseBackupList");
   if (!list) return;
@@ -11608,7 +11630,7 @@ function renderDatabaseBackups() {
     return `
       <div class="database-backup-item">
         <div>
-          <strong>${htmlSafe(backup.createdAt || "—")}</strong>
+          <strong>${htmlSafe(formatBackupCreatedAt(backup.createdAt))}</strong>
           <span>${htmlSafe(databaseCategoryLabel(backup.category || "all"))} • ${htmlSafe(backup.reason || "Backup")} • ${size} KB</span>
         </div>
         <div class="table-actions">
@@ -11681,7 +11703,7 @@ function renderFullBackups() {
   list.innerHTML = serverFullBackups.map(backup => `
     <div class="database-backup-item">
       <div>
-        <strong>${htmlSafe(backup.createdAt || "—")}</strong>
+        <strong>${htmlSafe(formatBackupCreatedAt(backup.createdAt))}</strong>
         <span>Full backup • ${formatBackupSize(backup.sizeBytes)} • ${Number(backup.mediaFiles || 0)} зураг • ${Number(backup.diagnosisFiles || 0)} private/онош${Number(backup.missingMediaFiles || 0) ? ` • ${Number(backup.missingMediaFiles)} зураг дутуу` : " • Бүх холбоостой зураг орсон"}</span>
       </div>
       <div class="table-actions">
