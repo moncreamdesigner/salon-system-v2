@@ -5,6 +5,7 @@ const moneyInputValue = value => Number(value || 0) > 0 ? formatNumber(value) : 
 
 const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
+const PENDING_CUSTOMER_MUTATIONS_KEY = "khalgai_salon_pending_customer_mutations_v1";
 const PENDING_PAYMENT_MUTATIONS_KEY = "khalgai_salon_pending_payments_v1";
 const ACTIVE_VIEW_SESSION_KEY = "khalgai_salon_active_view_v1";
 const ACTIVE_CUSTOMER_SESSION_KEY = "khalgai_salon_active_customer_v1";
@@ -38,6 +39,9 @@ const pendingServerSections = new Map();
 const renderedViews = new Set();
 const virtualViews = new Map();
 const pendingCustomerProfileUpdates = new Map();
+const pendingCustomerGroupUpdates = new Map();
+const pendingCustomerAuditEntries = new Map();
+const pendingCustomerSaveMessages = [];
 const pendingPaymentMutations = new Map();
 let pendingServiceSettingsMutation = null;
 let serverSaveRetryDelay = 1000;
@@ -335,7 +339,7 @@ let voucherRoleEditingId = null;
 let systemUsers = [];
 let serverDatabaseBackups = [];
 let serverFullBackups = [];
-let serverBackupIntervalDays = 7;
+let serverBackupIntervalDays = 1;
 let scheduledFullBackupChecked = false;
 let systemUserEditingId = null;
 let systemUserMigratingLegacy = false;
@@ -842,6 +846,112 @@ function entityId(prefix = "item") {
   return `${prefix}-${randomPart}`;
 }
 
+function uniqueNumericId(collection = []) {
+  const existing = new Set((Array.isArray(collection) ? collection : []).map(item => Number(item?.id || 0)));
+  let candidate = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  while (existing.has(candidate)) candidate += 1;
+  return candidate;
+}
+
+function persistPendingCustomerMutations() {
+  try {
+    const payload = {
+      profiles: Array.from(pendingCustomerProfileUpdates.values()),
+      groups: Array.from(pendingCustomerGroupUpdates.values()),
+      auditEntries: Array.from(pendingCustomerAuditEntries.values()),
+      messages: pendingCustomerSaveMessages
+    };
+    const hasPending = payload.profiles.length || payload.groups.length || payload.auditEntries.length || payload.messages.length;
+    if (hasPending) localStorage.setItem(PENDING_CUSTOMER_MUTATIONS_KEY, JSON.stringify(payload));
+    else localStorage.removeItem(PENDING_CUSTOMER_MUTATIONS_KEY);
+  } catch (error) {
+    console.warn("Pending customer mutation storage skipped", error);
+  }
+}
+
+function loadPendingCustomerMutations() {
+  try {
+    const payload = JSON.parse(localStorage.getItem(PENDING_CUSTOMER_MUTATIONS_KEY) || "null");
+    if (!payload || typeof payload !== "object") return;
+    (Array.isArray(payload.profiles) ? payload.profiles : []).forEach(update => {
+      if (!update?.id) return;
+      pendingCustomerProfileUpdates.set(Number(update.id), update);
+      localStateMutationVersion = Math.max(localStateMutationVersion, Number(update.mutationVersion || 0));
+    });
+    (Array.isArray(payload.groups) ? payload.groups : []).forEach(update => {
+      if (!update?.id) return;
+      pendingCustomerGroupUpdates.set(Number(update.id), update);
+      localStateMutationVersion = Math.max(localStateMutationVersion, Number(update.mutationVersion || 0));
+    });
+    (Array.isArray(payload.auditEntries) ? payload.auditEntries : []).forEach(update => {
+      if (!update?.id) return;
+      pendingCustomerAuditEntries.set(String(update.id), update);
+      localStateMutationVersion = Math.max(localStateMutationVersion, Number(update.mutationVersion || 0));
+    });
+    (Array.isArray(payload.messages) ? payload.messages : []).forEach(update => {
+      if (!update?.message) return;
+      pendingCustomerSaveMessages.push(update);
+      localStateMutationVersion = Math.max(localStateMutationVersion, Number(update.mutationVersion || 0));
+    });
+  } catch (error) {
+    localStorage.removeItem(PENDING_CUSTOMER_MUTATIONS_KEY);
+  }
+}
+
+function cleanCustomerGroupUiState(group) {
+  if (!group) return;
+  delete group.editingName;
+  delete group.directoryEditingName;
+  delete group.directoryExpanded;
+}
+
+function registerPendingCustomerMutation({
+  customerIds = [],
+  groupIds = [],
+  auditEntries = [],
+  message = ""
+} = {}) {
+  if (IS_LOCAL_RUNTIME) return;
+  const mutationVersion = localStateMutationVersion + 1;
+  const customerIdSet = new Set(customerIds.map(Number).filter(Boolean));
+  const groupIdSet = new Set(groupIds.map(Number).filter(Boolean));
+  customerIdSet.forEach(customerId => {
+    const customer = state.customers.find(item => Number(item.id) === customerId);
+    if (!customer) return;
+    const snapshot = structuredClone(customer);
+    clearCustomerUiState(snapshot);
+    pendingCustomerProfileUpdates.set(customerId, { ...snapshot, mutationVersion });
+    if (snapshot.groupId) groupIdSet.add(Number(snapshot.groupId));
+  });
+  groupIdSet.forEach(groupId => {
+    const group = state.customerGroups.find(item => Number(item.id) === groupId);
+    if (!group) return;
+    const snapshot = structuredClone(group);
+    cleanCustomerGroupUiState(snapshot);
+    pendingCustomerGroupUpdates.set(groupId, { ...snapshot, mutationVersion });
+  });
+  auditEntries.forEach(entry => {
+    if (!entry) return;
+    if (!entry.id) entry.id = entityId("audit");
+    if (!entry.createdAt) entry.createdAt = auditNowText();
+    pendingCustomerAuditEntries.set(String(entry.id), { ...structuredClone(entry), mutationVersion });
+  });
+  if (message) pendingCustomerSaveMessages.push({ message, mutationVersion });
+  persistPendingCustomerMutations();
+}
+
+function markPendingCustomerSections() {
+  const versions = [
+    ...Array.from(pendingCustomerProfileUpdates.values(), item => Number(item.mutationVersion || 0)),
+    ...Array.from(pendingCustomerGroupUpdates.values(), item => Number(item.mutationVersion || 0)),
+    ...Array.from(pendingCustomerAuditEntries.values(), item => Number(item.mutationVersion || 0))
+  ];
+  const version = Math.max(localStateMutationVersion, ...versions, 0);
+  if (pendingCustomerProfileUpdates.size) pendingServerSections.set("customers", version);
+  if (pendingCustomerGroupUpdates.size) pendingServerSections.set("customerGroups", version);
+  if (pendingCustomerAuditEntries.size) pendingServerSections.set("audit", version);
+}
+
 function persistPendingPaymentMutations() {
   try {
     const values = Array.from(pendingPaymentMutations.values());
@@ -949,6 +1059,7 @@ function applyPendingPaymentMutations(targetState) {
   return changed;
 }
 
+loadPendingCustomerMutations();
 loadPendingPaymentMutations();
 
 async function serverApi(path, options = {}) {
@@ -990,7 +1101,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
   invalidatePersistedStateCache();
   invalidateCustomerDerivedData();
   const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
-  applyPendingCustomerProfileUpdates(state);
+  const pendingCustomersApplied = applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
     state.selectedCustomerId = selectedCustomerId;
@@ -1019,7 +1130,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingPaymentsApplied || bonusTypeRulesChanged;
+  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingCustomersApplied || pendingPaymentsApplied || bonusTypeRulesChanged;
 }
 
 async function saveServerStateNow() {
@@ -1049,10 +1160,25 @@ async function saveServerStateNow() {
     savingSections.forEach(key => {
       if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
     });
+    const confirmedCustomerMessages = pendingCustomerSaveMessages
+      .filter(item => Number(item.mutationVersion || 0) <= savingMutationVersion)
+      .map(item => item.message)
+      .filter(Boolean);
     serverSaveRetryDelay = 1000;
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerProfileUpdates.delete(customerId);
     });
+    pendingCustomerGroupUpdates.forEach((update, groupId) => {
+      if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerGroupUpdates.delete(groupId);
+    });
+    pendingCustomerAuditEntries.forEach((update, entryId) => {
+      if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerAuditEntries.delete(entryId);
+    });
+    for (let index = pendingCustomerSaveMessages.length - 1; index >= 0; index -= 1) {
+      if (Number(pendingCustomerSaveMessages[index].mutationVersion || 0) <= savingMutationVersion) {
+        pendingCustomerSaveMessages.splice(index, 1);
+      }
+    }
     pendingPaymentMutations.forEach((mutation, mutationId) => {
       if (Number(mutation.mutationVersion || 0) <= savingMutationVersion) pendingPaymentMutations.delete(mutationId);
     });
@@ -1061,7 +1187,9 @@ async function saveServerStateNow() {
       pendingServiceSettingsMutation = null;
       if (successMessage) showToast(successMessage);
     }
+    persistPendingCustomerMutations();
     persistPendingPaymentMutations();
+    if (confirmedCustomerMessages.length) showToast(confirmedCustomerMessages.at(-1));
   } catch (error) {
     if (error.status === 409 && error.payload?.conflict) {
       try {
@@ -1085,7 +1213,10 @@ async function saveServerStateNow() {
           }
           if (activeView === "settingsServices") renderSettingsServices();
         }
+        markPendingCustomerSections();
         const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 ||
+          pendingCustomerGroupUpdates.size > 0 ||
+          pendingCustomerAuditEntries.size > 0 ||
           pendingPaymentMutations.size > 0 ||
           Boolean(pendingServiceSettingsMutation);
         if (retryingLocalMutation) serverSavePending = true;
@@ -1119,6 +1250,18 @@ function queueServerStateSave(delay = 450) {
     void saveServerStateNow();
   }, delay);
 }
+
+window.khalgaiHasPendingSave = () => Boolean(
+  serverSaveTimer ||
+  serverSaveInFlight ||
+  serverSavePending ||
+  pendingServerSections.size ||
+  pendingCustomerProfileUpdates.size ||
+  pendingCustomerGroupUpdates.size ||
+  pendingCustomerAuditEntries.size ||
+  pendingPaymentMutations.size ||
+  pendingServiceSettingsMutation
+);
 
 function hideServerLogin() {
   document.getElementById("serverLoginOverlay")?.remove();
@@ -2445,13 +2588,39 @@ function ensureCustomerBonusTypeRules(targetState) {
 }
 
 function applyPendingCustomerProfileUpdates(targetState) {
-  if (!targetState || !pendingCustomerProfileUpdates.size) return;
+  if (!targetState) return false;
+  let changed = false;
+  targetState.customers = Array.isArray(targetState.customers) ? targetState.customers : [];
+  targetState.customerGroups = Array.isArray(targetState.customerGroups) ? targetState.customerGroups : [];
+  targetState.audit = Array.isArray(targetState.audit) ? targetState.audit : [];
   pendingCustomerProfileUpdates.forEach((update, customerId) => {
-    const customer = (targetState.customers || []).find(item => Number(item.id) === Number(customerId));
-    if (!customer) return;
+    let customer = targetState.customers.find(item => Number(item.id) === Number(customerId));
     const { mutationVersion, ...profile } = update;
-    Object.assign(customer, profile);
+    if (customer) Object.assign(customer, structuredClone(profile));
+    else {
+      customer = structuredClone(profile);
+      targetState.customers.unshift(customer);
+    }
+    changed = true;
   });
+  pendingCustomerGroupUpdates.forEach((update, groupId) => {
+    let group = targetState.customerGroups.find(item => Number(item.id) === Number(groupId));
+    const { mutationVersion, ...profile } = update;
+    if (group) Object.assign(group, structuredClone(profile));
+    else {
+      group = structuredClone(profile);
+      targetState.customerGroups.unshift(group);
+    }
+    changed = true;
+  });
+  pendingCustomerAuditEntries.forEach(update => {
+    const { mutationVersion, ...entry } = update;
+    if (targetState.audit.some(item => String(item.id || "") === String(entry.id || ""))) return;
+    targetState.audit.unshift(structuredClone(entry));
+    changed = true;
+  });
+  if (changed) markPendingCustomerSections();
+  return changed;
 }
 
 function bonusTierSummary() {
@@ -5983,7 +6152,7 @@ function saveInlineCustomer(event) {
     return;
   }
   const selectedType = formValue("inlineCustomerType") || "Хэрэглэгч";
-  const customerId = nextId(state.customers);
+  const customerId = uniqueNumericId(state.customers);
   const ageValue = formValue("inlineCustomerAge");
   const birthYear = birthYearFromAge(ageValue);
   state.customers.unshift({
@@ -6014,7 +6183,18 @@ function saveInlineCustomer(event) {
     serviceHistory: []
   });
   state.selectedCustomerId = customerId;
-  state.audit.unshift({ title: "customer_created", meta: `Менежер • ${formValue("inlineCustomerName")} • ${selectedType}` });
+  const auditEntry = {
+    id: entityId("audit"),
+    title: "customer_created",
+    createdAt: auditNowText(),
+    meta: `Менежер • ${formValue("inlineCustomerName")} • ${selectedType}`
+  };
+  state.audit.unshift(auditEntry);
+  registerPendingCustomerMutation({
+    customerIds: [customerId],
+    auditEntries: [auditEntry],
+    message: "Хэрэглэгч нэмэгдлээ"
+  });
   saveState();
   event.target.reset();
   renderCustomerInlineForm();
@@ -6022,7 +6202,7 @@ function saveInlineCustomer(event) {
   renderCustomers();
   renderAudit();
   renderInfoHeader("customers");
-  showToast("Хэрэглэгч нэмэгдлээ");
+  showToast(IS_LOCAL_RUNTIME ? "Хэрэглэгч нэмэгдлээ" : "Хэрэглэгчийг server-т хадгалж байна", IS_LOCAL_RUNTIME ? "success" : "warning");
 }
 
 function clearCustomerFilters() {
@@ -8496,7 +8676,7 @@ async function leaveCustomerGroup(customerId) {
   if (Number(group.adminCustomerId) === Number(customer.id)) group.adminCustomerId = null;
   customer.groupId = null;
   customer.groupRole = null;
-  saveAndRefreshCustomerProfile("Хэрэглэгч группээс гарлаа");
+  saveAndRefreshCustomerProfile("Хэрэглэгч группээс гарлаа", { groupIds: [group.id] });
 }
 function selectedCustomer() {
   const requestedCustomerId = Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0);
@@ -8838,7 +9018,16 @@ function bindProfileServiceInlineForm(customer) {
     customer.profileServiceOpen = false;
     delete customer.profileServiceEditingIndex;
     delete customer.profileServiceEditMode;
-    saveAndRefreshCustomerProfile(editingItem ? "Үйлчилгээ шинэчлэгдлээ" : "Үйлчилгээ нэмэгдлээ");
+    const auditEntry = {
+      id: entityId("audit"),
+      title: editingItem ? "customer_updated" : "service_created",
+      createdAt: auditNowText(),
+      meta: `Менежер • ${customer.name} • ${historyItem.service}`
+    };
+    state.audit.unshift(auditEntry);
+    saveAndRefreshCustomerProfile(editingItem ? "Үйлчилгээ шинэчлэгдлээ" : "Үйлчилгээ нэмэгдлээ", {
+      auditEntries: [auditEntry]
+    });
   });
 }
 
@@ -8876,7 +9065,10 @@ async function addCustomerToCurrentGroup(customerId, memberId) {
   group.members = Array.from(new Set([...(group.members || []), member.id]));
   member.groupId = group.id;
   member.groupRole = "member";
-  saveAndRefreshCustomerProfile("Гишүүн нэмэгдлээ");
+  saveAndRefreshCustomerProfile("Гишүүн нэмэгдлээ", {
+    customerIds: [member.id],
+    groupIds: [group.id]
+  });
 }
 
 function bindInlinePaymentForms(customer) {
@@ -9162,22 +9354,22 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
   saveAndRefreshCustomerProfile("Үйлчилгээ устлаа");
 }
 
-function saveAndRefreshCustomerProfile(message) {
+function saveAndRefreshCustomerProfile(message, { customerIds = [], groupIds = [], auditEntries = [] } = {}) {
   const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId) && !item.deleted);
-  if (customer) {
-    const snapshot = structuredClone(customer);
-    clearCustomerUiState(snapshot);
-    pendingCustomerProfileUpdates.set(Number(customer.id), {
-      ...snapshot,
-      mutationVersion: localStateMutationVersion + 1
-    });
-  }
+  const mutationCustomerIds = new Set(customerIds.map(Number).filter(Boolean));
+  if (customer) mutationCustomerIds.add(Number(customer.id));
+  registerPendingCustomerMutation({
+    customerIds: Array.from(mutationCustomerIds),
+    groupIds,
+    auditEntries,
+    message
+  });
   saveState();
   renderCustomers();
   renderCustomerSideProfile();
   renderProfile();
   renderInfoHeader(activeView);
-  if (message) showToast(message);
+  if (message) showToast(IS_LOCAL_RUNTIME ? message : "Өөрчлөлтийг server-т хадгалж байна", IS_LOCAL_RUNTIME ? "success" : "warning");
 }
 
 function startDemoTreatment(customerId) {
@@ -9734,8 +9926,15 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
         customer.serviceHistory.unshift(historyItem);
         customer.unpaid = true;
         customer.last = date;
+        const auditEntry = {
+          id: entityId("audit"),
+          title: "service_created",
+          createdAt: auditNowText(),
+          meta: `Менежер • ${customer.name} • ${historyItem.service}`
+        };
+        state.audit.unshift(auditEntry);
         closeModal();
-        saveAndRefreshCustomerProfile("Үйлчилгээ нэмэгдлээ");
+        saveAndRefreshCustomerProfile("Үйлчилгээ нэмэгдлээ", { auditEntries: [auditEntry] });
       });
     }
   );
@@ -9967,7 +10166,7 @@ async function createCustomerGroup(customerId) {
   const customer = state.customers.find(item => Number(item.id) === Number(customerId));
   if (!customer || customer.groupId) return;
   if (!await requireCustomerEditCodeIfExpired(customer)) return;
-  const groupId = nextId(state.customerGroups);
+  const groupId = uniqueNumericId(state.customerGroups);
   state.customerGroups.unshift({
     id: groupId,
     name: customer.phone,
@@ -10015,7 +10214,10 @@ function openAddGroupMemberModal(customerId) {
         member.groupId = group.id;
         member.groupRole = "member";
         closeModal();
-        saveAndRefreshCustomerProfile("Гишүүн нэмэгдлээ");
+        saveAndRefreshCustomerProfile("Гишүүн нэмэгдлээ", {
+          customerIds: [member.id],
+          groupIds: [group.id]
+        });
       });
     }
   );
@@ -11234,7 +11436,7 @@ async function loadDatabaseBackups({ silent = false } = {}) {
   try {
     const result = await serverApi("backups.php");
     serverDatabaseBackups = Array.isArray(result.backups) ? result.backups : [];
-    serverBackupIntervalDays = Number(result.settings?.intervalDays ?? 7);
+    serverBackupIntervalDays = Number(result.settings?.intervalDays ?? 1);
     localStorage.removeItem(DATABASE_BACKUP_KEY);
     renderDatabaseBackups();
     renderInfoHeader(activeView);
@@ -11789,7 +11991,7 @@ function openCustomerModal() {
       enhanceNativeSelects(["modalCustomerType", "modalCustomerGender"]);
       document.getElementById("customerModalForm").addEventListener("submit", event => {
         event.preventDefault();
-        const customerId = nextId(state.customers);
+        const customerId = uniqueNumericId(state.customers);
         const phone = formValue("modalCustomerPhone");
         if (phone.length !== 8) {
           showToast("Утасны дугаар 8 оронтой байна");
@@ -11826,12 +12028,23 @@ function openCustomerModal() {
           serviceHistory: []
         });
         state.selectedCustomerId = customerId;
-        state.audit.unshift({ title: "customer_created", meta: `Менежер • ${formValue("modalCustomerName")} • ${selectedType}` });
+        const auditEntry = {
+          id: entityId("audit"),
+          title: "customer_created",
+          createdAt: auditNowText(),
+          meta: `Менежер • ${formValue("modalCustomerName")} • ${selectedType}`
+        };
+        state.audit.unshift(auditEntry);
+        registerPendingCustomerMutation({
+          customerIds: [customerId],
+          auditEntries: [auditEntry],
+          message: "Хэрэглэгч нэмэгдлээ"
+        });
         saveState();
         closeModal();
         renderCustomers();
         renderAudit();
-        showToast("Хэрэглэгч нэмэгдлээ");
+        showToast(IS_LOCAL_RUNTIME ? "Хэрэглэгч нэмэгдлээ" : "Хэрэглэгчийг server-т хадгалж байна", IS_LOCAL_RUNTIME ? "success" : "warning");
       });
     }
   );

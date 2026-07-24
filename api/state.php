@@ -125,7 +125,7 @@ try {
 
     $backupIntervalDays = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_interval_days'")->fetchColumn();
     $allowedBackupIntervals = [0, 1, 7, 14, 30, 90];
-    if (!in_array($backupIntervalDays, $allowedBackupIntervals, true)) $backupIntervalDays = 7;
+    if (!in_array($backupIntervalDays, $allowedBackupIntervals, true)) $backupIntervalDays = 1;
     $lastBackupStatement = $pdo->prepare('SELECT created_at FROM app_backups WHERE reason = ? ORDER BY id DESC LIMIT 1');
     $lastBackupStatement->execute(['Автомат backup']);
     $lastBackup = $lastBackupStatement->fetchColumn();
@@ -148,7 +148,7 @@ try {
     $meta = $pdo->prepare("UPDATE app_meta SET meta_value = ? WHERE meta_key = 'revision'");
     $meta->execute([(string)$nextRevision]);
     $nextScopeRevision = bump_scope_revisions($pdo, $user, array_keys($sections));
-    $pdo->exec('DELETE FROM app_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM app_backups ORDER BY id DESC LIMIT 3) AS keep_rows)');
+    $pdo->exec('DELETE FROM app_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM app_backups ORDER BY id DESC LIMIT 7) AS keep_rows)');
     $pdo->commit();
     json_response(['ok' => true, 'revision' => $nextRevision, 'scopeRevision' => $nextScopeRevision, 'savedSections' => array_keys($sections), 'savedBy' => $user['username'] ?? 'admin']);
 } catch (Throwable $error) {
