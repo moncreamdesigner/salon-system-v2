@@ -6210,7 +6210,7 @@ function renderCustomerInlineForm() {
     districtSelect.value = previousDistrict;
   }
   if (salonSelect) {
-    const salonLocked = isSalonAccount();
+    const salonLocked = isSalonAccount() || Boolean(activeAccount.salon);
     const lockedSalon = salonLocked ? activeAccount.salon : "";
     const salonField = document.getElementById("inlineCustomerSalonField");
     if (salonField) salonField.hidden = salonLocked;
@@ -6236,7 +6236,7 @@ function saveInlineCustomer(event) {
     return;
   }
   const selectedType = formValue("inlineCustomerType") || "Хэрэглэгч";
-  const registeredSalon = isSalonAccount() ? activeAccount.salon : formValue("inlineCustomerSalon");
+  const registeredSalon = activeAccount.salon || formValue("inlineCustomerSalon");
   if (!registeredSalon) {
     showToast("Бүртгэх салбарыг сонгоно уу");
     return;
@@ -12263,7 +12263,7 @@ function updateServiceTotal() {
 
 function openCustomerModal() {
   const defaultBonus = `${customerTypeRule("Хэрэглэгч").bonusPercent}%`;
-  const salonLocked = isSalonAccount();
+  const salonLocked = isSalonAccount() || Boolean(activeAccount.salon);
   const lockedSalon = salonLocked ? activeAccount.salon : "";
   const salonNames = accountSalons().map(salon => salon.name);
   if (lockedSalon && !salonNames.includes(lockedSalon)) salonNames.unshift(lockedSalon);
