@@ -748,6 +748,10 @@ body.sidebar-collapsed .sidebar-logout {
   grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 124px 66px 132px 104px;
 }
 
+#inlineCustomerSalonField[hidden] {
+  display: none !important;
+}
+
 .customer-inline-form label {
   min-width: 0;
 }
