@@ -737,6 +737,7 @@ function clearCustomerUiState(customer) {
     delete item.diagnosisAddOpen;
     delete item.diagnosisDetailId;
     delete item.signatureOpen;
+    (Array.isArray(item.visits) ? item.visits : []).forEach(visit => { delete visit.signatureOpen; });
     delete item.paymentFormOpen;
   });
 }
@@ -2758,13 +2759,15 @@ function renderGeneralSettings() {
   const serviceDays = document.getElementById("serviceEditDays");
   const captureMode = document.getElementById("diagnosisCaptureMode");
   const captureSize = document.getElementById("diagnosisCaptureSize");
+  const photoLimit = document.getElementById("diagnosisPhotoLimit");
   if (deleteCode) deleteCode.value = settings.deleteCode;
   if (kassDays) kassDays.value = settings.kassEditDays;
   if (serviceDays) serviceDays.value = settings.serviceEditDays;
   if (captureMode) captureMode.value = settings.diagnosisCaptureMode || "fixed";
   if (captureSize) captureSize.value = settings.diagnosisCaptureSize || "1280x960";
+  if (photoLimit) photoLimit.value = String([5, 10].includes(Number(settings.diagnosisPhotoLimit)) ? Number(settings.diagnosisPhotoLimit) : 5);
   toggleDiagnosisCaptureSizeSetting();
-  enhanceNativeSelects(["diagnosisCaptureMode", "diagnosisCaptureSize"]);
+  enhanceNativeSelects(["diagnosisCaptureMode", "diagnosisCaptureSize", "diagnosisPhotoLimit"]);
   renderDiagnosisTypes();
 }
 
@@ -2788,6 +2791,7 @@ function saveGeneralSettings(event) {
     serviceEditDays: Number(formValue("serviceEditDays")) || generalSettings().serviceEditDays,
     diagnosisCaptureMode: formValue("diagnosisCaptureMode") === "native" ? "native" : "fixed",
     diagnosisCaptureSize: formValue("diagnosisCaptureSize") || "1280x960",
+    diagnosisPhotoLimit: [5, 10].includes(Number(formValue("diagnosisPhotoLimit"))) ? Number(formValue("diagnosisPhotoLimit")) : 5,
     diagnosisJpegQuality: 0.98
   };
   saveState();
@@ -6052,6 +6056,19 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   for (const item of history) {
     const itemSalon = item.salon || customer.salon || activeAccount.salon;
+    if (["kass", "product"].includes(item.kind)) continue;
+    if (item.kind === "diagnosis") {
+      const activeUntil = new Date(item.activeUntil || 0).getTime();
+      if (salon && itemSalon !== salon) continue;
+      if (serviceDateKey(item.date || item.createdAt) !== today) continue;
+      if (!Number.isFinite(activeUntil) || activeUntil <= Date.now()) continue;
+      return {
+        service: "Оношилгоо",
+        progress: "Оношилгоо",
+        salon: itemSalon,
+        stage: "Оношилгоо бүртгэгдсэн"
+      };
+    }
     if (item.kind === "course") {
       const visits = Array.isArray(item.visits) ? item.visits : [];
       const now = Date.now();
@@ -6067,9 +6084,20 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
           latestRegisteredAt = registeredAt;
         }
       }
-      if (!visit) continue;
-      const visitNumber = visit.number || visits.indexOf(visit) + 1;
       const total = Number(item.visitsTotal || parseVisitCount(item.visits || item.service || item.title) || visits.length || 1);
+      if (!visit) {
+        const courseActiveUntil = new Date(item.activeUntil || 0).getTime();
+        if (salon && itemSalon !== salon) continue;
+        if (serviceDateKey(item.date || item.createdAt) !== today) continue;
+        if (!Number.isFinite(courseActiveUntil) || courseActiveUntil <= now) continue;
+        return {
+          service: item.service || item.title || "Курс эмчилгээ",
+          progress: `Курс 0/${total}`,
+          salon: itemSalon,
+          stage: "Курс үүссэн"
+        };
+      }
+      const visitNumber = visit.number || visits.indexOf(visit) + 1;
       return {
         service: item.service || item.title || "Курс эмчилгээ",
         progress: `Курс ${visitNumber}/${total}`,
@@ -6090,15 +6118,52 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
   return null;
 }
 
+function dailyQueueSortKey(customer, date = todayText()) {
+  if (customer.dailyQueueDate === date && customer.dailyQueueAssignedAt) return String(customer.dailyQueueAssignedAt);
+  if (serviceDateKey(customer.registeredAt) === date) return `${date}T${customer.registeredTime || "00:00"}:00`;
+  return "";
+}
+
+function assignDailyQueue(customer, date = todayText()) {
+  if (!customer || (customer.dailyQueueDate === date && customer.dailyQueueAssignedAt)) return;
+  customer.dailyQueueDate = date;
+  customer.dailyQueueAssignedAt = new Date().toISOString();
+}
+
+function dailyQueueNumbers(date = todayText()) {
+  const eligible = (state.customers || [])
+    .filter(customer => !customer.deleted && !customer.deletedAt)
+    .map(customer => ({ customer, key: dailyQueueSortKey(customer, date) }))
+    .filter(entry => entry.key)
+    .sort((a, b) => a.key.localeCompare(b.key) || Number(a.customer.id) - Number(b.customer.id));
+  return new Map(eligible.map((entry, index) => [Number(entry.customer.id), index + 1]));
+}
+
 function activeCustomerTreatments(salon = "") {
   const key = `${customerDerivedDataVersion}|${salon}|${todayText()}|${activeAccount.role}|${activeAccount.salon}`;
   if (customerActiveTreatmentCache.key === key) return customerActiveTreatmentCache.items;
   const items = [];
   for (const customer of state.customers || []) {
     if (customer.deleted || customer.deletedAt) continue;
-    const treatment = todaySalonTreatment(customer, salon);
+    let treatment = todaySalonTreatment(customer, salon);
+    if (!treatment && serviceDateKey(customer.registeredAt) === todayText()) {
+      const todayHistory = (customer.serviceHistory || []).filter(item => serviceDateKey(item.date || item.createdAt) === todayText());
+      const hasOnlyKass = todayHistory.length > 0 && todayHistory.every(item => ["kass", "product"].includes(item.kind));
+      const registeredSalon = customerRegisteredSalon(customer);
+      if (!hasOnlyKass && (!salon || registeredSalon === salon)) {
+        treatment = {
+          service: "Үйлчилгээ сонгоогүй",
+          progress: "Шинэ хэрэглэгч",
+          salon: registeredSalon,
+          stage: "Шинээр бүртгэгдсэн"
+        };
+      }
+    }
     if (treatment && canAccessSalon(treatment.salon)) items.push({ customer, treatment });
   }
+  const queueNumbers = dailyQueueNumbers();
+  items.forEach(entry => { entry.sequence = queueNumbers.get(Number(entry.customer.id)) || 0; });
+  items.sort((a, b) => (a.sequence || Number.MAX_SAFE_INTEGER) - (b.sequence || Number.MAX_SAFE_INTEGER));
   customerActiveTreatmentCache = { key, items };
   return items;
 }
@@ -6175,6 +6240,8 @@ function saveInlineCustomer(event) {
     last: "-",
     registeredAt: todayText(),
     registeredTime: currentTimeText(),
+    dailyQueueDate: todayText(),
+    dailyQueueAssignedAt: new Date().toISOString(),
     registeredSalon: activeAccount.salon,
     salon: activeAccount.salon,
     groupId: null,
@@ -6342,12 +6409,15 @@ function renderCustomers() {
         <span>${activeTreatments.length} хэрэглэгч</span>
       </div>
       <div class="active-treatment-list">
-        ${activeTreatments.map(({ customer, treatment }) => {
+        ${activeTreatments.map(({ customer, treatment, sequence }) => {
           return `
             <button class="active-treatment-card customer-detail-open" type="button" data-id="${customer.id}">
-              <strong>${customer.name}</strong>
-              <span>${treatment.service} • ${treatment.progress}</span>
-              <em>${treatment.salon} • ${treatment.stage}</em>
+              <b class="active-treatment-sequence">${sequence || "—"}</b>
+              <span class="active-treatment-copy">
+                <strong>${customer.name}</strong>
+                <span>${treatment.service} • ${treatment.progress}</span>
+                <em>${treatment.salon} • ${treatment.stage}</em>
+              </span>
             </button>
           `;
         }).join("") || `<div class="active-treatment-empty">Одоогоор явж буй үйлчилгээ алга</div>`}
@@ -6659,6 +6729,7 @@ function renderCustomerServiceHistory(customer) {
   return history.map((item, index) => {
     const isCourse = item.kind === "course";
     const isKass = item.kind === "kass" || item.kind === "product";
+    const isDiagnosis = item.kind === "diagnosis";
     const title = item.title || item.service || "Үйлчилгээ";
     const date = item.date || item.createdAt || customer.last || "-";
     const staff = item.staff || "Ажилтан сонгоогүй";
@@ -6674,7 +6745,7 @@ function renderCustomerServiceHistory(customer) {
         <div class="profile-service-head">
           <div>
             <strong>${title}</strong>
-            <span>${date} • ${staff} • ${salon}</span>
+            <span><b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}</span>
           </div>
           <div class="service-card-actions ${editAllowed || deleteAllowed ? "" : "actions-disabled"}">
             <button class="secondary-btn icon-action profile-service-edit" type="button" data-history-index="${index}" aria-label="Засах" ${editAllowed ? "" : "disabled"}>${editIcon()}</button>
@@ -6688,9 +6759,9 @@ function renderCustomerServiceHistory(customer) {
           </div>
         ` : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
-        ${isCourse ? `<div class="course-clinical-actions">${renderServiceDiagnosisHistory(item, index)}${renderCourseSignature(item, index)}</div>${renderCourseSlots(item, index)}` : ""}
-        ${!isCourse && !isKass ? renderServiceDiagnosisHistory(item, index) : ""}
-        ${customer.profileServiceEditingIndex === index ? "" : `
+        ${isDiagnosis ? renderDiagnosisSummary(item.diagnosis || item) : ""}
+        ${isCourse ? renderCourseSlots(item, index) : ""}
+        ${customer.profileServiceEditingIndex === index || isDiagnosis ? "" : `
           <div class="profile-service-footer">
             ${renderServicePaymentSummary(item, paid, index)}
           </div>
@@ -7267,7 +7338,7 @@ function visitStatusIcons(visit = {}) {
   const hasNote = Boolean((diagnosis.types || []).length || diagnosis.note);
   const hasGeneral = (diagnosis.generalPhotos || []).some(Boolean);
   const hasScope = (diagnosis.scopePhotos || []).some(Boolean);
-  const hasSignature = visit.signed || visit.qr === "Баталгаажсан" || visit.qrStatus === "Баталгаажсан";
+  const hasSignature = visit.confirmation?.signed || visit.signed || visit.qr === "Баталгаажсан" || visit.qrStatus === "Баталгаажсан";
   return [
     hasNote ? noteStatusIcon() : "",
     hasGeneral ? generalPhotoStatusIcon() : "",
@@ -7707,6 +7778,7 @@ function collapseCustomerServicePanels(customer) {
     item.diagnosisAddOpen = false;
     item.diagnosisDetailId = null;
     item.signatureOpen = false;
+    (Array.isArray(item.visits) ? item.visits : []).forEach(visit => { visit.signatureOpen = false; });
   });
 }
 
@@ -7933,11 +8005,7 @@ function renderProfileKassInlineForm(customer) {
   const selectedDate = customer.profileKassDraftDate || editingItem?.date || todayText();
   return `
     <form id="profileServiceForm" class="profile-inline-service-form profile-kass-form" data-kind="kass" novalidate>
-      <div class="service-modal-tabs">
-        <button class="service-modal-tab" type="button" data-kind="single">Нэг удаа</button>
-        <button class="service-modal-tab" type="button" data-kind="course">Курс</button>
-        <button class="service-modal-tab active" type="button" data-kind="kass">Касс</button>
-      </div>
+      ${editingItem ? "" : profileServiceTabsHtml("kass")}
       <div class="profile-kass-meta">
         <label>Огноо
           <input class="input" id="profileKassDate" type="date" value="${selectedDate}" required>
@@ -7985,12 +8053,44 @@ function renderProfileKassInlineForm(customer) {
   `;
 }
 
+function profileServiceTabsHtml(kind) {
+  return `
+    <div class="service-modal-tabs">
+      <button class="service-modal-tab ${kind === "diagnosis" ? "active" : ""}" type="button" data-kind="diagnosis">Оношилгоо</button>
+      <button class="service-modal-tab ${kind === "single" ? "active" : ""}" type="button" data-kind="single">Нэг удаа</button>
+      <button class="service-modal-tab ${kind === "course" ? "active" : ""}" type="button" data-kind="course">Курс</button>
+      <button class="service-modal-tab ${kind === "kass" ? "active" : ""}" type="button" data-kind="kass">Касс</button>
+    </div>
+  `;
+}
+
 function renderProfileServiceInlineForm(customer) {
   const showSalon = ["admin", "manager"].includes(activeAccount.role);
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
-  const kind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
+  const kind = editingItem
+    ? (["diagnosis", "course", "kass", "product"].includes(editingItem.kind) ? (editingItem.kind === "product" ? "kass" : editingItem.kind) : "single")
+    : (customer.profileServiceKind || "diagnosis");
   if (!editingItem && kind === "kass") return renderProfileKassInlineForm(customer);
+  if (kind === "diagnosis") {
+    const prefix = `profileDiagnosis${editingIndex ?? "new"}`;
+    return `
+      <form id="profileServiceForm" class="profile-inline-service-form profile-diagnosis-form" data-kind="diagnosis" data-prefix="${prefix}" novalidate>
+        ${editingItem ? "" : profileServiceTabsHtml(kind)}
+        <label class="profile-diagnosis-date">Огноо
+          <input class="input" id="profileServiceDate" type="date" value="${editingItem?.date || todayText()}" required>
+        </label>
+        ${diagnosisFormHtml(prefix, true)}
+        <div class="profile-service-submit-row">
+          <span></span>
+          <div class="form-actions">
+            ${editingItem ? `<button class="secondary-btn icon-clear profile-service-cancel-edit" type="button" aria-label="Засахыг болих">×</button>` : ""}
+            <button class="primary-btn" type="submit">${editingItem ? "Оношилгоо шинэчлэх" : "Оношилгоо бүртгэх"}</button>
+          </div>
+        </div>
+      </form>
+    `;
+  }
   const options = serviceOptionsForKind(kind, customer);
   const selectedOptionIndex = editingItem
     ? Math.max(0, options.findIndex(option => standardServiceName(option.name, kind) === standardServiceName(editingItem.service || editingItem.title, kind)))
@@ -8000,11 +8100,7 @@ function renderProfileServiceInlineForm(customer) {
   const selectedRoom = editingItem?.vipRoom || editingItem?.room === "vip" ? "vip" : "standard";
   return `
     <form id="profileServiceForm" class="profile-inline-service-form" data-kind="${kind}" novalidate>
-      ${editingItem ? "" : `<div class="service-modal-tabs">
-        <button class="service-modal-tab ${kind === "single" ? "active" : ""}" type="button" data-kind="single">Нэг удаа</button>
-        <button class="service-modal-tab ${kind === "course" ? "active" : ""}" type="button" data-kind="course">Курс</button>
-        <button class="service-modal-tab" type="button" data-kind="kass">Касс</button>
-      </div>`}
+      ${editingItem ? "" : profileServiceTabsHtml(kind)}
       <div class="customer-service-grid profile-service-row">
         <label class="service-select-field">Үйлчилгээ
           <select class="input" id="profileServiceSelect">${serviceOptionHtml(kind, selectedOptionIndex, customer)}</select>
@@ -8086,7 +8182,7 @@ function renderCourseSlots(item, historyIndex) {
           }).join("")}
         </div>
         ${expandedInRow ? `<div class="course-visit-form-wrap" style="--slot-index:${numbers.indexOf(expandedInRow)}">${renderCourseVisitInlineForm(item, historyIndex, expandedInRow)}</div>` : ""}
-        ${diagnosisInRow ? `<div class="course-visit-form-wrap course-diagnosis-view" style="--slot-index:${numbers.indexOf(diagnosisInRow)}">${renderCourseVisitSummary(visits.find(visit => Number(visit.number) === diagnosisInRow) || {})}</div>` : ""}
+        ${diagnosisInRow ? `<div class="course-visit-form-wrap course-diagnosis-view" style="--slot-index:${numbers.indexOf(diagnosisInRow)}">${renderCourseVisitSummary(visits.find(visit => Number(visit.number) === diagnosisInRow) || {}, historyIndex)}</div>` : ""}
       </div>
     `);
   }
@@ -8143,6 +8239,7 @@ function bindCourseVisitInlineForms(customer) {
       const newExtra = vipRoomFee + masterStaffFee;
       const registeredAt = existingVisit?.registeredAt || new Date().toISOString();
       const visit = {
+        ...(existingVisit || {}),
         number: visitNumber,
         date: form.querySelector(".course-visit-date")?.value || todayText(),
         salon,
@@ -8168,13 +8265,38 @@ function bindCourseVisitInlineForms(customer) {
       customer.activeCourse = done < Number(course.visitsTotal || 0);
       customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, salon: visit.salon, staff: visit.staff, date: visit.date }, `Курс ${visitNumber}/${course.visitsTotal}`);
       customer.currentTreatment.activeUntil = visit.activeUntil;
+      if (visit.date === todayText()) assignDailyQueue(customer, visit.date);
       customer.last = visit.date;
       saveAndRefreshCustomerProfile("Курсийн оролт бүртгэгдлээ");
     });
   });
 }
 
-function renderCourseVisitSummary(visit = {}) {
+function renderVisitConfirmation(visit = {}, historyIndex = 0) {
+  const confirmation = visit.confirmation?.signed
+    ? visit.confirmation
+    : (visit.signed || visit.signature ? { signed: true, signature: visit.signature || null, signedAt: visit.signedAt || visit.date } : null);
+  if (confirmation) {
+    const image = typeof confirmation.signature === "string" && confirmation.signature.startsWith("data:image/")
+      ? `<button class="diagnosis-photo-thumb" type="button"><img src="${confirmation.signature}" alt="${visit.number || ""}-р оролтын гарын үсэг"></button>`
+      : "";
+    return `<div class="course-signature-summary"><strong>Оролт баталгаажсан</strong><span>${new Date(confirmation.signedAt || visit.date).toLocaleString("mn-MN")}</span>${image}</div>`;
+  }
+  return `
+    <button class="secondary-btn course-visit-confirm ${visit.signatureOpen ? "active" : ""}" type="button" data-history-index="${historyIndex}" data-visit="${visit.number}">
+      Оролт баталгаажуулах
+    </button>
+    ${visit.signatureOpen ? `
+      <div class="course-signature-panel visit-signature-panel" data-history-index="${historyIndex}" data-visit="${visit.number}">
+        <div class="course-signature-head"><strong>Хэрэглэгчийн гарын үсэг</strong><span>Энэ оролтыг тусад нь баталгаажуулна</span></div>
+        <canvas class="course-signature-canvas" width="900" height="300"></canvas>
+        <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
+      </div>
+    ` : ""}
+  `;
+}
+
+function renderCourseVisitSummary(visit = {}, historyIndex = 0) {
   return `
     <div class="course-visit-summary-row">
       <span><small>Огноо</small><strong>${visit.date || "-"}</strong></span>
@@ -8182,6 +8304,7 @@ function renderCourseVisitSummary(visit = {}) {
       <span><small>Ажилтан</small><strong>${visit.staff || "-"}</strong></span>
       <span><small>Өрөө</small><strong>${visit.room === "vip" ? "Вип" : "Энгийн"}</strong></span>
     </div>
+    ${renderVisitConfirmation(visit, historyIndex)}
   `;
 }
 
@@ -8199,6 +8322,7 @@ function renderDiagnosisSummary(diagnosis) {
     .join("");
   const generalThumbs = photoThumbs(diagnosis.generalPhotos || [], "Үсний байрлал");
   const scopeThumbs = photoThumbs(diagnosis.scopePhotos || [], "Хуйх, уг");
+  const scopeLimit = Number(diagnosis.scopePhotoLimit || (diagnosis.scopePhotos || []).length || generalSettings().diagnosisPhotoLimit || 5);
   return `
     <div class="diagnosis-summary-box">
       <div class="diagnosis-summary-title">Онош</div>
@@ -8208,7 +8332,7 @@ function renderDiagnosisSummary(diagnosis) {
       </div>
       <div class="photo-summary-grid">
         <div><strong>Үсний байрлал</strong><span>${(diagnosis.generalPhotos || []).filter(Boolean).length}/5 зураг</span>${generalThumbs ? `<div class="diagnosis-photo-thumbs">${generalThumbs}</div>` : ""}</div>
-        <div><strong>Хуйх, уг</strong><span>${(diagnosis.scopePhotos || []).filter(Boolean).length}/5 зураг</span>${scopeThumbs ? `<div class="diagnosis-photo-thumbs">${scopeThumbs}</div>` : ""}</div>
+        <div><strong>Хуйх, уг</strong><span>${(diagnosis.scopePhotos || []).filter(Boolean).length}/${scopeLimit} зураг</span>${scopeThumbs ? `<div class="diagnosis-photo-thumbs">${scopeThumbs}</div>` : ""}</div>
       </div>
     </div>
   `;
@@ -8276,7 +8400,67 @@ function bindServiceClinicalControls(customer) {
       renderProfile();
     });
   });
-  root.querySelectorAll(".course-signature-panel").forEach(panel => bindCourseLevelSignature(panel, customer));
+  root.querySelectorAll(".course-level-signature .course-signature-panel").forEach(panel => bindCourseLevelSignature(panel, customer));
+  root.querySelectorAll(".course-visit-confirm").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
+      const visit = (item?.visits || []).find(entry => Number(entry.number) === Number(button.dataset.visit));
+      if (!visit || visit.confirmation?.signed) return;
+      (item.visits || []).forEach(entry => { if (entry !== visit) entry.signatureOpen = false; });
+      visit.signatureOpen = !visit.signatureOpen;
+      renderProfile();
+    });
+  });
+  root.querySelectorAll(".visit-signature-panel").forEach(panel => bindCourseVisitSignature(panel, customer));
+}
+
+function bindCourseVisitSignature(panel, customer) {
+  const item = customer.serviceHistory?.[Number(panel.dataset.historyIndex)];
+  const visit = (item?.visits || []).find(entry => Number(entry.number) === Number(panel.dataset.visit));
+  const canvas = panel.querySelector(".course-signature-canvas");
+  if (!item || !visit || !canvas || visit.confirmation?.signed) return;
+  const context = canvas.getContext("2d");
+  context.lineWidth = 5;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#172017";
+  let drawing = false;
+  let hasInk = false;
+  const point = event => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) };
+  };
+  canvas.addEventListener("pointerdown", event => {
+    drawing = true;
+    hasInk = true;
+    canvas.setPointerCapture?.(event.pointerId);
+    const current = point(event);
+    context.beginPath();
+    context.moveTo(current.x, current.y);
+  });
+  canvas.addEventListener("pointermove", event => {
+    if (!drawing) return;
+    const current = point(event);
+    context.lineTo(current.x, current.y);
+    context.stroke();
+  });
+  const stop = () => { drawing = false; context.closePath(); };
+  canvas.addEventListener("pointerup", stop);
+  canvas.addEventListener("pointercancel", stop);
+  canvas.addEventListener("pointerleave", stop);
+  panel.querySelector(".course-signature-clear")?.addEventListener("click", () => {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    hasInk = false;
+  });
+  panel.querySelector(".course-signature-submit")?.addEventListener("click", () => {
+    if (!hasInk) return showToast("Гарын үсгээ зурна уу");
+    const signedAt = new Date().toISOString();
+    visit.confirmation = { signed: true, signature: canvas.toDataURL("image/png"), signedAt };
+    visit.signed = true;
+    visit.signatureOpen = false;
+    state.audit.unshift({ title: "course_visit_signed", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${visit.number}-р оролт` });
+    saveAndRefreshCustomerProfile("Курсийн оролт баталгаажлаа");
+  });
 }
 
 function bindCourseLevelSignature(panel, customer) {
@@ -8454,7 +8638,7 @@ function renderProfile() {
       delete customer.profileKassGroup;
     }
     customer.profileServiceOpen = !wasOpen;
-    customer.profileServiceKind = customer.profileServiceKind || "single";
+    customer.profileServiceKind = customer.profileServiceKind || "diagnosis";
     renderProfile();
   });
   document.getElementById("profileEditInfoBtn")?.addEventListener("click", () => {
@@ -8591,7 +8775,7 @@ function renderProfile() {
         renderProfile();
         return;
       }
-      customer.profileServiceKind = item.kind === "course" ? "course" : "single";
+      customer.profileServiceKind = item.kind === "diagnosis" ? "diagnosis" : (item.kind === "course" ? "course" : "single");
       customer.profileServiceEditMode = editMode;
       customer.profileServiceEditingIndex = index;
       renderProfile();
@@ -8825,7 +9009,7 @@ function bindProfileKassInlineForm(customer, form) {
     delete customer.profileKassGroup;
     delete customer.profileKassDraftSalon;
     delete customer.profileKassDraftDate;
-    customer.profileServiceKind = "single";
+    customer.profileServiceKind = "diagnosis";
     customer.profileServiceOpen = false;
     renderProfile();
   });
@@ -8893,7 +9077,7 @@ function bindProfileKassInlineForm(customer, form) {
     delete customer.profileKassEditingIndex;
     delete customer.profileKassDraftSalon;
     delete customer.profileKassDraftDate;
-    customer.profileServiceKind = "single";
+    customer.profileServiceKind = "diagnosis";
     saveAndRefreshCustomerProfile(editingItem ? "Касс шинэчлэгдлээ. Төлбөрийн хэсэг нээгдлээ" : "Касс нэмэгдлээ. Төлбөрийн хэсэг нээгдлээ");
   });
 }
@@ -8904,7 +9088,9 @@ function bindProfileServiceInlineForm(customer) {
   const showSalon = ["admin", "manager"].includes(activeAccount.role);
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
-  const formKind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
+  const formKind = editingItem
+    ? (["diagnosis", "course"].includes(editingItem.kind) ? editingItem.kind : "single")
+    : (customer.profileServiceKind || "diagnosis");
   if (!editingItem && formKind === "kass") {
     bindProfileKassInlineForm(customer, form);
     return;
@@ -8920,10 +9106,55 @@ function bindProfileServiceInlineForm(customer) {
   form.querySelector(".profile-service-cancel-edit")?.addEventListener("click", () => {
     delete customer.profileServiceEditingIndex;
     delete customer.profileServiceEditMode;
-    customer.profileServiceKind = "single";
+    customer.profileServiceKind = "diagnosis";
     customer.profileServiceOpen = false;
     renderProfile();
   });
+  if (formKind === "diagnosis") {
+    const prefix = form.dataset.prefix;
+    bindDiagnosisControls(prefix);
+    if (editingItem) hydrateDiagnosisForm(prefix, editingItem.diagnosis || editingItem, true);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      if (!customer.groupId) return showToast("Эхлээд групп үүсгэх эсвэл группт нэгтгэнэ");
+      const diagnosis = readDiagnosisPayload(prefix);
+      if (!diagnosisHasContent(diagnosis)) return showToast("Оношилгооны мэдээлэл оруулна уу");
+      const date = formValue("profileServiceDate") || todayText();
+      const historyItem = {
+        id: editingItem?.id || entityId("diagnosis"),
+        kind: "diagnosis",
+        title: "Оношилгоо",
+        service: "Оношилгоо",
+        date,
+        createdAt: editingItem?.createdAt || new Date().toISOString(),
+        registeredAt: editingItem?.registeredAt || new Date().toISOString(),
+        activeUntil: editingItem?.activeUntil || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        salon: editingItem?.salon || activeAccount.salon,
+        staff: activeAccount.displayName || activeAccount.username || "",
+        price: 0,
+        balance: 0,
+        diagnosis
+      };
+      customer.serviceHistory = customer.serviceHistory || [];
+      if (editingItem) customer.serviceHistory[editingIndex] = historyItem;
+      else customer.serviceHistory.unshift(historyItem);
+      if (date === todayText()) assignDailyQueue(customer, date);
+      customer.last = date;
+      customer.profileServiceOpen = false;
+      customer.profileServiceKind = "diagnosis";
+      delete customer.profileServiceEditingIndex;
+      delete customer.profileServiceEditMode;
+      const auditEntry = {
+        id: entityId("audit"),
+        title: editingItem ? "customer_updated" : "diagnosis_created",
+        createdAt: auditNowText(),
+        meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${date}`
+      };
+      state.audit.unshift(auditEntry);
+      saveAndRefreshCustomerProfile(editingItem ? "Оношилгоо шинэчлэгдлээ" : "Оношилгоо бүртгэгдлээ", { auditEntries: [auditEntry] });
+    });
+    return;
+  }
   updateProfileServicePrice(customer);
   document.getElementById("profileServiceSelect")?.addEventListener("change", () => updateProfileServicePrice(customer));
   document.getElementById("profileServiceRoom")?.addEventListener("change", () => updateProfileServicePrice(customer));
@@ -8993,6 +9224,8 @@ function bindProfileServiceInlineForm(customer) {
       historyItem.masterStaffFee = 0;
       customer.activeCourse = true;
       customer.course = `Курс 0/${historyItem.visitsTotal}`;
+      historyItem.registeredAt = editingItem?.registeredAt || new Date().toISOString();
+      historyItem.activeUntil = editingItem?.activeUntil || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
     }
     customer.serviceHistory = customer.serviceHistory || [];
     if (editingItem) {
@@ -9012,6 +9245,7 @@ function bindProfileServiceInlineForm(customer) {
     } else {
       customer.serviceHistory.unshift(historyItem);
     }
+    if (date === todayText()) assignDailyQueue(customer, date);
     customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, kind === "course" ? `Курс ${(historyItem.visits || []).length}/${historyItem.visitsTotal}` : "Нэг удаа");
     customer.unpaid = customerBalance(customer) > 0;
     customer.last = date;
@@ -9437,7 +9671,10 @@ function staffOptionHtmlForSalon(salon = "", selected = "", date = todayText()) 
 }
 
 function diagnosisFormHtml(prefix = "service", open = false) {
-  const generalPositions = ["Орой", "Зүүн тал", "Баруун тал", "Урд", "Ард"];
+  const generalPositions = ["Урдаас", "Баруун талаас", "Зүүн талаас", "Дээрээс", "Араас"];
+  const scopePhotoLimit = [5, 10].includes(Number(generalSettings().diagnosisPhotoLimit))
+    ? Number(generalSettings().diagnosisPhotoLimit)
+    : 5;
   return `
     <div class="service-diagnosis-panel ${open ? "" : "hidden"}" id="${prefix}DiagnosisPanel" data-open="${open ? "true" : "false"}">
       <div class="diagnosis-chip-row">
@@ -9446,7 +9683,10 @@ function diagnosisFormHtml(prefix = "service", open = false) {
       <textarea class="input modal-textarea" id="${prefix}DiagnosisNote" placeholder="Оношилгооны тэмдэглэл"></textarea>
       <div class="diagnosis-photo-columns stacked">
         <section class="camera-capture-section">
-          <h4>Толгой, үсний ерөнхий зураг</h4>
+          <div class="camera-section-head">
+            <h4>Толгой, үсний ерөнхий зураг</h4>
+            <button class="primary-btn diagnosis-sequence-start" type="button" data-target="general">Үр дүнгийн зураг</button>
+          </div>
           <div class="camera-position-grid">
             ${generalPositions.map((name, index) => `
               <div class="camera-shot-card" data-target="general" data-index="${index}">
@@ -9456,15 +9696,18 @@ function diagnosisFormHtml(prefix = "service", open = false) {
                   <canvas class="camera-canvas" width="960" height="720"></canvas>
                   <em>Камер нээгдээгүй</em>
                 </div>
-                <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Камер нээх</button>
+                <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Дахин авах</button>
               </div>
             `).join("")}
           </div>
         </section>
         <section class="camera-capture-section">
-          <h4>Хуйх, үсний угийн зураг</h4>
+          <div class="camera-section-head">
+            <h4>Хуйх, үсний угийн зураг</h4>
+            <button class="primary-btn diagnosis-sequence-start" type="button" data-target="scope">Оношилгооны зураг</button>
+          </div>
           <div class="camera-position-grid">
-            ${Array.from({ length: 5 }, (_, index) => `
+            ${Array.from({ length: scopePhotoLimit }, (_, index) => `
               <div class="camera-shot-card" data-target="scope" data-index="${index}">
                 <span>Зураг ${index + 1}</span>
                 <div class="camera-preview-mini">
@@ -9472,7 +9715,7 @@ function diagnosisFormHtml(prefix = "service", open = false) {
                   <canvas class="camera-canvas" width="960" height="720"></canvas>
                   <em>Камер нээгдээгүй</em>
                 </div>
-                <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Камер нээх</button>
+                <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Дахин авах</button>
               </div>
             `).join("")}
           </div>
@@ -9494,7 +9737,7 @@ function readDiagnosisPayload(prefix = "service") {
   const note = document.getElementById(`${prefix}DiagnosisNote`)?.value.trim() || "";
   const payload = !types.length && !note && !generalPhotos.some(Boolean) && !scopePhotos.some(Boolean)
     ? null
-    : { types, note, generalPhotos, scopePhotos };
+    : { types, note, generalPhotos, scopePhotos, scopePhotoLimit: scopePhotos.length };
   releaseDiagnosisCameraSession();
   return payload;
 }
@@ -9520,7 +9763,7 @@ function hydrateDiagnosisForm(prefix = "service", diagnosis = null, open = true)
     panel.querySelectorAll(`.photo-capture[data-target="${target}"]`).forEach(button => {
       const active = Boolean(photos[Number(button.dataset.index)]);
       button.classList.toggle("active", active);
-      button.textContent = active ? "Дахин авах" : "Камер нээх";
+      button.textContent = "Дахин авах";
       const card = button.closest(".camera-shot-card");
       const preview = card?.querySelector(".camera-preview-mini");
       const canvas = card?.querySelector(".camera-canvas");
@@ -9616,16 +9859,19 @@ async function ensureDiagnosisCameraStream(label) {
   }
 }
 
-async function openDiagnosisCameraFullscreen(card, button) {
+async function openDiagnosisCameraFullscreen(card, button, sequenceButtons = []) {
   const label = card?.querySelector(".camera-preview-mini em");
   if (!card || !button) return;
+  const sequence = sequenceButtons.length ? sequenceButtons : [button];
+  let sequenceIndex = Math.max(0, sequence.indexOf(button));
+  let activeButton = sequence[sequenceIndex];
+  let activeCard = activeButton.closest(".camera-shot-card");
   closeDiagnosisCameraOverlay();
-  const positionName = card.querySelector(":scope > span")?.textContent?.trim() || "Оношилгооны зураг";
   const overlay = document.createElement("div");
   overlay.className = "diagnosis-camera-overlay";
   overlay.innerHTML = `
     <video autoplay muted playsinline></video>
-    <strong class="diagnosis-camera-position">${htmlSafe(positionName)}</strong>
+    <strong class="diagnosis-camera-position"></strong>
     <span class="diagnosis-camera-status">Камер нээж байна...</span>
     <div class="diagnosis-camera-toolbar" aria-label="Камерын удирдлага">
       <button class="diagnosis-camera-shoot" type="button" aria-label="Зураг авах" title="Зураг авах">
@@ -9636,6 +9882,14 @@ async function openDiagnosisCameraFullscreen(card, button) {
   `;
   document.body.appendChild(overlay);
   document.body.classList.add("camera-overlay-open");
+  const updateGuide = () => {
+    const target = activeButton.dataset.target;
+    const name = activeCard.querySelector(":scope > span")?.textContent?.trim() || "Зураг";
+    const guide = target === "scope" ? `${sequenceIndex + 1}/${sequence.length}` : `${name} зураг авна`;
+    const guideElement = overlay.querySelector(".diagnosis-camera-position");
+    if (guideElement) guideElement.textContent = guide;
+  };
+  updateGuide();
   const streamPromise = ensureDiagnosisCameraStream(label);
   const requestFullscreen = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
   if (requestFullscreen) {
@@ -9669,8 +9923,17 @@ async function openDiagnosisCameraFullscreen(card, button) {
     shootButton.disabled = true;
     shootButton.classList.add("saving");
     try {
-      await captureDiagnosisCamera(card, button, video);
-      close();
+      await captureDiagnosisCamera(activeCard, activeButton, video);
+      sequenceIndex += 1;
+      if (sequenceIndex >= sequence.length) {
+        close();
+        return;
+      }
+      activeButton = sequence[sequenceIndex];
+      activeCard = activeButton.closest(".camera-shot-card");
+      updateGuide();
+      shootButton.disabled = false;
+      shootButton.classList.remove("saving");
     } catch (error) {
       shootButton.disabled = false;
       shootButton.classList.remove("saving");
@@ -9811,6 +10074,15 @@ function bindDiagnosisControls(prefix = "service") {
       showDiagnosisPhotoPreview(button.dataset.photo, label);
     });
   });
+  document.querySelectorAll(`#${prefix}DiagnosisPanel .diagnosis-sequence-start`).forEach(button => {
+    button.addEventListener("click", () => {
+      const panel = document.getElementById(`${prefix}DiagnosisPanel`);
+      const sequence = Array.from(panel?.querySelectorAll(`.photo-capture[data-target="${button.dataset.target}"]`) || []);
+      if (!sequence.length) return;
+      const first = sequence.find(photoButton => !photoButton.dataset.photo && !photoButton.classList.contains("active")) || sequence[0];
+      openDiagnosisCameraFullscreen(first.closest(".camera-shot-card"), first, sequence);
+    });
+  });
 }
 function updateCustomerServicePrice(kind = "single") {
   const select = document.getElementById("customerServiceSelect");
@@ -9853,8 +10125,6 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           ${showSalon ? `<label>Салбар<select class="input" id="customerServiceSalon">${state.salons.map(s => `<option ${s.name === activeAccount.salon ? "selected" : ""}>${s.name}</option>`).join("")}</select></label>` : ""}
           <div class="service-price-readout"><span>Үнэ</span><strong id="customerServicePrice">—</strong></div>
         </div>
-        <button class="secondary-btn diagnosis-expand-btn" id="serviceDiagnosisToggle" type="button"><span>Оношилгоо</span><i></i></button>
-        ${diagnosisFormHtml("service")}
         <div class="form-actions">
           <button type="button" class="secondary-btn icon-clear" id="cancelModal" aria-label="Болих">×</button>
           <button type="submit" class="primary-btn">Нэмэх</button>
@@ -9887,7 +10157,6 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
         staffSelect.innerHTML = staffOptionHtmlForSalon(salon, staffSelect.value, event.target.value || todayText());
         enhanceNativeSelects(["customerServiceStaff"]);
       });
-      bindDiagnosisControls("service");
       hydrateKind(selectedKind);
       form.addEventListener("submit", event => {
         event.preventDefault();
@@ -9898,7 +10167,6 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
         const staff = formValue("customerServiceStaff");
         const salon = showSalon ? formValue("customerServiceSalon") : activeAccount.salon;
         const price = Number(item.price || 0);
-        const diagnosis = readDiagnosisPayload("service");
         const historyItem = {
           id: `svc-${Date.now()}`,
           kind,
@@ -9910,20 +10178,21 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           salon,
           price,
           balance: price,
-          qr: "Баталгаажуулалт хүлээгдэж буй",
-          diagnosis,
-          diagnosisOpen: false
+          qr: "Баталгаажуулалт хүлээгдэж буй"
         };
         if (kind === "course") {
           historyItem.visitsTotal = parseInt(item.visits, 10) || 4;
           historyItem.visits = [];
           customer.activeCourse = true;
           customer.course = `Курс 0/${historyItem.visitsTotal}`;
+          historyItem.registeredAt = new Date().toISOString();
+          historyItem.activeUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
         } else {
           customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, "Нэг удаа");
         }
         customer.serviceHistory = customer.serviceHistory || [];
         customer.serviceHistory.unshift(historyItem);
+        if (date === todayText()) assignDailyQueue(customer, date);
         customer.unpaid = true;
         customer.last = date;
         const auditEntry = {
@@ -11848,6 +12117,8 @@ function auditActionText(title = "") {
     customer_deleted: "Хэрэглэгчийг устгасан",
     customer_permanently_deleted: "Хэрэглэгчийг бүр мөсөн устгасан",
     service_created: "Үйлчилгээ бүртгэсэн",
+    diagnosis_created: "Оношилгоо бүртгэсэн",
+    course_visit_signed: "Курсийн оролт баталгаажуулсан",
     service_deleted: "Үйлчилгээ устгасан",
     service_settings_created: "Үйлчилгээний тохиргоонд нэмсэн",
     service_settings_updated: "Үйлчилгээний тохиргоог зассан",
@@ -12042,6 +12313,8 @@ function openCustomerModal() {
           last: "-",
           registeredAt: todayText(),
           registeredTime: currentTimeText(),
+          dailyQueueDate: todayText(),
+          dailyQueueAssignedAt: new Date().toISOString(),
           registeredSalon: activeAccount.salon,
           salon: activeAccount.salon,
           groupId: null,

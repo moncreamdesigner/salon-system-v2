@@ -672,12 +672,19 @@ body.sidebar-collapsed .sidebar-logout {
   color: var(--text);
   padding: 12px;
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.active-treatment-copy {
+  min-width: 0;
   display: grid;
   gap: 5px;
 }
 
 .active-treatment-card strong,
-.active-treatment-card span,
+.active-treatment-copy span,
 .active-treatment-card em {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -724,6 +731,16 @@ body.sidebar-collapsed .sidebar-logout {
   justify-content: flex-end;
   align-items: end;
   min-width: 104px;
+}
+
+.active-treatment-sequence {
+  flex: 0 0 auto;
+  min-width: 38px;
+  color: var(--accent);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
 }
 
 .customer-inline-form .form-actions .primary-btn {
@@ -2773,6 +2790,17 @@ body.sidebar-collapsed .sidebar-logout {
   font-weight: 700;
 }
 
+.camera-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.camera-section-head h4 {
+  margin: 0;
+}
+
 .photo-slot-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2859,6 +2887,21 @@ body.camera-overlay-open {
   color: #fff;
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+.camera-shot-card:not(.captured) > .photo-capture {
+  display: none;
+}
+
+.profile-service-date {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.profile-diagnosis-date {
+  display: grid;
+  max-width: 220px;
+  gap: 6px;
 }
 
 .diagnosis-camera-overlay:fullscreen,
