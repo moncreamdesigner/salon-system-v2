@@ -408,9 +408,50 @@ function dateUnavailable(salon, date) {
 
 function publicBookingSuccessMessage(booking = null) {
   if (!booking?.date || !booking?.time || !booking?.salon) return "";
+  return "Баярлалаа! Таны цаг амжилттай захиалагдлаа. Товлосон цагтаа хүрэлцэн ирээрэй.";
+}
+
+function renderBookingSuccessScreen(booking = null) {
+  const detail = document.getElementById("salonDetail");
+  const directory = document.getElementById("salonDirectory");
+  if (!detail || !directory || !booking?.date || !booking?.time || !booking?.salon) return;
   const date = new Date(`${booking.date}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "";
-  return `Таны цаг захиалга ${date.getMonth() + 1}-р сарын ${date.getDate()}-нд ${safeText(booking.time)} цагт ${safeText(booking.salon)} дээр боллоо. Та цагаа бариад ирээрэй.`;
+  if (Number.isNaN(date.getTime())) return;
+  const mongolianDays = ["Ням", "Даваа", "Мягмар", "Лхагва", "Пүрэв", "Баасан", "Бямба"];
+  directory.classList.add("hidden");
+  detail.classList.remove("hidden");
+  detail.innerHTML = `<section class="booking-success-screen" role="status" aria-live="polite">
+    <div class="booking-success-orbit booking-success-orbit-one" aria-hidden="true"></div>
+    <div class="booking-success-orbit booking-success-orbit-two" aria-hidden="true"></div>
+    <img class="booking-success-logo" src="assets/khalgai-salon-logo.png" alt="Халгай клиник салон">
+    <div class="booking-success-check" aria-hidden="true">
+      <span></span>
+      <svg viewBox="0 0 64 64"><path d="m18 33 9 9 20-21"/></svg>
+    </div>
+    <p class="booking-success-eyebrow">ЦАГ ЗАХИАЛГА БАТАЛГААЖЛАА</p>
+    <h1>Баярлалаа!</h1>
+    <p class="booking-success-copy">Таны цаг амжилттай захиалагдлаа.<br>Товлосон цагтаа хүрэлцэн ирээрэй.</p>
+    <div class="booking-success-details">
+      <div class="booking-success-detail booking-success-detail-salon">
+        <span class="booking-success-detail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V8l7-4 7 4v13M9 21v-5h6v5M9 10h.01M15 10h.01"/></svg></span>
+        <small>САЛОН</small>
+        <strong>${safeText(booking.salon)}</strong>
+      </div>
+      <div class="booking-success-detail">
+        <span class="booking-success-detail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="15" rx="3"/><path d="M8 3v5M16 3v5M3.5 10.5h17"/></svg></span>
+        <small>ӨДӨР</small>
+        <strong>${date.getMonth() + 1}-р сарын ${date.getDate()}, ${mongolianDays[date.getDay()]}</strong>
+      </div>
+      <div class="booking-success-detail">
+        <span class="booking-success-detail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.5 2"/></svg></span>
+        <small>ЦАГ</small>
+        <strong>${safeText(booking.time)}</strong>
+      </div>
+    </div>
+    <button class="booking-success-done" type="button" data-booking-success-done>ДУУСГАХ</button>
+    <p class="booking-success-note">Таныг хүлээж байх болно.</p>
+  </section>`;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function showBookingInlineMessage(message, salon = null) {
@@ -447,7 +488,7 @@ function renderBookingComposer(salon) {
     </section>
     <section class="booking-card"><h3>ЦАГ СОНГОХ</h3>${availabilityMessage ? "" : `<div class="time-grid">${times.map(time => `<button class="time-option ${selectedTime === time ? "active" : ""}" type="button" data-booking-time="${time}" ${timeDisabled(time) ? "disabled" : ""}>${time}</button>`).join("")}</div>`}</section>
     ${selectedDate ? `<div class="booking-summary">${selectedDateObject.getMonth() + 1}-р сарын ${selectedDateObject.getDate()}, ${mongolianDays[selectedDateObject.getDay()]}${selectedTime ? ` • ${selectedTime}` : ""}</div>` : ""}
-    ${bookingSubmissionSucceeded && lastSuccessfulBooking ? `<div class="booking-success-message" role="status">${publicBookingSuccessMessage(lastSuccessfulBooking)}</div>` : bookingInlineMessage || availabilityMessage ? `<div class="booking-success-message warning" role="alert">${safeText(bookingInlineMessage || availabilityMessage)}</div>` : ""}
+    ${bookingInlineMessage || availabilityMessage ? `<div class="booking-success-message warning" role="alert">${safeText(bookingInlineMessage || availabilityMessage)}</div>` : ""}
     <section class="booking-card booking-phone-card"><h3>УТАСНЫ ДУГААР</h3><div class="booking-phone-action"><div class="booking-phone-field"><input class="phone-input" id="publicBookingPhone" inputmode="numeric" maxlength="8" autocomplete="tel" aria-label="8 оронтой утасны дугаар" value="${safeText(bookingPhoneDraft)}" placeholder="XXXXXXXX"></div><button class="booking-submit${bookingSubmissionSucceeded ? " success" : ""}" id="publicBookingSubmit" type="button" ${bookingSubmissionSucceeded ? "disabled" : ""}>${bookingSubmissionSucceeded ? "АМЖИЛТТАЙ" : "ЦАГ ЗАХИАЛАХ"}</button></div></section>`;
   savePublicUiState();
 }
@@ -485,7 +526,7 @@ async function submitPublicBooking() {
   bookingInlineMessage = "";
   bookingPhoneDraft = "";
   savePublicUiState();
-  renderBookingComposer(salon);
+  renderBookingSuccessScreen(lastSuccessfulBooking);
 }
 
 function resultPosts() {
@@ -604,6 +645,10 @@ function bindPublicEvents() {
     const time = event.target.closest("[data-booking-time]");
     if (time) { selectedTime = time.dataset.bookingTime; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     if (event.target.closest("#publicBookingSubmit")) return submitPublicBooking();
+    if (event.target.closest("[data-booking-success-done]")) {
+      resetPublicBookingSelection();
+      return renderSalonDirectory();
+    }
     const resultSlideControl = event.target.closest("[data-result-slide-action], [data-result-slide-to]");
     if (resultSlideControl) {
       const slider = resultSlideControl.closest("[data-result-slider]");
@@ -691,7 +736,8 @@ async function initializePublicApp() {
   bindPublicEvents();
   setPublicView(restoredView);
   if (restoredView === "booking" && activeSalons().some(item => Number(item.id) === Number(selectedSalonId))) {
-    renderSalonDetail(selectedSalonId, { preserveSelection: true, preserveScroll: true });
+    if (bookingSubmissionSucceeded && lastSuccessfulBooking) renderBookingSuccessScreen(lastSuccessfulBooking);
+    else renderSalonDetail(selectedSalonId, { preserveSelection: true, preserveScroll: true });
   }
 }
 
