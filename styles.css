@@ -774,7 +774,11 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .customer-inline-form.salon-locked {
-  grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 154px 66px 132px 104px;
+  grid-template-columns: minmax(220px, 280px) 108px 64px 78px 154px 66px 132px minmax(20px, 1fr) 104px;
+}
+
+.customer-inline-form.salon-locked .form-actions {
+  grid-column: 9;
 }
 
 #inlineCustomerSalonField[hidden] {
@@ -1369,6 +1373,10 @@ body.sidebar-collapsed .sidebar-logout {
   background: #fff;
   cursor: crosshair;
   touch-action: none;
+}
+
+.visit-signature-panel .course-signature-canvas {
+  height: 220px;
 }
 
 .course-signature-actions {
@@ -2882,12 +2890,13 @@ body.sidebar-collapsed .sidebar-logout {
   display: grid;
   gap: 10px;
   min-width: 0;
+  align-content: start;
 }
 
 .primary-btn.diagnosis-camera-launch {
   width: 100%;
+  height: 68px;
   min-height: 68px;
-  height: auto;
   padding: 12px 16px;
   display: flex;
   align-items: center;
@@ -2931,26 +2940,46 @@ body.sidebar-collapsed .sidebar-logout {
   gap: 8px;
 }
 
-.camera-shot-card {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 7px;
+.camera-slot-item {
+  min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
-.camera-shot-card > span {
+.camera-slot-item[hidden] {
+  display: none !important;
+}
+
+.camera-slot-label {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.camera-preview-mini {
-  min-height: 76px;
+.camera-shot-card {
+  position: relative;
+  height: 112px;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px dashed var(--line);
   border-radius: 8px;
+  background: var(--surface);
+  padding: 6px;
+  display: grid;
+  gap: 0;
+}
+
+.camera-preview-mini {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 5px;
   background: var(--soft);
   color: var(--muted);
   display: flex;
@@ -2964,6 +2993,11 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .camera-shot-card > .photo-capture {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  width: calc(100% - 12px);
   min-height: 30px;
   height: 30px;
   padding: 0 6px;
@@ -2971,8 +3005,17 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .camera-preview-mini em {
+  color: var(--accent);
+  font-size: 28px;
+  font-weight: 400;
   font-style: normal;
   line-height: 1.45;
+}
+
+.camera-preview-mini em.message {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .camera-shot-card.captured {
@@ -2982,8 +3025,7 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .camera-shot-card.captured .camera-preview-mini {
-  border-style: solid;
-  border-color: var(--accent-line);
+  border: 0;
   color: var(--accent);
   cursor: zoom-in;
 }
@@ -3130,7 +3172,7 @@ body.camera-overlay-open {
 .camera-canvas {
   display: none;
   width: 100%;
-  height: 104px;
+  height: 100%;
   object-fit: cover;
   border-radius: 7px;
 }
@@ -9269,6 +9311,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     width: 100%;
     min-width: 0;
     margin-left: 0;
+  }
+
+  .customer-inline-form.salon-locked .form-actions {
+    grid-column: auto;
   }
 
   .customer-service-grid.course-visit-row {

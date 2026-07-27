@@ -8352,18 +8352,13 @@ function renderVisitConfirmation(visit = {}, historyIndex = 0) {
     return `<div class="course-signature-summary"><strong>Оролт баталгаажсан</strong><span>${new Date(confirmation.signedAt || visit.date).toLocaleString("mn-MN")}</span>${image}</div>`;
   }
   return `
-    <button class="secondary-btn course-visit-confirm ${visit.signatureOpen ? "active" : ""}" type="button" data-history-index="${historyIndex}" data-visit="${visit.number}">
-      Оролт баталгаажуулах
-    </button>
-    ${visit.signatureOpen ? `
-      <div class="course-signature-panel visit-signature-panel" data-history-index="${historyIndex}" data-visit="${visit.number}">
-        <div class="course-signature-head"><strong>Хэрэглэгчийн гарын үсэг</strong><span>Энэ оролтыг тусад нь баталгаажуулна</span></div>
-        <div class="visit-signature-workspace">
-          <canvas class="course-signature-canvas" width="900" height="300"></canvas>
-          <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
-        </div>
+    <div class="course-signature-panel visit-signature-panel" data-history-index="${historyIndex}" data-visit="${visit.number}">
+      <div class="course-signature-head"><strong>Хэрэглэгчийн гарын үсэг</strong></div>
+      <div class="visit-signature-workspace">
+        <canvas class="course-signature-canvas" width="900" height="340"></canvas>
+        <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
       </div>
-    ` : ""}
+    </div>
   `;
 }
 
@@ -9765,14 +9760,16 @@ function diagnosisFormHtml(prefix = "service", open = false) {
           </button>
           <div class="camera-position-grid">
             ${generalPositions.map((name, index) => `
-              <div class="camera-shot-card" data-target="general" data-index="${index}">
-                <span>${name}</span>
-                <div class="camera-preview-mini">
-                  <video class="camera-video" autoplay muted playsinline></video>
-                  <canvas class="camera-canvas" width="960" height="720"></canvas>
-                  <em>Камер нээгдээгүй</em>
+              <div class="camera-slot-item" data-target="general" data-index="${index}">
+                <div class="camera-shot-card" data-target="general" data-index="${index}">
+                  <div class="camera-preview-mini">
+                    <video class="camera-video" autoplay muted playsinline></video>
+                    <canvas class="camera-canvas" width="960" height="720"></canvas>
+                    <em class="camera-empty-icon">+</em>
+                  </div>
+                  <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Дахин авах</button>
                 </div>
-                <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Дахин авах</button>
+                <span class="camera-slot-label">${name}</span>
               </div>
             `).join("")}
           </div>
@@ -9784,14 +9781,16 @@ function diagnosisFormHtml(prefix = "service", open = false) {
           </button>
           <div class="camera-position-grid">
             ${Array.from({ length: scopePhotoLimit }, (_, index) => `
-              <div class="camera-shot-card" data-target="scope" data-index="${index}">
-                <span>Зураг ${index + 1}</span>
-                <div class="camera-preview-mini">
-                  <video class="camera-video" autoplay muted playsinline></video>
-                  <canvas class="camera-canvas" width="960" height="720"></canvas>
-                  <em>Камер нээгдээгүй</em>
+              <div class="camera-slot-item" data-target="scope" data-index="${index}" ${index ? "hidden" : ""}>
+                <div class="camera-shot-card" data-target="scope" data-index="${index}">
+                  <div class="camera-preview-mini">
+                    <video class="camera-video" autoplay muted playsinline></video>
+                    <canvas class="camera-canvas" width="960" height="720"></canvas>
+                    <em class="camera-empty-icon">+</em>
+                  </div>
+                  <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Дахин авах</button>
                 </div>
-                <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Дахин авах</button>
+                <span class="camera-slot-label">Зураг ${index + 1}</span>
               </div>
             `).join("")}
           </div>
@@ -9816,6 +9815,20 @@ function readDiagnosisPayload(prefix = "service") {
     : { types, note, generalPhotos, scopePhotos, scopePhotoLimit: scopePhotos.length };
   releaseDiagnosisCameraSession();
   return payload;
+}
+
+function refreshDiagnosisScopeSlots(panel) {
+  if (!panel) return;
+  const slots = Array.from(panel.querySelectorAll('.camera-slot-item[data-target="scope"]'));
+  if (!slots.length) return;
+  const lastCapturedIndex = slots.reduce((lastIndex, slot, index) => {
+    const button = slot.querySelector(".photo-capture");
+    return button?.dataset.photo || button?.classList.contains("active") ? index : lastIndex;
+  }, -1);
+  const visibleCount = Math.min(slots.length, Math.max(1, lastCapturedIndex + 2));
+  slots.forEach((slot, index) => {
+    slot.hidden = index >= visibleCount;
+  });
 }
 
 function hydrateDiagnosisForm(prefix = "service", diagnosis = null, open = true) {
@@ -9855,9 +9868,13 @@ function hydrateDiagnosisForm(prefix = "service", diagnosis = null, open = true)
         };
         image.src = photos[Number(button.dataset.index)];
       }
-      if (label && active) label.textContent = typeof photos[Number(button.dataset.index)] === "string" ? "" : "Зураг хадгалагдсан";
+      if (label && active) {
+        const storedImage = typeof photos[Number(button.dataset.index)] === "string";
+        setDiagnosisSlotLabel(label, storedImage ? "" : "Зураг хадгалагдсан", !storedImage);
+      }
     });
   });
+  refreshDiagnosisScopeSlots(panel);
 }
 
 function detachDiagnosisCamera(card) {
@@ -9909,28 +9926,34 @@ function diagnosisCameraVideoConstraints() {
   };
 }
 
+function setDiagnosisSlotLabel(label, text = "+", message = false) {
+  if (!label) return;
+  label.textContent = text;
+  label.classList.toggle("message", message);
+}
+
 async function ensureDiagnosisCameraStream(label) {
   if (!navigator.mediaDevices?.getUserMedia) {
-    if (label) label.textContent = "Энэ браузер камераар зураг авахыг дэмжихгүй байна";
+    setDiagnosisSlotLabel(label, "Энэ браузер камераар зураг авахыг дэмжихгүй байна", true);
     return null;
   }
   try {
-    if (label) label.textContent = "Камер нээж байна...";
+    setDiagnosisSlotLabel(label, "Камер нээж байна...", true);
     if (!diagnosisCameraSessionActive()) {
       diagnosisCameraStream = await navigator.mediaDevices.getUserMedia({
         video: diagnosisCameraVideoConstraints(),
         audio: false
       });
     }
-    if (label) label.textContent = "";
+    setDiagnosisSlotLabel(label);
     return diagnosisCameraStream;
   } catch (error) {
     diagnosisCameraStream = null;
-    if (label) label.textContent = error?.name === "NotAllowedError"
+    setDiagnosisSlotLabel(label, error?.name === "NotAllowedError"
       ? "Камерын зөвшөөрөл өгнө үү"
       : error?.name === "NotReadableError"
         ? "Камер өөр програм дээр ашиглагдаж байна"
-        : "Камер нээгдсэнгүй";
+        : "Камер нээгдсэнгүй", true);
     return null;
   }
 }
@@ -9960,7 +9983,7 @@ async function openDiagnosisCameraFullscreen(card, button, sequenceButtons = [])
   document.body.classList.add("camera-overlay-open");
   const updateGuide = () => {
     const target = activeButton.dataset.target;
-    const name = activeCard.querySelector(":scope > span")?.textContent?.trim() || "Зураг";
+    const name = activeCard.closest(".camera-slot-item")?.querySelector(".camera-slot-label")?.textContent?.trim() || "Зураг";
     const guide = target === "scope" ? `${sequenceIndex + 1}/${sequence.length}` : `${name} зураг авна`;
     const guideElement = overlay.querySelector(".diagnosis-camera-position");
     if (guideElement) guideElement.textContent = guide;
@@ -10105,7 +10128,8 @@ async function captureDiagnosisCamera(card, button, sourceVideo = null) {
   card.classList.remove("legacy-photo");
   button.classList.add("active");
   button.textContent = "Дахин авах";
-  if (label) label.textContent = "";
+  setDiagnosisSlotLabel(label, "", false);
+  if (button.dataset.target === "scope") refreshDiagnosisScopeSlots(card.closest(".service-diagnosis-panel"));
   if (!sourceVideo) detachDiagnosisCamera(card);
   return true;
 }
@@ -10145,7 +10169,7 @@ function bindDiagnosisControls(prefix = "service") {
     const card = button.closest(".camera-shot-card");
     card?.querySelector(".camera-preview-mini")?.addEventListener("click", () => {
       if (!card.classList.contains("captured") || card.classList.contains("camera-live")) return;
-      const label = card.querySelector(":scope > span")?.textContent?.trim() || "Оношилгооны зураг";
+      const label = card.closest(".camera-slot-item")?.querySelector(".camera-slot-label")?.textContent?.trim() || "Оношилгооны зураг";
       if (!button.dataset.photo) return showToast("Хуучин demo зураг тул томруулах файл хадгалагдаагүй байна");
       showDiagnosisPhotoPreview(button.dataset.photo, label);
     });
