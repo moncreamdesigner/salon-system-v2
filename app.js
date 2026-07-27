@@ -733,6 +733,7 @@ function clearCustomerUiState(customer) {
   delete customer.profileJoinGroupOpen;
   (customer.serviceHistory || []).forEach(item => {
     delete item.expandedVisit;
+    delete item.diagnosisViewVisit;
     delete item.diagnosisOpen;
     delete item.diagnosisExpanded;
     delete item.diagnosisAddOpen;
@@ -6352,13 +6353,6 @@ function customerCourseEntryStatus(customer = {}) {
     .find(progress => progress && progress.done < progress.total);
   if (activeCourse) return { ...activeCourse, complete: false };
 
-  const legacy = String(customer.course || "").match(/(\d+)\s*\/\s*(\d+)/);
-  if (legacy) {
-    const done = Number(legacy[1]);
-    const total = Number(legacy[2]);
-    if (done < total) return { done, total, complete: false, kind: "course" };
-  }
-
   const activeSingle = history.find(item => customerSingleServiceIsActive(customer, item));
   if (activeSingle) return { done: 0, total: 1, complete: false, kind: "single" };
   return null;
@@ -6567,6 +6561,7 @@ function renderCustomers() {
 function renderCustomerSideProfile() {
   const panel = document.getElementById("customerSideProfile");
   if (!panel) return;
+  document.body.classList.remove("signature-modal-open");
   const customer = selectedCustomer();
   if (!customer) {
     panel.innerHTML = `<div class="empty-state">Хэрэглэгч сонгоно уу</div>`;
@@ -8357,11 +8352,16 @@ function renderVisitConfirmation(visit = {}, historyIndex = 0) {
     return `<div class="course-signature-summary"><strong>Оролт баталгаажсан</strong><span>${new Date(confirmation.signedAt || visit.date).toLocaleString("mn-MN")}</span>${image}</div>`;
   }
   return `
-    <div class="course-signature-panel visit-signature-panel" data-history-index="${historyIndex}" data-visit="${visit.number}">
-      <div class="course-signature-head"><strong>Хэрэглэгчийн гарын үсэг</strong></div>
-      <div class="visit-signature-workspace">
-        <canvas class="course-signature-canvas" width="900" height="340"></canvas>
-        <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
+    <div class="visit-signature-overlay" role="dialog" aria-modal="true" aria-label="Хэрэглэгчийн гарын үсэг">
+      <div class="course-signature-panel visit-signature-panel" data-history-index="${historyIndex}" data-visit="${visit.number}">
+        <div class="course-signature-head">
+          <strong>Хэрэглэгчийн гарын үсэг</strong>
+          <button class="secondary-btn visit-signature-close" type="button" aria-label="Гарын үсгийн цонх хаах">×</button>
+        </div>
+        <div class="visit-signature-workspace">
+          <canvas class="course-signature-canvas" width="900" height="340"></canvas>
+          <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
+        </div>
       </div>
     </div>
   `;
@@ -8509,6 +8509,7 @@ function bindCourseVisitSignature(panel, customer) {
   const visit = (item?.visits || []).find(entry => Number(entry.number) === Number(panel.dataset.visit));
   const canvas = panel.querySelector(".course-signature-canvas");
   if (!item || !visit || !canvas || visit.confirmation?.signed) return;
+  document.body.classList.add("signature-modal-open");
   const context = canvas.getContext("2d");
   context.lineWidth = 5;
   context.lineCap = "round";
@@ -8542,12 +8543,21 @@ function bindCourseVisitSignature(panel, customer) {
     context.clearRect(0, 0, canvas.width, canvas.height);
     hasInk = false;
   });
+  panel.querySelector(".visit-signature-close")?.addEventListener("click", () => {
+    visit.signatureOpen = false;
+    item.diagnosisViewVisit = null;
+    document.body.classList.remove("signature-modal-open");
+    if (document.getElementById("customerSideProfile")?.contains(panel)) renderCustomerSideProfile();
+    else renderProfile();
+  });
   panel.querySelector(".course-signature-submit")?.addEventListener("click", () => {
     if (!hasInk) return showToast("Гарын үсгээ зурна уу");
     const signedAt = new Date().toISOString();
     visit.confirmation = { signed: true, signature: canvas.toDataURL("image/png"), signedAt };
     visit.signed = true;
     visit.signatureOpen = false;
+    item.diagnosisViewVisit = null;
+    document.body.classList.remove("signature-modal-open");
     state.audit.unshift({ title: "course_visit_signed", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${visit.number}-р оролт` });
     saveAndRefreshCustomerProfile("Курсийн оролт баталгаажлаа");
   });
@@ -8652,6 +8662,7 @@ function isServiceDeletable(item) {
 function renderProfile() {
   const shell = document.getElementById("profileShell");
   if (!shell) return;
+  document.body.classList.remove("signature-modal-open");
   const requestedCustomerId = Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0);
   const customer = state.customers.find(c =>
     Number(c.id) === requestedCustomerId &&
@@ -9712,8 +9723,10 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
   });
   persistPendingPaymentMutations();
   customer.serviceHistory.splice(historyIndex, 1);
+  const remainingCourse = customerCourseEntryStatus(customer);
+  customer.activeCourse = remainingCourse?.kind === "course";
+  customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
   customer.currentTreatment = customer.serviceHistory[0] ? currentTreatmentFromHistory(customer, customer.serviceHistory[0], customer.serviceHistory[0].kind === "course" ? customer.course || "Курс" : "Нэг удаа") : null;
-  customer.activeCourse = customer.serviceHistory.some(item => item.kind === "course");
   customer.unpaid = customerBalance(customer) > 0;
   state.audit.unshift({ title: "service_deleted", meta: `Менежер • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • гүйцэтгэлээс давхар хасна` });
   saveAndRefreshCustomerProfile("Үйлчилгээ устлаа");
