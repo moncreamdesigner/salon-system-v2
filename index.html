@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202607241439">
+  <meta name="app-build" content="202607280156">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607241439">
+  <link rel="stylesheet" href="styles.css?v=202607280156">
 </head>
 <body>
   <div class="app-shell">
@@ -800,9 +800,9 @@
       </section>
       <section class="view" id="settingsGeneralView">
         <section class="panel general-settings-panel">
-          <form class="general-settings-form" id="generalSettingsForm">
+          <form class="general-settings-form" id="generalSettingsForm" autocomplete="off" data-form-type="other">
             <label>Засах, устгах код
-              <input class="input" id="deleteActionCode" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="new-password">
+              <input class="input secure-code-input" id="deleteActionCode" name="khalgai_settings_pin" type="text" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true">
             </label>
             <label>Үйлчилгээ засах, устгах хоног
               <input class="input" id="serviceEditDays" type="number" min="1">
@@ -1236,10 +1236,10 @@
 
   <div class="toast" id="toast">Амжилттай хадгаллаа</div>
   <div class="action-code-overlay" id="actionCodeOverlay" hidden>
-    <form class="action-code-dialog" id="actionCodeForm" role="dialog" aria-modal="true" aria-label="Нууц код оруулах">
+    <form class="action-code-dialog" id="actionCodeForm" role="dialog" aria-modal="true" aria-label="Нууц код оруулах" autocomplete="off" data-form-type="other">
       <label id="actionCodeLabel" for="actionCodeInput">Код оруулах</label>
       <div class="action-code-row">
-        <input class="input" id="actionCodeInput" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="off" required>
+        <input class="input secure-code-input" id="actionCodeInput" name="khalgai_action_pin" type="text" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" required>
         <button class="secondary-btn action-code-cancel" id="actionCodeCancel" type="button" aria-label="Хаах">×</button>
         <button class="primary-btn" type="submit">Батлах</button>
       </div>
@@ -1248,7 +1248,7 @@
   </div>
   <script src="fliphtml5.js?v=202607210130"></script>
   <script src="diagnostics.js?v=202607240130"></script>
-  <script src="app.js?v=202607241439"></script>
+  <script src="app.js?v=202607280156"></script>
 </body>
 </html>
 

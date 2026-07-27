@@ -8430,6 +8430,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   flex: 0 0 84px;
 }
 
+.secure-code-input {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+
 .action-code-row .secondary-btn,
 .action-code-row .primary-btn {
   flex: 0 0 auto;
