@@ -82,6 +82,16 @@ function savePublicUiState() {
   } catch (_) {}
 }
 
+function resetPublicBookingSelection() {
+  selectedSalonId = null;
+  selectedDate = "";
+  selectedTime = "";
+  weekOffset = 0;
+  bookingSubmissionSucceeded = false;
+  lastSuccessfulBooking = null;
+  savePublicUiState();
+}
+
 function mergePublicSettings(settings = {}) {
   const storedCatalog = settings.catalog || {};
   const hasStoredFlipCode = Object.prototype.hasOwnProperty.call(storedCatalog, "flipHtml5Code");
@@ -564,17 +574,14 @@ function finishResultSlideDrag(slider, clientX) {
 function bindPublicEvents() {
   document.addEventListener("click", event => {
     const nav = event.target.closest("[data-public-target]");
-    if (nav) return setPublicView(nav.dataset.publicTarget);
+    if (nav) {
+      if (nav.dataset.publicTarget === "booking") resetPublicBookingSelection();
+      return setPublicView(nav.dataset.publicTarget);
+    }
     const salon = event.target.closest("[data-salon-open]");
     if (salon) return renderSalonDetail(salon.dataset.salonOpen);
     if (event.target.closest("#salonBack")) {
-      selectedSalonId = null;
-      selectedDate = "";
-      selectedTime = "";
-      weekOffset = 0;
-      bookingSubmissionSucceeded = false;
-      lastSuccessfulBooking = null;
-      savePublicUiState();
+      resetPublicBookingSelection();
       return renderSalonDirectory();
     }
     const week = event.target.closest("[data-week]");
@@ -670,8 +677,3 @@ async function initializePublicApp() {
 }
 
 initializePublicApp();
-
-window.addEventListener("focus", () => void refreshActivePublicView(activePublicView));
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) void refreshActivePublicView(activePublicView);
-});
