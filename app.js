@@ -6628,6 +6628,7 @@ function renderCustomerSideProfile() {
     renderProfile();
   });
   bindInlineJoinGroup(customer);
+  bindServiceClinicalControls(customer, panel);
   panel.querySelectorAll(".course-slot-card").forEach(card => {
     card.addEventListener("click", event => {
       if (event.target.closest(".course-slot-edit")) return;
@@ -6637,8 +6638,12 @@ function renderCustomerSideProfile() {
         const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
         if (!item) return;
         const visitNumber = Number(button.dataset.visit);
-        item.diagnosisViewVisit = Number(item.diagnosisViewVisit) === visitNumber ? null : visitNumber;
+        const visit = (item.visits || []).find(entry => Number(entry.number) === visitNumber);
+        const opening = Number(item.diagnosisViewVisit) !== visitNumber;
+        item.diagnosisViewVisit = opening ? visitNumber : null;
         item.expandedVisit = null;
+        (item.visits || []).forEach(entry => { entry.signatureOpen = false; });
+        if (visit && !visit.confirmation?.signed) visit.signatureOpen = opening;
         renderCustomerSideProfile();
         return;
       }
@@ -8353,8 +8358,10 @@ function renderVisitConfirmation(visit = {}, historyIndex = 0) {
     ${visit.signatureOpen ? `
       <div class="course-signature-panel visit-signature-panel" data-history-index="${historyIndex}" data-visit="${visit.number}">
         <div class="course-signature-head"><strong>Хэрэглэгчийн гарын үсэг</strong><span>Энэ оролтыг тусад нь баталгаажуулна</span></div>
-        <canvas class="course-signature-canvas" width="900" height="300"></canvas>
-        <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
+        <div class="visit-signature-workspace">
+          <canvas class="course-signature-canvas" width="900" height="300"></canvas>
+          <div class="course-signature-actions"><button class="secondary-btn course-signature-clear" type="button">Цэвэрлэх</button><button class="primary-btn course-signature-submit" type="button">Баталгаажуулах</button></div>
+        </div>
       </div>
     ` : ""}
   `;
@@ -8402,8 +8409,8 @@ function renderDiagnosisSummary(diagnosis) {
   `;
 }
 
-function bindServiceClinicalControls(customer) {
-  const root = document.getElementById("historyList") || document;
+function bindServiceClinicalControls(customer, rootOverride = null) {
+  const root = rootOverride || document.getElementById("historyList") || document;
   root.querySelectorAll(".service-diagnosis-toggle").forEach(button => {
     button.addEventListener("click", () => {
       const index = Number(button.dataset.historyIndex);
@@ -8762,9 +8769,13 @@ function renderProfile() {
         const visitNumber = Number(button.dataset.visit);
         const item = customer.serviceHistory?.[historyIndex];
         if (!item) return;
+        const visit = (item.visits || []).find(entry => Number(entry.number) === visitNumber);
         const wasOpen = Number(item.diagnosisViewVisit) === visitNumber;
         collapseCustomerServicePanels(customer);
-        if (!wasOpen) item.diagnosisViewVisit = visitNumber;
+        if (!wasOpen) {
+          item.diagnosisViewVisit = visitNumber;
+          if (visit && !visit.confirmation?.signed) visit.signatureOpen = true;
+        }
         renderProfile();
         return;
       }
@@ -9739,18 +9750,19 @@ function diagnosisFormHtml(prefix = "service", open = false) {
   const scopePhotoLimit = [5, 10].includes(Number(generalSettings().diagnosisPhotoLimit))
     ? Number(generalSettings().diagnosisPhotoLimit)
     : 5;
+  const cameraIcon = `<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/></svg>`;
   return `
     <div class="service-diagnosis-panel ${open ? "" : "hidden"}" id="${prefix}DiagnosisPanel" data-open="${open ? "true" : "false"}">
       <div class="diagnosis-chip-row">
         ${state.diagnosisTypes.map(type => `<button class="secondary-btn diagnosis-pick" type="button" data-type="${type}">${type}</button>`).join("")}
       </div>
       <textarea class="input modal-textarea" id="${prefix}DiagnosisNote" placeholder="Оношилгооны тэмдэглэл"></textarea>
-      <div class="diagnosis-photo-columns stacked">
+      <div class="diagnosis-photo-columns diagnosis-capture-overview">
         <section class="camera-capture-section">
-          <div class="camera-section-head">
-            <h4>Толгой, үсний ерөнхий зураг</h4>
-            <button class="primary-btn diagnosis-sequence-start" type="button" data-target="general">Үр дүнгийн зураг</button>
-          </div>
+          <button class="primary-btn diagnosis-sequence-start diagnosis-camera-launch" type="button" data-target="general">
+            ${cameraIcon}
+            <span><strong>Үр дүнгийн зураг</strong><small>Толгой, үсний 5 байрлал</small></span>
+          </button>
           <div class="camera-position-grid">
             ${generalPositions.map((name, index) => `
               <div class="camera-shot-card" data-target="general" data-index="${index}">
@@ -9766,10 +9778,10 @@ function diagnosisFormHtml(prefix = "service", open = false) {
           </div>
         </section>
         <section class="camera-capture-section">
-          <div class="camera-section-head">
-            <h4>Хуйх, үсний угийн зураг</h4>
-            <button class="primary-btn diagnosis-sequence-start" type="button" data-target="scope">Оношилгооны зураг</button>
-          </div>
+          <button class="primary-btn diagnosis-sequence-start diagnosis-camera-launch" type="button" data-target="scope">
+            ${cameraIcon}
+            <span><strong>Оношилгооны зураг</strong><small>Хуйх, үсний угийн ${scopePhotoLimit} зураг</small></span>
+          </button>
           <div class="camera-position-grid">
             ${Array.from({ length: scopePhotoLimit }, (_, index) => `
               <div class="camera-shot-card" data-target="scope" data-index="${index}">
