@@ -6202,7 +6202,7 @@ function saveInlineCustomer(event) {
   renderCustomers();
   renderAudit();
   renderInfoHeader("customers");
-  showToast(IS_LOCAL_RUNTIME ? "Хэрэглэгч нэмэгдлээ" : "Хэрэглэгчийг server-т хадгалж байна", IS_LOCAL_RUNTIME ? "success" : "warning");
+  if (IS_LOCAL_RUNTIME) showToast("Хэрэглэгч нэмэгдлээ");
 }
 
 function clearCustomerFilters() {
@@ -9369,7 +9369,7 @@ function saveAndRefreshCustomerProfile(message, { customerIds = [], groupIds = [
   renderCustomerSideProfile();
   renderProfile();
   renderInfoHeader(activeView);
-  if (message) showToast(IS_LOCAL_RUNTIME ? message : "Өөрчлөлтийг server-т хадгалж байна", IS_LOCAL_RUNTIME ? "success" : "warning");
+  if (message && IS_LOCAL_RUNTIME) showToast(message);
 }
 
 function startDemoTreatment(customerId) {
@@ -12066,7 +12066,7 @@ function openCustomerModal() {
         closeModal();
         renderCustomers();
         renderAudit();
-        showToast(IS_LOCAL_RUNTIME ? "Хэрэглэгч нэмэгдлээ" : "Хэрэглэгчийг server-т хадгалж байна", IS_LOCAL_RUNTIME ? "success" : "warning");
+        if (IS_LOCAL_RUNTIME) showToast("Хэрэглэгч нэмэгдлээ");
       });
     }
   );
