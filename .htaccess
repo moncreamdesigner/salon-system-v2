@@ -1,13 +1,20 @@
 Options -Indexes
 DirectoryIndex booking.html
 
-# Deploy hiigdsen HTML, CSS, JS-iig browser huuchin cache-aas ashiglahgui.
+# HTML, CSS, JS-iig huudas neeh burd shinechlegdsen esehiig serverees shalgana.
 <IfModule mod_headers.c>
   <FilesMatch "\.(html|css|js|json)$">
-    Header always set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+    Header always set Cache-Control "no-cache, max-age=0, must-revalidate"
     Header always set Pragma "no-cache"
     Header always set Expires "0"
   </FilesMatch>
+</IfModule>
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html "access plus 0 seconds"
+  ExpiresByType text/css "access plus 0 seconds"
+  ExpiresByType application/javascript "access plus 0 seconds"
 </IfModule>
 
 RewriteEngine On
@@ -21,4 +28,3 @@ RewriteRule ^login/$ /login [R=302,L]
 
 # Одоогийн салон удирдлагын систем.
 RewriteRule ^login$ index.html [L]
-
