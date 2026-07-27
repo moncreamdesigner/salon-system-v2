@@ -233,8 +233,8 @@ button { cursor: pointer; }
 .booking-success-check span { position:absolute; inset:9px; border:1px solid rgba(255,255,255,.3); border-radius:50%; }
 .booking-success-check svg { width:55px; height:55px; fill:none; stroke:currentColor; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
 .booking-success-check path { stroke-dasharray:45; stroke-dashoffset:45; animation:booking-success-draw .5s .38s ease-out forwards; }
-.booking-success-eyebrow { position:relative; z-index:2; margin:0 0 10px; color:var(--green); font-size:11px; font-weight:800; letter-spacing:.14em; }
-.booking-success-screen h1 { position:relative; z-index:2; margin:0; font-family:"Philosopher",serif; color:#323833; font-size:clamp(38px,8vw,58px); line-height:1; }
+.booking-success-eyebrow { position:relative; z-index:2; margin:0 0 10px; color:#323833; font-size:11px; font-weight:800; letter-spacing:.14em; }
+.booking-success-screen h1 { position:relative; z-index:2; margin:0; font-family:"Philosopher",serif; color:var(--green); font-size:clamp(38px,8vw,58px); line-height:1; }
 .booking-success-copy { position:relative; z-index:2; margin:15px 0 30px; color:#696e69; font-size:14px; font-weight:500; line-height:1.8; }
 .booking-success-details {
   position:relative;
@@ -263,6 +263,8 @@ button { cursor: pointer; }
 .booking-success-detail-icon svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .booking-success-detail small { align-self:end; color:#989c97; font-size:9px; font-weight:700; letter-spacing:.08em; }
 .booking-success-detail strong { align-self:start; margin-top:3px; color:#343936; font-size:13px; line-height:1.35; }
+.booking-success-detail-salon strong { align-self:end; margin:0; }
+.booking-success-detail-salon a { align-self:start; margin-top:4px; color:#858a84; font-size:11px; font-weight:600; line-height:1.35; text-decoration:none; }
 .booking-success-orbit { position:absolute; border-radius:50%; border:1px solid rgba(120,164,80,.12); pointer-events:none; }
 .booking-success-orbit-one { top:70px; left:50%; width:280px; height:280px; transform:translateX(-50%); }
 .booking-success-orbit-two { top:15px; left:50%; width:390px; height:390px; transform:translateX(-50%); border-style:dashed; animation:booking-success-spin 30s linear infinite; }
@@ -442,7 +444,7 @@ button { cursor: pointer; }
   #bookingComposer .date-option:hover:not(:disabled):not(.active),
   #bookingComposer .time-option:hover:not(:disabled):not(.active) { border-color: rgba(120,164,80,.55); background: #f6faf2; }
   #bookingComposer .date-option.active { border-color: var(--green); background: var(--green); }
-  #bookingComposer .time-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 9px; }
+  #bookingComposer .time-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
   #bookingComposer .time-option {
     height: 48px;
     border: 1px solid #e7eae4;

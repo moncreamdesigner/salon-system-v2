@@ -412,6 +412,7 @@ function renderBookingSuccessScreen(booking = null) {
   if (!detail || !directory || !booking?.date || !booking?.time || !booking?.salon) return;
   const date = new Date(`${booking.date}T00:00:00`);
   if (Number.isNaN(date.getTime())) return;
+  const bookedSalon = activeSalons().find(item => item.name === booking.salon);
   const mongolianDays = ["Ням", "Даваа", "Мягмар", "Лхагва", "Пүрэв", "Баасан", "Бямба"];
   directory.classList.add("hidden");
   detail.classList.remove("hidden");
@@ -425,12 +426,12 @@ function renderBookingSuccessScreen(booking = null) {
     </div>
     <p class="booking-success-eyebrow">ЦАГ ЗАХИАЛГА БАТАЛГААЖЛАА</p>
     <h1>Баярлалаа!</h1>
-    <p class="booking-success-copy">Таны цаг амжилттай захиалагдлаа.<br>Товлосон цагтаа хүрэлцэн ирээрэй.</p>
+    <p class="booking-success-copy">Товлосон цагтаа хүрэлцэн ирээрэй.</p>
     <div class="booking-success-details">
       <div class="booking-success-detail booking-success-detail-salon">
-        <span class="booking-success-detail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V8l7-4 7 4v13M9 21v-5h6v5M9 10h.01M15 10h.01"/></svg></span>
-        <small>САЛОН</small>
+        <span class="booking-success-detail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5.5 11 6.5-5.5 6.5 5.5v8H5.5Z"/><path d="M10 19v-5h4v5"/></svg></span>
         <strong>${safeText(booking.salon)}</strong>
+        <a href="tel:${safeText(bookedSalon?.phone || "")}">${safeText(bookedSalon?.phone || "Утасны дугаар бүртгэгдээгүй")}</a>
       </div>
       <div class="booking-success-detail">
         <span class="booking-success-detail-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="15" rx="3"/><path d="M8 3v5M16 3v5M3.5 10.5h17"/></svg></span>
