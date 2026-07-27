@@ -1,4 +1,5 @@
 const PUBLIC_STORAGE_KEY = "khalgai_salon_local_mvp_v1";
+const PUBLIC_UI_STATE_KEY = "khalgai_public_ui_state_v1";
 const publicDefaultSettings = {
   catalog: {
     flipHtml5Code: window.KhalgaiFlipHtml5.DEFAULT_CODE,
@@ -54,8 +55,32 @@ let selectedDate = "";
 let selectedTime = "";
 let weekOffset = 0;
 let bookingSubmissionSucceeded = false;
+let lastSuccessfulBooking = null;
 let publicToastTimer = null;
 let activeHeroSlide = 0;
+
+function readPublicUiState() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(PUBLIC_UI_STATE_KEY) || "null");
+    return value && typeof value === "object" ? value : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function savePublicUiState() {
+  try {
+    sessionStorage.setItem(PUBLIC_UI_STATE_KEY, JSON.stringify({
+      view: activePublicView,
+      salonId: selectedSalonId,
+      selectedDate,
+      selectedTime,
+      weekOffset,
+      bookingSubmissionSucceeded,
+      lastSuccessfulBooking
+    }));
+  } catch (_) {}
+}
 
 function mergePublicSettings(settings = {}) {
   const storedCatalog = settings.catalog || {};
@@ -120,6 +145,7 @@ function showPublicToast(message, tone = "") {
 
 function setPublicView(name) {
   activePublicView = ["catalog", "booking", "results"].includes(name) ? name : "catalog";
+  savePublicUiState();
   document.getElementById("publicApp")?.classList.toggle("catalog-mode", activePublicView === "catalog");
   document.querySelectorAll("[data-public-view]").forEach(view => view.classList.toggle("active", view.dataset.publicView === activePublicView));
   document.querySelectorAll("[data-public-target]").forEach(button => button.classList.toggle("active", button.dataset.publicTarget === activePublicView));
@@ -137,7 +163,11 @@ async function refreshActivePublicView(viewName = activePublicView) {
     await loadPublicData();
     if (activePublicView !== viewName) return;
     if (viewName === "catalog") renderCatalog();
-    if (viewName === "booking") renderSalonDirectory();
+    if (viewName === "booking") {
+      const salonExists = activeSalons().some(item => Number(item.id) === Number(selectedSalonId));
+      if (salonExists) renderSalonDetail(selectedSalonId, { preserveSelection: true, preserveScroll: true });
+      else renderSalonDirectory();
+    }
     if (viewName === "results") renderResults();
   } finally {
     publicRefreshInFlight = false;
@@ -245,15 +275,19 @@ function salonSchedule(salon, date = new Date()) {
   return { start: weekend ? config.weekendStart : config.workStart, end: weekend ? config.weekendEnd : config.workEnd, duration: Number(config.duration) || 30 };
 }
 
-function renderSalonDetail(salonId) {
+function renderSalonDetail(salonId, { preserveSelection = false, preserveScroll = false } = {}) {
   const salon = activeSalons().find(item => Number(item.id) === Number(salonId));
   if (!salon) return;
   selectedSalonId = salon.id;
-  selectedDate = "";
-  selectedTime = "";
-  weekOffset = 0;
-  bookingSubmissionSucceeded = false;
+  if (!preserveSelection) {
+    selectedDate = "";
+    selectedTime = "";
+    weekOffset = 0;
+    bookingSubmissionSucceeded = false;
+    lastSuccessfulBooking = null;
+  }
   activeHeroSlide = 0;
+  savePublicUiState();
   const config = salonConfig(salon);
   const weekdaySchedule = salonSchedule(salon, new Date(2026, 6, 13));
   const weekendSchedule = salonSchedule(salon, new Date(2026, 6, 12));
@@ -275,7 +309,7 @@ function renderSalonDetail(salonId) {
     </div>`;
   renderHero(salon);
   renderBookingComposer(salon);
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (!preserveScroll) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function renderHero(salon) {
@@ -368,6 +402,13 @@ function dateUnavailable(salon, date) {
   return !times.length || times.every(time => timeIsPast(date, time) || slotFull(salon, value, time));
 }
 
+function publicBookingSuccessMessage(booking = null) {
+  if (!booking?.date || !booking?.time || !booking?.salon) return "";
+  const date = new Date(`${booking.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  return `Таны цаг захиалга ${date.getMonth() + 1}-р сарын ${date.getDate()}-нд ${safeText(booking.time)} цагт ${safeText(booking.salon)} дээр боллоо. Та цагаа бариад ирээрэй.`;
+}
+
 function renderBookingComposer(salon) {
   const composer = document.getElementById("bookingComposer");
   if (!composer) return;
@@ -388,7 +429,8 @@ function renderBookingComposer(salon) {
     </section>
     <section class="booking-card"><h3>ЦАГ СОНГОХ</h3>${!selectedDate ? '<div class="empty-public">Энэ долоо хоногт захиалах боломжтой өдөр алга.</div>' : holiday ? '<div class="empty-public">Энэ өдөр салбар амарна.</div>' : `<div class="time-grid">${times.map(time => `<button class="time-option ${selectedTime === time ? "active" : ""}" type="button" data-booking-time="${time}" ${timeDisabled(time) ? "disabled" : ""}>${time}</button>`).join("")}</div>`}</section>
     ${selectedDate ? `<div class="booking-summary">${selectedDateObject.getMonth() + 1}-р сарын ${selectedDateObject.getDate()}, ${mongolianDays[selectedDateObject.getDay()]}${selectedTime ? ` • ${selectedTime}` : ""}</div>` : ""}
-    <section class="booking-card booking-phone-card"><h3>УТАСНЫ ДУГААР</h3><div class="booking-phone-action"><div class="booking-phone-field"><input class="phone-input" id="publicBookingPhone" inputmode="numeric" maxlength="8" placeholder="XXXXXXXX"><p class="booking-help">Захиалга баталгаажуулахад бид тантай холбогдоно.</p></div><button class="booking-submit${bookingSubmissionSucceeded ? " success" : ""}" id="publicBookingSubmit" type="button" ${bookingSubmissionSucceeded ? "disabled" : ""}>${bookingSubmissionSucceeded ? "Амжилттай" : "Захиалга илгээх"}</button></div></section>`;
+    <section class="booking-card booking-phone-card"><h3>УТАСНЫ ДУГААР</h3><div class="booking-phone-action"><div class="booking-phone-field"><input class="phone-input" id="publicBookingPhone" inputmode="numeric" maxlength="8" placeholder="XXXXXXXX"></div><button class="booking-submit${bookingSubmissionSucceeded ? " success" : ""}" id="publicBookingSubmit" type="button" ${bookingSubmissionSucceeded ? "disabled" : ""}>${bookingSubmissionSucceeded ? "Амжилттай" : "Захиалга илгээх"}</button></div>${bookingSubmissionSucceeded && lastSuccessfulBooking ? `<div class="booking-success-message" role="status">${publicBookingSuccessMessage(lastSuccessfulBooking)}</div>` : ""}</section>`;
+  savePublicUiState();
 }
 
 async function submitPublicBooking() {
@@ -418,6 +460,8 @@ async function submitPublicBooking() {
   }
   if (!(publicState.bookings || []).some(item => Number(item.id) === Number(booking.id))) publicState.bookings.unshift(booking);
   bookingSubmissionSucceeded = true;
+  lastSuccessfulBooking = { salon: booking.salon, date: booking.date, time: booking.time };
+  savePublicUiState();
   renderBookingComposer(salon);
 }
 
@@ -523,13 +567,22 @@ function bindPublicEvents() {
     if (nav) return setPublicView(nav.dataset.publicTarget);
     const salon = event.target.closest("[data-salon-open]");
     if (salon) return renderSalonDetail(salon.dataset.salonOpen);
-    if (event.target.closest("#salonBack")) return renderSalonDirectory();
+    if (event.target.closest("#salonBack")) {
+      selectedSalonId = null;
+      selectedDate = "";
+      selectedTime = "";
+      weekOffset = 0;
+      bookingSubmissionSucceeded = false;
+      lastSuccessfulBooking = null;
+      savePublicUiState();
+      return renderSalonDirectory();
+    }
     const week = event.target.closest("[data-week]");
-    if (week) { weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (week) { weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     const date = event.target.closest("[data-booking-date]");
-    if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; bookingSubmissionSucceeded = false; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     const time = event.target.closest("[data-booking-time]");
-    if (time) { selectedTime = time.dataset.bookingTime; bookingSubmissionSucceeded = false; return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (time) { selectedTime = time.dataset.bookingTime; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     if (event.target.closest("#publicBookingSubmit")) return submitPublicBooking();
     const resultSlideControl = event.target.closest("[data-result-slide-action], [data-result-slide-to]");
     if (resultSlideControl) {
@@ -596,11 +649,24 @@ function bindPublicEvents() {
 
 async function initializePublicApp() {
   await loadPublicData();
+  const restoredUi = readPublicUiState();
+  const restoredView = ["catalog", "booking", "results"].includes(restoredUi.view) ? restoredUi.view : "catalog";
+  selectedSalonId = restoredUi.salonId ?? null;
+  selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(restoredUi.selectedDate || "")) ? restoredUi.selectedDate : "";
+  selectedTime = /^\d{2}:\d{2}$/.test(String(restoredUi.selectedTime || "")) ? restoredUi.selectedTime : "";
+  weekOffset = Math.max(0, Number(restoredUi.weekOffset) || 0);
+  bookingSubmissionSucceeded = Boolean(restoredUi.bookingSubmissionSucceeded);
+  lastSuccessfulBooking = restoredUi.lastSuccessfulBooking && typeof restoredUi.lastSuccessfulBooking === "object"
+    ? restoredUi.lastSuccessfulBooking
+    : null;
   renderCatalog();
   renderSalonDirectory();
   renderResults();
   bindPublicEvents();
-  setPublicView("catalog");
+  setPublicView(restoredView);
+  if (restoredView === "booking" && activeSalons().some(item => Number(item.id) === Number(selectedSalonId))) {
+    renderSalonDetail(selectedSalonId, { preserveSelection: true, preserveScroll: true });
+  }
 }
 
 initializePublicApp();
