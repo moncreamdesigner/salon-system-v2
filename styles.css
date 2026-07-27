@@ -709,6 +709,28 @@ body.sidebar-collapsed .sidebar-logout {
   font-style: normal;
 }
 
+.active-treatment-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.active-treatment-meta i {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 400;
+}
+
+.active-treatment-meta .active-treatment-stage {
+  color: var(--muted);
+}
+
+.active-treatment-meta .active-treatment-salon,
+.active-treatment-meta .active-treatment-stage.started {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .customer-list-panel {
   padding: 16px;
   background: var(--surface);

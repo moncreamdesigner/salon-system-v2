@@ -6131,15 +6131,6 @@ function assignDailyQueue(customer, date = todayText()) {
   customer.dailyQueueAssignedAt = new Date().toISOString();
 }
 
-function dailyQueueNumbers(date = todayText()) {
-  const eligible = (state.customers || [])
-    .filter(customer => !customer.deleted && !customer.deletedAt)
-    .map(customer => ({ customer, key: dailyQueueSortKey(customer, date) }))
-    .filter(entry => entry.key)
-    .sort((a, b) => a.key.localeCompare(b.key) || Number(a.customer.id) - Number(b.customer.id));
-  return new Map(eligible.map((entry, index) => [Number(entry.customer.id), index + 1]));
-}
-
 function activeCustomerTreatments(salon = "") {
   const key = `${customerDerivedDataVersion}|${salon}|${todayText()}|${activeAccount.role}|${activeAccount.salon}`;
   if (customerActiveTreatmentCache.key === key) return customerActiveTreatmentCache.items;
@@ -6162,9 +6153,18 @@ function activeCustomerTreatments(salon = "") {
     }
     if (treatment && canAccessSalon(treatment.salon)) items.push({ customer, treatment });
   }
-  const queueNumbers = dailyQueueNumbers();
-  items.forEach(entry => { entry.sequence = queueNumbers.get(Number(entry.customer.id)) || 0; });
-  items.sort((a, b) => (a.sequence || Number.MAX_SAFE_INTEGER) - (b.sequence || Number.MAX_SAFE_INTEGER));
+  items.sort((a, b) => {
+    const aKey = dailyQueueSortKey(a.customer) || "9999";
+    const bKey = dailyQueueSortKey(b.customer) || "9999";
+    return aKey.localeCompare(bKey) || Number(a.customer.id) - Number(b.customer.id);
+  });
+  const salonSequences = new Map();
+  items.forEach(entry => {
+    const salonKey = entry.treatment.salon || entry.customer.salon || "";
+    const nextSequence = (salonSequences.get(salonKey) || 0) + 1;
+    salonSequences.set(salonKey, nextSequence);
+    entry.sequence = nextSequence;
+  });
   customerActiveTreatmentCache = { key, items };
   return items;
 }
@@ -6401,6 +6401,7 @@ function renderCustomers() {
   }
   const treatmentSalonScope = isSalonAccount() ? activeAccount.salon : "";
   const activeTreatments = activeCustomerTreatments(treatmentSalonScope);
+  const showTreatmentSalon = ["admin", "manager"].includes(activeAccount.role);
   scheduleCurrentTreatmentExpiryRefresh();
   const activeStrip = document.getElementById("activeTreatmentStrip");
   if (activeStrip) {
@@ -6417,7 +6418,10 @@ function renderCustomers() {
               <span class="active-treatment-copy">
                 <strong>${customer.name}</strong>
                 <span>${treatment.service} • ${treatment.progress}</span>
-                <em>${treatment.salon} • ${treatment.stage}</em>
+                <em class="active-treatment-meta">
+                  ${showTreatmentSalon ? `<span class="active-treatment-salon">${treatment.salon || "Салбаргүй"}</span><i>•</i>` : ""}
+                  <span class="active-treatment-stage ${treatment.stage === "Үйлчилгээ эхэлсэн" ? "started" : ""}">${treatment.stage}</span>
+                </em>
               </span>
             </button>
           `;
