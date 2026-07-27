@@ -178,13 +178,16 @@ button { cursor: pointer; }
 .time-option.active { background:var(--green); color:#fff; }
 .time-option:disabled { color:#c7c7c7; background:#fafafa; cursor:not-allowed; text-decoration:line-through; }
 .booking-card .empty-public { padding:20px 8px; font-size:12px; }
-.phone-input { width:100%; height:58px; border:1px solid #dfe2dc; border-radius:30px; padding:0 22px; font-size:18px; font-weight:600; outline:none; }
+.booking-phone-field { position:relative; min-width:0; }
+.phone-input { position:relative; z-index:1; width:100%; height:58px; border:1px solid #dfe2dc; border-radius:999px; padding:0 28px; background:#fff; color:#222; font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.18em; text-align:center; outline:none; }
+.phone-input::placeholder { color:#74777a; opacity:1; }
 .phone-input:focus { border-color:var(--green); }
 .booking-help { margin:12px 4px 0; color:#aaa; font-size:11px; line-height:1.5; }
 .booking-success-message { margin:18px 12px 0; color:var(--green-dark); font-size:12px; font-weight:600; line-height:1.6; text-align:center; }
+.booking-success-message.warning { color:#222; }
 .booking-phone-action { display:grid; gap:14px; }
 .booking-summary { display:inline-flex; margin:18px 0; padding:10px 14px; border:1px solid #bfd79f; border-radius:22px; color:var(--green-dark); background:#f7fbf2; font-size:12px; font-weight:600; }
-.booking-submit { width:100%; height:58px; border:0; border-radius:15px; background:#414141; color:#fff; font-size:17px; font-weight:800; transition:background-color .2s ease, box-shadow .2s ease; }
+.booking-submit { width:100%; height:58px; border:0; border-radius:999px; background:#414141; color:#fff; font-size:13px; font-weight:800; letter-spacing:.055em; transition:background-color .2s ease, box-shadow .2s ease; }
 .booking-submit.success,.booking-submit.success:disabled { background:var(--green); color:#fff; opacity:1; box-shadow:0 10px 24px rgba(120,164,80,.3); cursor:default; }
 
 .result-logo-head { padding-bottom:18px; }
@@ -217,10 +220,6 @@ button { cursor: pointer; }
 .result-web-link img { width:36px; height:36px; flex:0 0 36px; display:block; object-fit:contain; }
 .result-web-link span { min-width:0; }
 .empty-public { padding:50px 20px; color:#aaa; text-align:center; }
-.public-toast { position:fixed; z-index:150; left:50%; bottom:112px; width:min(calc(100% - 36px),420px); transform:translate(-50%,20px); padding:15px 18px; border-radius:13px; background:#222; color:#fff; font-size:14px; font-weight:700; line-height:1.45; text-align:center; box-shadow:0 12px 30px rgba(0,0,0,.24); opacity:0; pointer-events:none; transition:.2s; }
-.public-toast.show { opacity:1; transform:translate(-50%,0); }
-.public-toast.success { background:var(--green); box-shadow:0 12px 30px rgba(120,164,80,.35); }
-
 @media (max-width:759px) {
 }
 
@@ -289,7 +288,7 @@ button { cursor: pointer; }
     width: 100%;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
+    align-items: stretch;
     gap: 16px;
     padding: 20px;
     border: 1px solid #e5e9e1;
@@ -304,8 +303,6 @@ button { cursor: pointer; }
     box-shadow: none;
   }
   #bookingComposer .booking-card h3 { margin-bottom: 16px; letter-spacing: .02em; }
-  #bookingComposer .booking-card:first-child { grid-column: 1 / -1; }
-  #bookingComposer .booking-card:nth-of-type(2),
   #bookingComposer .booking-phone-card,
   #bookingComposer .booking-summary,
   #bookingComposer .booking-success-message { grid-column: 1 / -1; }
@@ -333,14 +330,15 @@ button { cursor: pointer; }
   #bookingComposer .booking-summary { width: fit-content; margin: 2px auto; }
   #bookingComposer .booking-success-message { width: min(100%, 760px); margin: 2px auto 0; }
   #bookingComposer .booking-phone-action {
-    width: min(100%, 760px);
+    width: min(100%, 660px);
     margin: 0 auto;
-    grid-template-columns: minmax(0, 1fr) 230px;
+    grid-template-columns: minmax(300px, 400px) 220px;
+    justify-content: center;
     align-items: start;
   }
-  #bookingComposer .phone-input { height: 54px; border-radius: 14px; font-size: 16px; }
+  #bookingComposer .phone-input { height: 54px; border-radius: 999px; font-size: 16px; }
   #bookingComposer .booking-help { margin-top: 8px; }
-  #bookingComposer .booking-submit { height: 54px; border-radius: 14px; font-size: 15px; }
+  #bookingComposer .booking-submit { height: 54px; border-radius: 999px; font-size: 12px; }
   #bookingComposer .booking-submit { margin: 0; }
 
   .result-logo-head { padding-top: 30px; padding-bottom: 24px; }
