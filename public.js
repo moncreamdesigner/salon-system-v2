@@ -406,11 +406,6 @@ function dateUnavailable(salon, date) {
   return !times.length || times.every(time => timeIsPast(date, time) || slotFull(salon, value, time));
 }
 
-function publicBookingSuccessMessage(booking = null) {
-  if (!booking?.date || !booking?.time || !booking?.salon) return "";
-  return "Баярлалаа! Таны цаг амжилттай захиалагдлаа. Товлосон цагтаа хүрэлцэн ирээрэй.";
-}
-
 function renderBookingSuccessScreen(booking = null) {
   const detail = document.getElementById("salonDetail");
   const directory = document.getElementById("salonDirectory");
@@ -448,8 +443,6 @@ function renderBookingSuccessScreen(booking = null) {
         <strong>${safeText(booking.time)}</strong>
       </div>
     </div>
-    <button class="booking-success-done" type="button" data-booking-success-done>ДУУСГАХ</button>
-    <p class="booking-success-note">Таныг хүлээж байх болно.</p>
   </section>`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -645,10 +638,6 @@ function bindPublicEvents() {
     const time = event.target.closest("[data-booking-time]");
     if (time) { selectedTime = time.dataset.bookingTime; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     if (event.target.closest("#publicBookingSubmit")) return submitPublicBooking();
-    if (event.target.closest("[data-booking-success-done]")) {
-      resetPublicBookingSelection();
-      return renderSalonDirectory();
-    }
     const resultSlideControl = event.target.closest("[data-result-slide-action], [data-result-slide-to]");
     if (resultSlideControl) {
       const slider = resultSlideControl.closest("[data-result-slider]");
