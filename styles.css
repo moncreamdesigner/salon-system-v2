@@ -663,6 +663,35 @@ body.sidebar-collapsed .sidebar-logout {
   gap: 10px;
 }
 
+.active-treatment-groups,
+.active-treatment-group {
+  display: grid;
+  gap: 10px;
+}
+
+.active-treatment-groups {
+  gap: 18px;
+}
+
+.active-treatment-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.active-treatment-group-head strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.active-treatment-group-head span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .active-treatment-card {
   min-width: 0;
   min-height: 78px;

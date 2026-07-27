@@ -6434,6 +6434,49 @@ function renderCustomers() {
   const treatmentSalonScope = isSalonAccount() ? activeAccount.salon : "";
   const activeTreatments = activeCustomerTreatments(treatmentSalonScope);
   const showTreatmentSalon = ["admin", "manager"].includes(activeAccount.role);
+  const treatmentCardMarkup = ({ customer, treatment, sequence }) => `
+    <button class="active-treatment-card customer-detail-open" type="button" data-id="${customer.id}">
+      <b class="active-treatment-sequence">${sequence || "—"}</b>
+      <span class="active-treatment-copy">
+        <strong>${customer.name}</strong>
+        <span>${treatment.service} • ${treatment.progress}</span>
+        <em class="active-treatment-meta">
+          ${showTreatmentSalon ? `<span class="active-treatment-salon">${treatment.salon || "Салбаргүй"}</span><i>•</i>` : ""}
+          <span class="active-treatment-stage ${treatment.stage === "Үйлчилгээ эхэлсэн" ? "started" : ""}">${treatment.stage}</span>
+        </em>
+      </span>
+    </button>
+  `;
+  let activeTreatmentMarkup = `<div class="active-treatment-list">${activeTreatments.map(treatmentCardMarkup).join("")}</div>`;
+  if (activeAccount.role === "admin" && activeTreatments.length) {
+    const treatmentsBySalon = new Map();
+    activeTreatments.forEach(entry => {
+      const salonName = entry.treatment.salon || customerRegisteredSalon(entry.customer) || "Салбаргүй";
+      if (!treatmentsBySalon.has(salonName)) treatmentsBySalon.set(salonName, []);
+      treatmentsBySalon.get(salonName).push(entry);
+    });
+    const configuredSalonNames = state.salons.map(salon => salon.name);
+    const orderedSalonNames = [
+      ...configuredSalonNames.filter(name => treatmentsBySalon.has(name)),
+      ...Array.from(treatmentsBySalon.keys()).filter(name => !configuredSalonNames.includes(name))
+    ];
+    activeTreatmentMarkup = `
+      <div class="active-treatment-groups">
+        ${orderedSalonNames.map(salonName => {
+          const entries = treatmentsBySalon.get(salonName) || [];
+          return `
+            <section class="active-treatment-group">
+              <div class="active-treatment-group-head">
+                <strong>${htmlSafe(salonName)}</strong>
+                <span>${entries.length} хэрэглэгч</span>
+              </div>
+              <div class="active-treatment-list">${entries.map(treatmentCardMarkup).join("")}</div>
+            </section>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
   scheduleCurrentTreatmentExpiryRefresh();
   const activeStrip = document.getElementById("activeTreatmentStrip");
   if (activeStrip) {
@@ -6442,23 +6485,7 @@ function renderCustomers() {
         <strong>Одоо үйлчилгээтэй</strong>
         <span>${activeTreatments.length} хэрэглэгч</span>
       </div>
-      <div class="active-treatment-list">
-        ${activeTreatments.map(({ customer, treatment, sequence }) => {
-          return `
-            <button class="active-treatment-card customer-detail-open" type="button" data-id="${customer.id}">
-              <b class="active-treatment-sequence">${sequence || "—"}</b>
-              <span class="active-treatment-copy">
-                <strong>${customer.name}</strong>
-                <span>${treatment.service} • ${treatment.progress}</span>
-                <em class="active-treatment-meta">
-                  ${showTreatmentSalon ? `<span class="active-treatment-salon">${treatment.salon || "Салбаргүй"}</span><i>•</i>` : ""}
-                  <span class="active-treatment-stage ${treatment.stage === "Үйлчилгээ эхэлсэн" ? "started" : ""}">${treatment.stage}</span>
-                </em>
-              </span>
-            </button>
-          `;
-        }).join("") || `<div class="active-treatment-empty">Одоогоор явж буй үйлчилгээ алга</div>`}
-      </div>
+      ${activeTreatments.length ? activeTreatmentMarkup : `<div class="active-treatment-empty">Одоогоор явж буй үйлчилгээ алга</div>`}
     `;
   }
   const groupById = new Map((state.customerGroups || []).map(group => [Number(group.id), group]));
