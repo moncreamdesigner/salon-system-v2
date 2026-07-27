@@ -8390,7 +8390,7 @@ function renderDiagnosisCompactSummary(diagnosis = {}, historyIndex = 0, expande
     <div class="diagnosis-compact-summary">
       <div class="diagnosis-compact-main">
         <span class="diagnosis-compact-text">${htmlSafe(diagnosisText)}</span>
-        <span class="diagnosis-compact-counts">Үсний байрлал <b>${generalCount}/5</b> · Хуйх, уг <b>${scopeCount}/${scopeLimit}</b></span>
+        <span class="diagnosis-compact-counts">Үр дүнгийн зураг <b>${generalCount}/5</b> · Оношилгооны зураг <b>${scopeCount}/${scopeLimit}</b></span>
       </div>
       <button class="secondary-btn diagnosis-expand-toggle" type="button" data-history-index="${historyIndex}" aria-expanded="${expanded}">
         ${expanded ? "Хураах" : "Онош харах"} <i>${expanded ? "↑" : "↓"}</i>
@@ -8411,8 +8411,8 @@ function renderDiagnosisSummary(diagnosis) {
     .filter(photo => typeof photo === "string" && photo.trim())
     .map((photo, index) => `<button class="diagnosis-photo-thumb" type="button" aria-label="${label} ${index + 1} томоор харах"><img src="${photo}" alt="${label} ${index + 1}" loading="lazy"></button>`)
     .join("");
-  const generalThumbs = photoThumbs(diagnosis.generalPhotos || [], "Үсний байрлал");
-  const scopeThumbs = photoThumbs(diagnosis.scopePhotos || [], "Хуйх, уг");
+  const generalThumbs = photoThumbs(diagnosis.generalPhotos || [], "Үр дүнгийн зураг");
+  const scopeThumbs = photoThumbs(diagnosis.scopePhotos || [], "Оношилгооны зураг");
   const scopeLimit = Number(diagnosis.scopePhotoLimit || (diagnosis.scopePhotos || []).length || generalSettings().diagnosisPhotoLimit || 5);
   return `
     <div class="diagnosis-summary-box">
@@ -8421,8 +8421,8 @@ function renderDiagnosisSummary(diagnosis) {
         ${note && types.length && !noteOnlyRepeatsTypes ? `<span class="payment-history-chip">${note}</span>` : ""}
       </div>
       <div class="photo-summary-grid">
-        <div><strong>Үсний байрлал</strong><span>${(diagnosis.generalPhotos || []).filter(Boolean).length}/5 зураг</span>${generalThumbs ? `<div class="diagnosis-photo-thumbs">${generalThumbs}</div>` : ""}</div>
-        <div><strong>Хуйх, уг</strong><span>${(diagnosis.scopePhotos || []).filter(Boolean).length}/${scopeLimit} зураг</span>${scopeThumbs ? `<div class="diagnosis-photo-thumbs">${scopeThumbs}</div>` : ""}</div>
+        <div><strong>Үр дүнгийн зураг</strong><span>${(diagnosis.generalPhotos || []).filter(Boolean).length}/5 зураг</span>${generalThumbs ? `<div class="diagnosis-photo-thumbs">${generalThumbs}</div>` : ""}</div>
+        <div><strong>Оношилгооны зураг</strong><span>${(diagnosis.scopePhotos || []).filter(Boolean).length}/${scopeLimit} зураг</span>${scopeThumbs ? `<div class="diagnosis-photo-thumbs">${scopeThumbs}</div>` : ""}</div>
       </div>
     </div>
   `;
