@@ -3292,11 +3292,58 @@ body.camera-overlay-open {
   gap: 10px;
 }
 
-.diagnosis-summary-title {
-  color: var(--muted);
+.diagnosis-compact-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 12px;
+}
+
+.diagnosis-compact-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.diagnosis-compact-text {
+  max-width: 620px;
+  overflow: hidden;
+  color: var(--text);
   font-size: 12px;
-  font-weight: 700;
-  line-height: 1.2;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnosis-compact-counts {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.diagnosis-compact-counts b {
+  color: var(--accent);
+}
+
+.diagnosis-expand-toggle {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.diagnosis-expand-toggle i {
+  margin-left: 4px;
+  font-style: normal;
+}
+
+.profile-diagnosis-expanded {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
 .diagnosis-history-chips {
@@ -9036,6 +9083,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     border-top: 1px solid var(--line);
     padding-top: 20px;
     padding-left: 0;
+  }
+
+  .diagnosis-compact-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .diagnosis-compact-text {
+    max-width: 100%;
   }
 
   .toolbar {

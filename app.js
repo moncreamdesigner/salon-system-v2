@@ -734,6 +734,7 @@ function clearCustomerUiState(customer) {
   (customer.serviceHistory || []).forEach(item => {
     delete item.expandedVisit;
     delete item.diagnosisOpen;
+    delete item.diagnosisExpanded;
     delete item.diagnosisAddOpen;
     delete item.diagnosisDetailId;
     delete item.signatureOpen;
@@ -6808,7 +6809,7 @@ function renderCustomerServiceHistory(customer) {
     const editMode = profileServiceEditMode(item);
     const editAllowed = editMode !== "locked";
     const deleteAllowed = isServiceDeletable(item);
-    const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.signatureOpen || customer.profileServiceEditingIndex === index);
+    const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.diagnosisExpanded || item.signatureOpen || customer.profileServiceEditingIndex === index);
     return `
       <article class="profile-service-card ${active ? "active" : ""}">
         <div class="profile-service-head">
@@ -6828,7 +6829,10 @@ function renderCustomerServiceHistory(customer) {
           </div>
         ` : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
-        ${isDiagnosis && customer.profileServiceEditingIndex !== index ? renderDiagnosisSummary(item.diagnosis || item) : ""}
+        ${isDiagnosis && customer.profileServiceEditingIndex !== index ? `
+          ${renderDiagnosisCompactSummary(item.diagnosis || item, index, Boolean(item.diagnosisExpanded))}
+          ${item.diagnosisExpanded ? `<div class="profile-diagnosis-expanded">${renderDiagnosisSummary(item.diagnosis || item)}</div>` : ""}
+        ` : ""}
         ${isCourse ? renderCourseSlots(item, index) : ""}
         ${customer.profileServiceEditingIndex === index || isDiagnosis ? "" : `
           <div class="profile-service-footer">
@@ -7844,6 +7848,7 @@ function collapseCustomerServicePanels(customer) {
     item.diagnosisViewVisit = null;
     item.paymentFormOpen = false;
     item.diagnosisOpen = false;
+    item.diagnosisExpanded = false;
     item.diagnosisAddOpen = false;
     item.diagnosisDetailId = null;
     item.signatureOpen = false;
@@ -8153,7 +8158,7 @@ function renderProfileServiceInlineForm(customer) {
         <div class="profile-service-submit-row">
           <span></span>
           <div class="form-actions">
-            ${editingItem ? `<button class="secondary-btn icon-clear profile-service-cancel-edit" type="button" aria-label="Засахыг болих">×</button>` : ""}
+            <button class="secondary-btn icon-clear profile-service-cancel-edit" type="button" aria-label="${editingItem ? "Засахыг болих" : "Оношилгоо бүртгэхийг цуцлах"}">×</button>
             <button class="primary-btn" type="submit">${editingItem ? "Оношилгоо шинэчлэх" : "Оношилгоо бүртгэх"}</button>
           </div>
         </div>
@@ -8374,6 +8379,26 @@ function renderCourseVisitSummary(visit = {}, historyIndex = 0) {
   `;
 }
 
+function renderDiagnosisCompactSummary(diagnosis = {}, historyIndex = 0, expanded = false) {
+  const types = Array.isArray(diagnosis.types) ? diagnosis.types.filter(Boolean) : [];
+  const note = String(diagnosis.note || "").trim();
+  const generalCount = (diagnosis.generalPhotos || []).filter(Boolean).length;
+  const scopeCount = (diagnosis.scopePhotos || []).filter(Boolean).length;
+  const scopeLimit = Number(diagnosis.scopePhotoLimit || (diagnosis.scopePhotos || []).length || generalSettings().diagnosisPhotoLimit || 5);
+  const diagnosisText = types.join(", ") || note || "Онош сонгоогүй";
+  return `
+    <div class="diagnosis-compact-summary">
+      <div class="diagnosis-compact-main">
+        <span class="diagnosis-compact-text">${htmlSafe(diagnosisText)}</span>
+        <span class="diagnosis-compact-counts">Үсний байрлал <b>${generalCount}/5</b> · Хуйх, уг <b>${scopeCount}/${scopeLimit}</b></span>
+      </div>
+      <button class="secondary-btn diagnosis-expand-toggle" type="button" data-history-index="${historyIndex}" aria-expanded="${expanded}">
+        ${expanded ? "Хураах" : "Онош харах"} <i>${expanded ? "↑" : "↓"}</i>
+      </button>
+    </div>
+  `;
+}
+
 function renderDiagnosisSummary(diagnosis) {
   const types = diagnosis.types || [];
   const note = String(diagnosis.note || "").trim();
@@ -8391,7 +8416,6 @@ function renderDiagnosisSummary(diagnosis) {
   const scopeLimit = Number(diagnosis.scopePhotoLimit || (diagnosis.scopePhotos || []).length || generalSettings().diagnosisPhotoLimit || 5);
   return `
     <div class="diagnosis-summary-box">
-      <div class="diagnosis-summary-title">Онош</div>
       <div class="payment-history-chips diagnosis-history-chips">
         ${chips}
         ${note && types.length && !noteOnlyRepeatsTypes ? `<span class="payment-history-chip">${note}</span>` : ""}
@@ -8816,6 +8840,16 @@ function renderProfile() {
       renderProfile();
     });
   });
+  document.querySelectorAll("#historyList .diagnosis-expand-toggle").forEach(button => {
+    button.addEventListener("click", () => {
+      const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
+      if (!item) return;
+      const wasExpanded = Boolean(item.diagnosisExpanded);
+      collapseCustomerServicePanels(customer);
+      item.diagnosisExpanded = !wasExpanded;
+      renderProfile();
+    });
+  });
   document.querySelectorAll("#historyList .profile-service-edit").forEach(button => {
     button.addEventListener("click", () => {
       const index = Number(button.dataset.historyIndex);
@@ -9174,6 +9208,7 @@ function bindProfileServiceInlineForm(customer) {
   });
   enhanceNativeSelects(["profileServiceSelect", "profileServiceSalon", ...(formKind === "course" ? [] : ["profileServiceStaff", "profileServiceRoom"])]);
   form.querySelector(".profile-service-cancel-edit")?.addEventListener("click", () => {
+    releaseDiagnosisCameraSession();
     delete customer.profileServiceEditingIndex;
     delete customer.profileServiceEditMode;
     customer.profileServiceKind = "diagnosis";
