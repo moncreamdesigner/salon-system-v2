@@ -6828,7 +6828,7 @@ function renderCustomerServiceHistory(customer) {
           </div>
         ` : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
-        ${isDiagnosis ? renderDiagnosisSummary(item.diagnosis || item) : ""}
+        ${isDiagnosis && customer.profileServiceEditingIndex !== index ? renderDiagnosisSummary(item.diagnosis || item) : ""}
         ${isCourse ? renderCourseSlots(item, index) : ""}
         ${customer.profileServiceEditingIndex === index || isDiagnosis ? "" : `
           <div class="profile-service-footer">
@@ -9636,6 +9636,32 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     return;
   }
   if (!await requireDeleteCode()) return;
+  if (historyItem.kind === "diagnosis") {
+    const diagnosisImages = [
+      ...(historyItem.generalPhotos || []),
+      ...(historyItem.scopePhotos || []),
+      ...(historyItem.diagnosis?.generalPhotos || []),
+      ...(historyItem.diagnosis?.scopePhotos || [])
+    ].filter(value => typeof value === "string" && value.includes("api/media.php"));
+    if (diagnosisImages.length) {
+      try {
+        const response = await fetch("api/delete-upload.php", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "KhalgaiSalon"
+          },
+          body: JSON.stringify({ urls: [...new Set(diagnosisImages)] })
+        });
+        const result = await response.json().catch(() => ({ ok: false }));
+        if (!response.ok || !result.ok) throw new Error(result.message || "Оношилгооны зураг устсангүй");
+      } catch (error) {
+        showToast(error.message || "Оношилгооны зураг устсангүй");
+        return;
+      }
+    }
+  }
   const group = customerGroup(customer);
   (historyItem.payments || []).forEach(payment => {
     if (payment.id) pendingPaymentMutations.delete(String(payment.id));
@@ -9746,6 +9772,8 @@ function diagnosisFormHtml(prefix = "service", open = false) {
     ? Number(generalSettings().diagnosisPhotoLimit)
     : 5;
   const cameraIcon = `<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/></svg>`;
+  const photoIcon = `<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 17 4-4 3 3 2-2 5 3"/></svg>`;
+  const refreshIcon = `<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 6v5h-5"/><path d="M18.2 15a7 7 0 1 1-.3-6.4L20 11"/></svg>`;
   return `
     <div class="service-diagnosis-panel ${open ? "" : "hidden"}" id="${prefix}DiagnosisPanel" data-open="${open ? "true" : "false"}">
       <div class="diagnosis-chip-row">
@@ -9765,9 +9793,9 @@ function diagnosisFormHtml(prefix = "service", open = false) {
                   <div class="camera-preview-mini">
                     <video class="camera-video" autoplay muted playsinline></video>
                     <canvas class="camera-canvas" width="960" height="720"></canvas>
-                    <em class="camera-empty-icon">+</em>
+                    <em class="camera-empty-icon">${photoIcon}</em>
                   </div>
-                  <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}">Дахин авах</button>
+                  <button class="secondary-btn photo-capture" type="button" data-target="general" data-index="${index}" aria-label="${name} зургийг дахин авах" title="Дахин авах">${refreshIcon}</button>
                 </div>
                 <span class="camera-slot-label">${name}</span>
               </div>
@@ -9786,9 +9814,9 @@ function diagnosisFormHtml(prefix = "service", open = false) {
                   <div class="camera-preview-mini">
                     <video class="camera-video" autoplay muted playsinline></video>
                     <canvas class="camera-canvas" width="960" height="720"></canvas>
-                    <em class="camera-empty-icon">+</em>
+                    <em class="camera-empty-icon">${photoIcon}</em>
                   </div>
-                  <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}">Дахин авах</button>
+                  <button class="secondary-btn photo-capture" type="button" data-target="scope" data-index="${index}" aria-label="${index + 1}-р зургийг дахин авах" title="Дахин авах">${refreshIcon}</button>
                 </div>
                 <span class="camera-slot-label">Зураг ${index + 1}</span>
               </div>
@@ -9852,7 +9880,6 @@ function hydrateDiagnosisForm(prefix = "service", diagnosis = null, open = true)
     panel.querySelectorAll(`.photo-capture[data-target="${target}"]`).forEach(button => {
       const active = Boolean(photos[Number(button.dataset.index)]);
       button.classList.toggle("active", active);
-      button.textContent = "Дахин авах";
       const card = button.closest(".camera-shot-card");
       const preview = card?.querySelector(".camera-preview-mini");
       const canvas = card?.querySelector(".camera-canvas");
@@ -9926,9 +9953,14 @@ function diagnosisCameraVideoConstraints() {
   };
 }
 
-function setDiagnosisSlotLabel(label, text = "+", message = false) {
+function diagnosisEmptyPhotoIcon() {
+  return `<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 17 4-4 3 3 2-2 5 3"/></svg>`;
+}
+
+function setDiagnosisSlotLabel(label, text = "", message = false) {
   if (!label) return;
-  label.textContent = text;
+  if (text) label.textContent = text;
+  else label.innerHTML = diagnosisEmptyPhotoIcon();
   label.classList.toggle("message", message);
 }
 
@@ -9970,23 +10002,40 @@ async function openDiagnosisCameraFullscreen(card, button, sequenceButtons = [])
   overlay.className = "diagnosis-camera-overlay";
   overlay.innerHTML = `
     <video autoplay muted playsinline></video>
-    <strong class="diagnosis-camera-position"></strong>
-    <span class="diagnosis-camera-status">Камер нээж байна...</span>
-    <div class="diagnosis-camera-toolbar" aria-label="Камерын удирдлага">
-      <button class="diagnosis-camera-shoot" type="button" aria-label="Зураг авах" title="Зураг авах">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 5.5 9.6 3.8h4.8l1.2 1.7H19A2.5 2.5 0 0 1 21.5 8v9A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A2.5 2.5 0 0 1 5 5.5h3.4Z"/><circle cx="12" cy="12.5" r="4"/></svg>
-      </button>
-      <button class="diagnosis-camera-close" type="button" aria-label="Камер хаах" title="Камер хаах">×</button>
+    <div class="diagnosis-camera-feedback">
+      <strong class="diagnosis-camera-position"></strong>
+      <div class="diagnosis-camera-thumbnails" aria-label="Авсан зургууд"></div>
     </div>
+    <span class="diagnosis-camera-status">Камер нээж байна...</span>
+    <div class="diagnosis-camera-captured-check" aria-hidden="true">✓</div>
+    <button class="diagnosis-camera-shoot" type="button" aria-label="Зураг авах" title="Зураг авах">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 5.5 9.6 3.8h4.8l1.2 1.7H19A2.5 2.5 0 0 1 21.5 8v9A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A2.5 2.5 0 0 1 5 5.5h3.4Z"/><circle cx="12" cy="12.5" r="4"/></svg>
+    </button>
+    <button class="diagnosis-camera-close" type="button" aria-label="Камер хаах" title="Камер хаах">×</button>
   `;
   document.body.appendChild(overlay);
   document.body.classList.add("camera-overlay-open");
   const updateGuide = () => {
     const target = activeButton.dataset.target;
     const name = activeCard.closest(".camera-slot-item")?.querySelector(".camera-slot-label")?.textContent?.trim() || "Зураг";
-    const guide = target === "scope" ? `${sequenceIndex + 1}/${sequence.length}` : `${name} зураг авна`;
     const guideElement = overlay.querySelector(".diagnosis-camera-position");
-    if (guideElement) guideElement.textContent = guide;
+    if (guideElement) {
+      if (target === "scope") {
+        const capturedCount = sequence.filter(item => item.dataset.photo || item.classList.contains("active")).length;
+        guideElement.innerHTML = `<span>${capturedCount}</span>/${sequence.length}`;
+      } else {
+        guideElement.textContent = `${name} зураг авна`;
+      }
+    }
+    const thumbnails = overlay.querySelector(".diagnosis-camera-thumbnails");
+    if (thumbnails) {
+      thumbnails.innerHTML = sequence
+        .map((item, index) => item.dataset.photo
+          ? `<img src="${htmlSafe(item.dataset.photo)}" alt="${index + 1}-р авсан зураг">`
+          : "")
+        .join("");
+      thumbnails.classList.toggle("empty", !thumbnails.children.length);
+    }
   };
   updateGuide();
   const streamPromise = ensureDiagnosisCameraStream(label);
@@ -10023,6 +10072,11 @@ async function openDiagnosisCameraFullscreen(card, button, sequenceButtons = [])
     shootButton.classList.add("saving");
     try {
       await captureDiagnosisCamera(activeCard, activeButton, video);
+      updateGuide();
+      overlay.classList.remove("capture-confirmed");
+      void overlay.offsetWidth;
+      overlay.classList.add("capture-confirmed");
+      await new Promise(resolve => setTimeout(resolve, 260));
       sequenceIndex += 1;
       if (sequenceIndex >= sequence.length) {
         close();
@@ -10127,7 +10181,6 @@ async function captureDiagnosisCamera(card, button, sourceVideo = null) {
   card.classList.add("captured");
   card.classList.remove("legacy-photo");
   button.classList.add("active");
-  button.textContent = "Дахин авах";
   setDiagnosisSlotLabel(label, "", false);
   if (button.dataset.target === "scope") refreshDiagnosisScopeSlots(card.closest(".service-diagnosis-panel"));
   if (!sourceVideo) detachDiagnosisCamera(card);

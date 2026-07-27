@@ -2893,6 +2893,15 @@ body.sidebar-collapsed .sidebar-logout {
   align-content: start;
 }
 
+.diagnosis-capture-overview {
+  gap: 20px;
+}
+
+.diagnosis-capture-overview > .camera-capture-section + .camera-capture-section {
+  border-left: 1px solid var(--line);
+  padding-left: 20px;
+}
+
 .primary-btn.diagnosis-camera-launch {
   width: 100%;
   height: 68px;
@@ -2903,6 +2912,11 @@ body.sidebar-collapsed .sidebar-logout {
   justify-content: flex-start;
   gap: 12px;
   text-align: left;
+  transition: background-color .16s ease, transform .16s ease;
+}
+
+.primary-btn.diagnosis-camera-launch:hover {
+  background: #4da953;
 }
 
 .diagnosis-camera-launch svg {
@@ -2994,14 +3008,30 @@ body.sidebar-collapsed .sidebar-logout {
 
 .camera-shot-card > .photo-capture {
   position: absolute;
-  left: 6px;
+  z-index: 2;
+  top: 6px;
   right: 6px;
-  bottom: 6px;
-  width: calc(100% - 12px);
-  min-height: 30px;
+  width: 30px;
+  min-width: 30px;
   height: 30px;
-  padding: 0 6px;
-  font-size: 10px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .16);
+}
+
+.camera-shot-card > .photo-capture svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .camera-preview-mini em {
@@ -3010,6 +3040,16 @@ body.sidebar-collapsed .sidebar-logout {
   font-weight: 400;
   font-style: normal;
   line-height: 1.45;
+}
+
+.camera-preview-mini em.camera-empty-icon svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .camera-preview-mini em.message {
@@ -3089,21 +3129,17 @@ body.camera-overlay-open {
   background: #000;
 }
 
-.diagnosis-camera-toolbar {
+.diagnosis-camera-feedback {
   position: absolute;
   z-index: 2;
-  top: max(14px, env(safe-area-inset-top));
-  right: max(14px, env(safe-area-inset-right));
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  top: max(18px, env(safe-area-inset-top));
+  left: max(18px, env(safe-area-inset-left));
+  display: grid;
+  gap: 10px;
 }
 
 .diagnosis-camera-position {
-  position: absolute;
-  z-index: 2;
-  top: max(20px, env(safe-area-inset-top));
-  left: max(18px, env(safe-area-inset-left));
+  width: max-content;
   max-width: calc(100vw - 150px);
   padding: 7px 11px;
   border-radius: 999px;
@@ -3111,6 +3147,30 @@ body.camera-overlay-open {
   color: #fff;
   font-size: 13px;
   line-height: 1;
+}
+
+.diagnosis-camera-position span {
+  color: #63c467;
+}
+
+.diagnosis-camera-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: min(440px, calc(100vw - 130px));
+}
+
+.diagnosis-camera-thumbnails.empty {
+  display: none;
+}
+
+.diagnosis-camera-thumbnails img {
+  width: 48px;
+  height: 36px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, .78);
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
 }
 
 .diagnosis-camera-status {
@@ -3131,6 +3191,8 @@ body.camera-overlay-open {
 
 .diagnosis-camera-close,
 .diagnosis-camera-shoot {
+  position: absolute;
+  z-index: 3;
   width: 44px;
   height: 44px;
   display: inline-flex;
@@ -3144,13 +3206,18 @@ body.camera-overlay-open {
 }
 
 .diagnosis-camera-shoot {
+  top: 50%;
+  right: max(24px, env(safe-area-inset-right));
+  width: 62px;
+  height: 62px;
+  transform: translateY(-50%);
   background: #fff;
   color: #1d251e;
 }
 
 .diagnosis-camera-shoot svg {
-  width: 23px;
-  height: 23px;
+  width: 30px;
+  height: 30px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -3162,6 +3229,8 @@ body.camera-overlay-open {
 }
 
 .diagnosis-camera-close {
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
   background: rgba(0, 0, 0, .62);
   color: #fff;
   font-size: 25px;
@@ -3243,6 +3312,49 @@ body.camera-overlay-open {
   justify-content: space-between;
 }
 
+.diagnosis-camera-captured-check {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%) scale(.75);
+  background: rgba(82, 184, 88, .9);
+  color: #fff;
+  font-size: 40px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.diagnosis-camera-overlay.capture-confirmed::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  background: rgba(255, 255, 255, .28);
+  pointer-events: none;
+  animation: diagnosis-camera-flash .24s ease-out both;
+}
+
+.diagnosis-camera-overlay.capture-confirmed .diagnosis-camera-captured-check {
+  animation: diagnosis-camera-check .42s ease-out both;
+}
+
+@keyframes diagnosis-camera-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes diagnosis-camera-check {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  35% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+}
 .service-clinical-section,
 .course-level-signature {
   padding: 12px 16px 14px;
@@ -8917,6 +9029,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .diagnosis-photo-columns {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .diagnosis-capture-overview > .camera-capture-section + .camera-capture-section {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    padding-left: 0;
   }
 
   .toolbar {
