@@ -2847,8 +2847,9 @@ function currentMonthDateRange(dateText = todayText()) {
 }
 
 function daysBetween(fromDate, toDate) {
-  const from = new Date(`${fromDate}T00:00:00`);
-  const to = new Date(`${toDate}T00:00:00`);
+  const from = new Date(`${serviceDateKey(fromDate)}T00:00:00`);
+  const to = new Date(`${serviceDateKey(toDate)}T00:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return Number.POSITIVE_INFINITY;
   return Math.floor((to - from) / 86400000);
 }
 
