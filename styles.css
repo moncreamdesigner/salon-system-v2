@@ -719,7 +719,7 @@ body.sidebar-collapsed .sidebar-logout {
   grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 124px 66px 132px 104px;
   gap: 16px 8px;
   align-items: end;
-  margin-bottom: 20px;
+  margin-bottom: 30px;
 }
 
 .customer-inline-form label {
