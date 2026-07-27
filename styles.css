@@ -634,7 +634,7 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .customer-active-strip {
-  margin: 20px 0 0;
+  margin: 10px 0 20px;
   display: grid;
   gap: 10px;
 }
