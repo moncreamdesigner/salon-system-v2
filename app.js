@@ -3619,13 +3619,22 @@ function isPastBookingTime(dateText, timeText) {
 }
 
 const districtNames = ["Хан-Уул", "Чингэлтэй", "Баянзүрх", "Баянгол", "Сонгинохайрхан", "Сүхбаатар", "Налайх", "Багануур", "Багахангай"];
+const provinceNames = [
+  "Архангай аймаг", "Баян-Өлгий аймаг", "Баянхонгор аймаг", "Булган аймаг",
+  "Говь-Алтай аймаг", "Говьсүмбэр аймаг", "Дархан-Уул аймаг", "Дорноговь аймаг",
+  "Дорнод аймаг", "Дундговь аймаг", "Завхан аймаг", "Орхон аймаг",
+  "Өвөрхангай аймаг", "Өмнөговь аймаг", "Сүхбаатар аймаг", "Сэлэнгэ аймаг",
+  "Төв аймаг", "Увс аймаг", "Ховд аймаг", "Хөвсгөл аймаг", "Хэнтий аймаг"
+];
 
 function districtOptions(selected = "") {
-  return districtNames.map(name => `<option ${name === selected ? "selected" : ""}>${name}</option>`).join("");
+  const districts = districtNames.map(name => `<option ${name === selected ? "selected" : ""}>${name}</option>`).join("");
+  const provinces = provinceNames.map(name => `<option ${name === selected ? "selected" : ""}>${name}</option>`).join("");
+  return `${districts}<optgroup label="Орон нутаг">${provinces}</optgroup>`;
 }
 
 function districtFilterOptions(selected = "all") {
-  return `<option value="all">Бүх дүүрэг</option>${districtNames.map(name => `<option value="${name}" ${name === selected ? "selected" : ""}>${name}</option>`).join("")}`;
+  return `<option value="all">Бүх дүүрэг</option>${districtOptions(selected)}`;
 }
 function makeStats(items) {
   return items
@@ -12688,8 +12697,10 @@ function setupInlineCustomSelects(root = document) {
 
 function enhanceNativeSelect(select) {
   if (!select) return;
-  const optionSignature = Array.from(select.options)
-    .map(option => `${option.value}\u0001${option.textContent}`)
+  const optionSignature = Array.from(select.children)
+    .map(node => node.tagName === "OPTGROUP"
+      ? `group:${node.label}\u0001${Array.from(node.children).map(option => `${option.value}:${option.textContent}`).join("\u0003")}`
+      : `option:${node.value}\u0001${node.textContent}`)
     .join("\u0002");
   const existingProxy = select.nextElementSibling?.classList.contains("native-select-proxy")
     ? select.nextElementSibling
@@ -12712,21 +12723,62 @@ function enhanceNativeSelect(select) {
   const menu = wrapper.querySelector(".custom-select-menu");
   const trigger = wrapper.querySelector(".custom-select-trigger");
   trigger.disabled = select.disabled;
-  Array.from(select.options).forEach(option => {
+  const rootMenu = document.createElement("div");
+  rootMenu.className = "custom-select-menu-root";
+  menu.appendChild(rootMenu);
+  const closeSubmenus = () => {
+    wrapper.classList.remove("submenu-open");
+    rootMenu.hidden = false;
+    menu.querySelectorAll(".custom-select-submenu-panel").forEach(panel => {
+      panel.hidden = true;
+    });
+  };
+  const appendOption = (option, container) => {
     const item = document.createElement("button");
     item.type = "button";
     item.dataset.value = option.value;
     item.textContent = option.textContent;
+    item.disabled = option.disabled;
     item.classList.toggle("active", option.value === select.value);
     item.addEventListener("click", () => {
       select.value = option.value;
       wrapper.querySelector(".custom-select-trigger span").textContent = option.textContent;
-      menu.querySelectorAll("button").forEach(button => button.classList.toggle("active", button === item));
+      menu.querySelectorAll("button[data-value]").forEach(button => button.classList.toggle("active", button === item));
       wrapper.classList.remove("open");
       wrapper.querySelector(".custom-select-trigger").setAttribute("aria-expanded", "false");
+      closeSubmenus();
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    menu.appendChild(item);
+    container.appendChild(item);
+  };
+  Array.from(select.children).forEach(node => {
+    if (node.tagName !== "OPTGROUP") {
+      appendOption(node, rootMenu);
+      return;
+    }
+    menu.classList.add("has-submenus");
+    const submenuToggle = document.createElement("button");
+    submenuToggle.type = "button";
+    submenuToggle.className = "custom-select-submenu-toggle";
+    submenuToggle.textContent = node.label;
+    const submenuPanel = document.createElement("div");
+    submenuPanel.className = "custom-select-submenu-panel";
+    submenuPanel.hidden = true;
+    const submenuBack = document.createElement("button");
+    submenuBack.type = "button";
+    submenuBack.className = "custom-select-submenu-back";
+    submenuBack.textContent = node.label;
+    submenuBack.addEventListener("click", () => closeSubmenus());
+    submenuPanel.appendChild(submenuBack);
+    Array.from(node.children).forEach(option => appendOption(option, submenuPanel));
+    submenuToggle.addEventListener("click", () => {
+      rootMenu.hidden = true;
+      submenuPanel.hidden = false;
+      wrapper.classList.add("submenu-open");
+      submenuPanel.querySelector("button.active")?.scrollIntoView({ block: "nearest" });
+    });
+    rootMenu.appendChild(submenuToggle);
+    menu.appendChild(submenuPanel);
   });
   trigger.addEventListener("click", () => {
     if (select.disabled) return;
@@ -12734,6 +12786,7 @@ function enhanceNativeSelect(select) {
       if (item !== wrapper) item.classList.remove("open");
     });
     const isOpen = wrapper.classList.toggle("open");
+    closeSubmenus();
     trigger.setAttribute("aria-expanded", String(isOpen));
   });
   select.classList.add("native-select-hidden");
