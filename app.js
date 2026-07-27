@@ -6190,6 +6190,7 @@ function scheduleCurrentTreatmentExpiryRefresh() {
 function renderCustomerInlineForm() {
   const typeSelect = document.getElementById("inlineCustomerType");
   const districtSelect = document.getElementById("inlineCustomerDistrict");
+  const salonSelect = document.getElementById("inlineCustomerSalon");
   if (typeSelect) {
     const previousType = typeSelect.value || "Хэрэглэгч";
     const typeMarkup = customerTypeOptions(previousType);
@@ -6208,6 +6209,23 @@ function renderCustomerInlineForm() {
     }
     districtSelect.value = previousDistrict;
   }
+  if (salonSelect) {
+    const salonLocked = isSalonAccount();
+    const lockedSalon = salonLocked ? activeAccount.salon : "";
+    const salonField = document.getElementById("inlineCustomerSalonField");
+    if (salonField) salonField.hidden = salonLocked;
+    salonSelect.form?.classList.toggle("salon-locked", salonLocked);
+    const previousSalon = lockedSalon || salonSelect.value || "";
+    const salonNames = accountSalons().map(salon => salon.name);
+    if (lockedSalon && !salonNames.includes(lockedSalon)) salonNames.unshift(lockedSalon);
+    const salonMarkup = `${lockedSalon ? "" : `<option value="" disabled ${previousSalon ? "" : "selected"}>Сонгох</option>`}${salonNames.map(name => `<option value="${htmlSafe(name)}">${htmlSafe(name)}</option>`).join("")}`;
+    if (salonSelect.dataset.optionMarkup !== salonMarkup) {
+      salonSelect.innerHTML = salonMarkup;
+      salonSelect.dataset.optionMarkup = salonMarkup;
+    }
+    salonSelect.disabled = Boolean(lockedSalon);
+    salonSelect.value = previousSalon;
+  }
 }
 
 function saveInlineCustomer(event) {
@@ -6218,6 +6236,11 @@ function saveInlineCustomer(event) {
     return;
   }
   const selectedType = formValue("inlineCustomerType") || "Хэрэглэгч";
+  const registeredSalon = isSalonAccount() ? activeAccount.salon : formValue("inlineCustomerSalon");
+  if (!registeredSalon) {
+    showToast("Бүртгэх салбарыг сонгоно уу");
+    return;
+  }
   const customerId = uniqueNumericId(state.customers);
   const ageValue = formValue("inlineCustomerAge");
   const birthYear = birthYearFromAge(ageValue);
@@ -6243,8 +6266,8 @@ function saveInlineCustomer(event) {
     registeredTime: currentTimeText(),
     dailyQueueDate: todayText(),
     dailyQueueAssignedAt: new Date().toISOString(),
-    registeredSalon: activeAccount.salon,
-    salon: activeAccount.salon,
+    registeredSalon,
+    salon: registeredSalon,
     groupId: null,
     groupRole: "",
     currentTreatment: null,
@@ -6266,7 +6289,7 @@ function saveInlineCustomer(event) {
   saveState();
   event.target.reset();
   renderCustomerInlineForm();
-  enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType"]);
+  enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType", "inlineCustomerSalon"]);
   renderCustomers();
   renderAudit();
   renderInfoHeader("customers");
@@ -6386,7 +6409,7 @@ function renderCustomers() {
   if (!document.getElementById("customersView")?.isConnected) return;
   renderCustomerTypeFilter();
   renderCustomerInlineForm();
-  enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType", "customerTypeFilter", "customerWorkFilter"]);
+  enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType", "inlineCustomerSalon", "customerTypeFilter", "customerWorkFilter"]);
   const q = submittedListSearchValue("customerSearch").toLowerCase();
   const fromDate = submittedListSearchValue("customerFromFilter");
   const toDate = submittedListSearchValue("customerToFilter");
@@ -12240,6 +12263,11 @@ function updateServiceTotal() {
 
 function openCustomerModal() {
   const defaultBonus = `${customerTypeRule("Хэрэглэгч").bonusPercent}%`;
+  const salonLocked = isSalonAccount();
+  const lockedSalon = salonLocked ? activeAccount.salon : "";
+  const salonNames = accountSalons().map(salon => salon.name);
+  if (lockedSalon && !salonNames.includes(lockedSalon)) salonNames.unshift(lockedSalon);
+  const salonOptionsMarkup = `${lockedSalon ? "" : `<option value="" disabled selected>Сонгох</option>`}${salonNames.map(name => `<option value="${htmlSafe(name)}" ${name === lockedSalon ? "selected" : ""}>${htmlSafe(name)}</option>`).join("")}`;
   openModal(
     "Хэрэглэгч нэмэх",
     "Бүртгэлийн мэдээлэл",
@@ -12272,6 +12300,11 @@ function openCustomerModal() {
             ${customerTypeOptions("Хэрэглэгч")}
           </select>
         </label>
+        ${salonLocked ? "" : `<label>Салбар
+          <select id="modalCustomerSalon" class="input" required ${lockedSalon ? "disabled" : ""}>
+            ${salonOptionsMarkup}
+          </select>
+        </label>`}
         <label>Bonus хувь
           <input id="modalCustomerBonus" class="input" value="${defaultBonus}" readonly>
         </label>
@@ -12286,7 +12319,7 @@ function openCustomerModal() {
       document.getElementById("modalCustomerType").addEventListener("change", event => {
         document.getElementById("modalCustomerBonus").value = `${customerTypeRule(event.target.value).bonusPercent}%`;
       });
-      enhanceNativeSelects(["modalCustomerType", "modalCustomerGender"]);
+      enhanceNativeSelects(["modalCustomerType", "modalCustomerGender", "modalCustomerSalon"]);
       document.getElementById("customerModalForm").addEventListener("submit", event => {
         event.preventDefault();
         const customerId = uniqueNumericId(state.customers);
@@ -12296,6 +12329,11 @@ function openCustomerModal() {
           return;
         }
         const selectedType = formValue("modalCustomerType") || "Хэрэглэгч";
+        const registeredSalon = lockedSalon || formValue("modalCustomerSalon");
+        if (!registeredSalon) {
+          showToast("Бүртгэх салбарыг сонгоно уу");
+          return;
+        }
         const ageValue = formValue("modalCustomerAge");
         const birthYear = birthYearFromAge(ageValue);
         state.customers.unshift({
@@ -12320,8 +12358,8 @@ function openCustomerModal() {
           registeredTime: currentTimeText(),
           dailyQueueDate: todayText(),
           dailyQueueAssignedAt: new Date().toISOString(),
-          registeredSalon: activeAccount.salon,
-          salon: activeAccount.salon,
+          registeredSalon,
+          salon: registeredSalon,
           groupId: null,
           groupRole: "",
           currentTreatment: null,

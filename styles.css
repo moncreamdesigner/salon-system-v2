@@ -722,12 +722,12 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .active-treatment-meta .active-treatment-stage {
-  color: var(--muted);
+  color: var(--accent);
+  font-weight: 700;
 }
 
-.active-treatment-meta .active-treatment-salon,
-.active-treatment-meta .active-treatment-stage.started {
-  color: var(--accent);
+.active-treatment-meta .active-treatment-salon {
+  color: var(--text);
   font-weight: 700;
 }
 
@@ -738,10 +738,14 @@ body.sidebar-collapsed .sidebar-logout {
 
 .customer-inline-form {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 124px 66px 132px 104px;
+  grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 124px 66px 132px minmax(132px, .8fr) 104px;
   gap: 16px 8px;
   align-items: end;
   margin-bottom: 30px;
+}
+
+.customer-inline-form.salon-locked {
+  grid-template-columns: minmax(150px, 1fr) 108px 64px 78px 124px 66px 132px 104px;
 }
 
 .customer-inline-form label {
