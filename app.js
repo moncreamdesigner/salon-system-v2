@@ -73,6 +73,7 @@ const defaultState = {
     duration: 30
   },
   generalSettings: {
+    childAgeLimit: 9,
     diagnosisPhotoLimit: 5,
     diagnosisCaptureMode: "fixed",
     diagnosisCaptureSize: "1280x960",
@@ -270,6 +271,7 @@ state.generalSettings = {
   ...structuredClone(defaultState.generalSettings),
   ...(state.generalSettings || {})
 };
+state.generalSettings.childAgeLimit = Math.max(1, Math.min(18, Number(state.generalSettings.childAgeLimit) || defaultState.generalSettings.childAgeLimit));
 state.generalSettings.deleteCode = /^\d{4}$/.test(String(state.generalSettings.deleteCode || ""))
   ? String(state.generalSettings.deleteCode)
   : DELETE_CODE;
@@ -2747,6 +2749,7 @@ function generalSettings() {
     ...structuredClone(defaultState.generalSettings),
     ...(state.generalSettings || {})
   };
+  state.generalSettings.childAgeLimit = Math.max(1, Math.min(18, Number(state.generalSettings.childAgeLimit) || defaultState.generalSettings.childAgeLimit));
   if (Number(state.generalSettings.kassEditDays) <= 0) {
     state.generalSettings.kassEditDays = defaultState.generalSettings.kassEditDays;
   }
@@ -3314,10 +3317,32 @@ function fillServiceFormForEdit(kind, index, group = "") {
 function setChildAgeLimit(value) {
   const input = document.getElementById("childAgeLimit");
   const note = document.getElementById("childAgeNote");
+  const saveButton = document.getElementById("childAgeSave");
   if (!input) return;
   const next = Math.max(1, Math.min(18, Number(value) || 1));
   input.value = String(next);
   if (note) note.innerHTML = `<strong>${next + 1}+</strong> настай бол том хүний үнээр бодогдоно.`;
+  if (saveButton) saveButton.disabled = next === Number(generalSettings().childAgeLimit);
+}
+
+function saveChildAgeLimit() {
+  const input = document.getElementById("childAgeLimit");
+  if (!input) return;
+  const previous = Number(generalSettings().childAgeLimit);
+  const next = Math.max(1, Math.min(18, Number(input.value) || defaultState.generalSettings.childAgeLimit));
+  state.generalSettings = {
+    ...generalSettings(),
+    childAgeLimit: next
+  };
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "service_settings_updated",
+    createdAt: auditNowText(),
+    meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • Хүүхдийн насны хязгаар ${previous} → ${next}`
+  });
+  saveState(["generalSettings", "audit"]);
+  setChildAgeLimit(next);
+  showToast("Хүүхдийн насны хязгаар хадгалагдлаа");
 }
 
 function bindServiceSettingsForm() {
@@ -3326,6 +3351,7 @@ function bindServiceSettingsForm() {
   const groupForm = document.getElementById("productGroupForm");
   const ageMinus = document.getElementById("childAgeMinus");
   const agePlus = document.getElementById("childAgePlus");
+  const ageSave = document.getElementById("childAgeSave");
   if (ageMinus && !ageMinus.dataset.bound) {
     ageMinus.addEventListener("click", () => setChildAgeLimit(Number(document.getElementById("childAgeLimit").value) - 1));
     ageMinus.dataset.bound = "1";
@@ -3333,6 +3359,10 @@ function bindServiceSettingsForm() {
   if (agePlus && !agePlus.dataset.bound) {
     agePlus.addEventListener("click", () => setChildAgeLimit(Number(document.getElementById("childAgeLimit").value) + 1));
     agePlus.dataset.bound = "1";
+  }
+  if (ageSave && !ageSave.dataset.bound) {
+    ageSave.addEventListener("click", saveChildAgeLimit);
+    ageSave.dataset.bound = "1";
   }
   if (kind && !kind.dataset.bound) {
     kind.addEventListener("change", updateServiceFormMode);
@@ -3426,7 +3456,7 @@ function bindServiceSettingsForm() {
     groupForm.dataset.bound = "1";
   }
   renderProductGroupControls();
-  setChildAgeLimit(Number(document.getElementById("childAgeLimit")?.value || 9));
+  setChildAgeLimit(Number(generalSettings().childAgeLimit || defaultState.generalSettings.childAgeLimit));
   updateServiceFormMode();
 }
 
@@ -9352,7 +9382,7 @@ function selectedCustomer() {
 }
 
 function isChildCustomer(customer) {
-  const limit = Number(document.getElementById("childAgeLimit")?.value || 9);
+  const limit = Number(generalSettings().childAgeLimit || defaultState.generalSettings.childAgeLimit);
   const age = Number(customerAge(customer));
   return age > 0 && age <= limit;
 }

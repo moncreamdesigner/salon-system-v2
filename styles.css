@@ -8044,7 +8044,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .service-rule-row {
   display: grid;
-  grid-template-columns: auto minmax(240px, 1fr);
+  grid-template-columns: auto minmax(240px, 1fr) auto;
   gap: 12px;
   align-items: center;
 }
@@ -8057,6 +8057,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .service-rule-row strong {
   color: var(--accent);
+}
+
+.child-age-save {
+  min-width: 110px;
 }
 
 .service-category-form {
