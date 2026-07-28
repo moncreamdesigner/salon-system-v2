@@ -3203,7 +3203,7 @@ body.camera-overlay-open {
 
 .profile-diagnosis-registration-row {
   display: grid;
-  grid-template-columns: minmax(180px, 220px) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(180px, 220px) minmax(220px, 320px) auto;
   align-items: end;
   gap: 12px;
 }
@@ -6836,6 +6836,7 @@ td.empty-state {
 }
 
 .diagnosis-pending-toggle {
+  flex: 1;
   min-width: 0;
   border: 0;
   background: transparent;
@@ -6857,13 +6858,23 @@ td.empty-state {
   display: grid;
   gap: 16px;
   margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
 }
 
 .pending-diagnosis-work-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-service-card.diagnosis-pending,
+.profile-service-card[data-diagnosis-index] {
+  cursor: pointer;
+}
+
+.profile-service-card.diagnosis-pending .pending-diagnosis-work-form,
+.profile-service-card[data-diagnosis-index] .profile-diagnosis-expanded {
+  cursor: default;
 }
 
 .profile-service-price {

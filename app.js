@@ -7042,6 +7042,7 @@ function renderPendingDiagnosisWorkForm(item, historyIndex) {
     <form class="pending-diagnosis-work-form" data-history-index="${historyIndex}" data-prefix="${prefix}">
       ${diagnosisFormHtml(prefix, true)}
       <div class="pending-diagnosis-work-actions">
+        <button class="secondary-btn icon-clear pending-diagnosis-work-cancel" type="button" aria-label="Оношилгоо бөглөхийг хаах">×</button>
         <button class="primary-btn" type="submit">Оношилгоо хадгалах</button>
       </div>
     </form>
@@ -7067,7 +7068,7 @@ function renderCustomerServiceHistory(customer) {
     const deleteAllowed = isServiceDeletable(item);
     const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.diagnosisExpanded || item.diagnosisWorkOpen || item.signatureOpen || customer.profileServiceEditingIndex === index);
     return `
-      <article class="profile-service-card ${active ? "active" : ""} ${diagnosisPending ? "diagnosis-pending" : ""}">
+      <article class="profile-service-card ${active ? "active" : ""} ${diagnosisPending ? "diagnosis-pending" : ""}" ${diagnosisPending ? `data-pending-diagnosis-index="${index}"` : (isDiagnosis ? `data-diagnosis-index="${index}"` : "")}>
         <div class="profile-service-head">
           ${diagnosisPending ? `
             <button class="diagnosis-pending-toggle" type="button" data-history-index="${index}" aria-expanded="${Boolean(item.diagnosisWorkOpen)}">
@@ -8408,6 +8409,8 @@ function profileServiceTabsHtml(kind) {
 
 function renderProfileServiceInlineForm(customer) {
   const showSalon = ["admin", "manager"].includes(activeAccount.role);
+  const salonLocked = isSalonAccount();
+  const showDiagnosisSalon = showSalon || salonLocked;
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const kind = editingItem
@@ -8424,11 +8427,11 @@ function renderProfileServiceInlineForm(customer) {
             <label>Огноо
               <input class="input" id="profileServiceDate" type="date" value="${todayText()}" required>
             </label>
-            ${showSalon ? `
+            ${showDiagnosisSalon ? `
               <label>Салбар
-                <select class="input" id="profileServiceSalon" required>
-                  <option value="">Салбар сонгох</option>
-                  ${state.salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("")}
+                <select class="input" id="profileServiceSalon" required ${salonLocked ? "disabled" : ""}>
+                  ${salonLocked ? "" : `<option value="">Салбар сонгох</option>`}
+                  ${(salonLocked ? accountSalons() : state.salons).map(salon => `<option value="${salon.name}" ${salon.name === activeAccount.salon ? "selected" : ""}>${salon.name}</option>`).join("")}
                 </select>
               </label>
             ` : ""}
@@ -8918,15 +8921,24 @@ function bindDiagnosisPhotoPreview(root = document) {
 }
 
 function bindPendingDiagnosisWorkForms(customer, root = document) {
+  const togglePendingDiagnosis = historyIndex => {
+    const item = customer.serviceHistory?.[historyIndex];
+    if (!item?.diagnosisPending) return;
+    const wasOpen = Boolean(item.diagnosisWorkOpen);
+    collapseCustomerServicePanels(customer);
+    item.diagnosisWorkOpen = !wasOpen;
+    renderProfile();
+  };
   root?.querySelectorAll(".diagnosis-pending-toggle").forEach(button => {
-    button.addEventListener("click", () => {
-      const historyIndex = Number(button.dataset.historyIndex);
-      const item = customer.serviceHistory?.[historyIndex];
-      if (!item?.diagnosisPending) return;
-      const wasOpen = Boolean(item.diagnosisWorkOpen);
-      collapseCustomerServicePanels(customer);
-      item.diagnosisWorkOpen = !wasOpen;
-      renderProfile();
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      togglePendingDiagnosis(Number(button.dataset.historyIndex));
+    });
+  });
+  root?.querySelectorAll(".profile-service-card.diagnosis-pending").forEach(card => {
+    card.addEventListener("click", event => {
+      if (event.target.closest(".profile-service-delete, .pending-diagnosis-work-form, button, input, select, textarea")) return;
+      togglePendingDiagnosis(Number(card.dataset.pendingDiagnosisIndex));
     });
   });
   root?.querySelectorAll(".pending-diagnosis-work-form").forEach(form => {
@@ -8936,6 +8948,11 @@ function bindPendingDiagnosisWorkForms(customer, root = document) {
     if (!item?.diagnosisPending || !prefix) return;
     bindDiagnosisControls(prefix);
     hydrateDiagnosisForm(prefix, item.diagnosis, true);
+    form.querySelector(".pending-diagnosis-work-cancel")?.addEventListener("click", () => {
+      releaseDiagnosisCameraSession();
+      item.diagnosisWorkOpen = false;
+      renderProfile();
+    });
     form.addEventListener("submit", event => {
       event.preventDefault();
       const diagnosis = readDiagnosisPayload(prefix);
@@ -9189,14 +9206,24 @@ function renderProfile() {
       renderProfile();
     });
   });
+  const toggleDiagnosisSummary = historyIndex => {
+    const item = customer.serviceHistory?.[historyIndex];
+    if (!item) return;
+    const wasExpanded = Boolean(item.diagnosisExpanded);
+    collapseCustomerServicePanels(customer);
+    item.diagnosisExpanded = !wasExpanded;
+    renderProfile();
+  };
   document.querySelectorAll("#historyList .diagnosis-expand-toggle").forEach(button => {
-    button.addEventListener("click", () => {
-      const item = customer.serviceHistory?.[Number(button.dataset.historyIndex)];
-      if (!item) return;
-      const wasExpanded = Boolean(item.diagnosisExpanded);
-      collapseCustomerServicePanels(customer);
-      item.diagnosisExpanded = !wasExpanded;
-      renderProfile();
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      toggleDiagnosisSummary(Number(button.dataset.historyIndex));
+    });
+  });
+  document.querySelectorAll("#historyList .profile-service-card[data-diagnosis-index]").forEach(card => {
+    card.addEventListener("click", event => {
+      if (event.target.closest("button, input, select, textarea, .profile-service-card-edit")) return;
+      toggleDiagnosisSummary(Number(card.dataset.diagnosisIndex));
     });
   });
   document.querySelectorAll("#historyList .profile-service-edit").forEach(button => {
