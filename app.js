@@ -2934,6 +2934,12 @@ function kassRevenueServiceName(item = {}) {
   return item.service || item.title || "Үйлчилгээ";
 }
 
+function kassRevenueType(kind = "") {
+  if (kind === "course") return "course";
+  if (["kass", "product"].includes(kind)) return "kass";
+  return "single";
+}
+
 function kassRevenueSourceRows() {
   const rows = [];
   state.customers.forEach(customer => {
@@ -3021,11 +3027,26 @@ function renderKassRevenue() {
     totals[row.method] = Number(totals[row.method] || 0) + Number(row.amount || 0);
     return totals;
   }, {});
+  const typeTotals = filtered.reduce((totals, row) => {
+    const type = kassRevenueType(row.kind);
+    totals[type] = Number(totals[type] || 0) + Number(row.amount || 0);
+    return totals;
+  }, { single: 0, course: 0, kass: 0 });
   document.getElementById("kassRevenueTotal").textContent = money(total);
   document.getElementById("kassRevenueCount").textContent = `${filtered.length} төлбөр`;
   document.getElementById("kassRevenueMethods").innerHTML = Object.entries(methodTotals).map(([method, amount]) => `
     <div class="kass-revenue-method"><span>${htmlSafe(paymentMethodOptionsLabel(method) || method)}</span><strong>${money(amount)}</strong></div>
   `).join("") || `<span class="muted">Төлбөрийн мэдээлэл алга</span>`;
+  const typeLabels = { single: "Нэг удаа", course: "Курс", kass: "Касс" };
+  const typeBox = document.getElementById("kassRevenueTypes");
+  if (typeBox) {
+    typeBox.innerHTML = Object.entries(typeLabels).map(([type, label]) => `
+      <div class="kass-revenue-type">
+        <span>${label}</span>
+        <strong>${money(typeTotals[type])}</strong>
+      </div>
+    `).join("");
+  }
 
   const pageSize = 100;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -6119,6 +6140,8 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
     }
     if (salon && itemSalon !== salon) continue;
     if (serviceDateKey(item.date || item.createdAt) !== today) continue;
+    const activeUntil = new Date(item.activeUntil || customer.dailyQueueActiveUntil || 0).getTime();
+    if (!Number.isFinite(activeUntil) || activeUntil <= Date.now()) continue;
     if (Number(item.balance || 0) <= 0) continue;
     return {
       service: item.service || item.title || "Үйлчилгээ",
@@ -6136,24 +6159,87 @@ function dailyQueueSortKey(customer, date = todayText()) {
   return "";
 }
 
-function assignDailyQueue(customer, date = todayText()) {
-  if (!customer || (customer.dailyQueueDate === date && customer.dailyQueueAssignedAt)) return;
-  customer.dailyQueueDate = date;
-  customer.dailyQueueAssignedAt = new Date().toISOString();
+function dailyQueueSalon(customer = {}) {
+  return customer.dailyQueueSalon || customer.currentTreatment?.salon || customerRegisteredSalon(customer) || customer.salon || "";
+}
+
+function ensureDailyQueueSequences(date = todayText()) {
+  const grouped = new Map();
+  (state.customers || []).forEach(customer => {
+    const queueDate = customer.dailyQueueDate || serviceDateKey(customer.registeredAt);
+    if (queueDate !== date) return;
+    const salon = dailyQueueSalon(customer);
+    if (!salon) return;
+    if (!grouped.has(salon)) grouped.set(salon, []);
+    grouped.get(salon).push(customer);
+  });
+  let changed = false;
+  grouped.forEach((customers, salon) => {
+    customers.sort((a, b) => {
+      const aKey = dailyQueueSortKey(a, date) || "9999";
+      const bKey = dailyQueueSortKey(b, date) || "9999";
+      return aKey.localeCompare(bKey) || Number(a.id) - Number(b.id);
+    });
+    const usedSequences = new Set(customers.map(customer => Number(customer.dailyQueueSequence || 0)).filter(value => value > 0));
+    let nextSequence = usedSequences.size ? Math.max(...usedSequences) : 0;
+    customers.forEach(customer => {
+      if (customer.dailyQueueDate !== date) {
+        customer.dailyQueueDate = date;
+        changed = true;
+      }
+      if (customer.dailyQueueSalon !== salon) {
+        customer.dailyQueueSalon = salon;
+        changed = true;
+      }
+      if (!Number(customer.dailyQueueSequence || 0)) {
+        customer.dailyQueueSequence = ++nextSequence;
+        changed = true;
+      }
+      if (!customer.dailyQueueActiveUntil && customer.dailyQueueAssignedAt) {
+        const assignedAt = new Date(customer.dailyQueueAssignedAt).getTime();
+        if (Number.isFinite(assignedAt)) {
+          customer.dailyQueueActiveUntil = new Date(assignedAt + 2 * 60 * 60 * 1000).toISOString();
+          changed = true;
+        }
+      }
+    });
+  });
+  if (changed) {
+    queueLocalStateSave();
+    queueServerStateSave(800);
+  }
+}
+
+function assignDailyQueue(customer, date = todayText(), salon = "") {
+  if (!customer) return;
+  const now = new Date();
+  const queueSalon = salon || customer.currentTreatment?.salon || customerRegisteredSalon(customer) || customer.salon || "";
+  if (customer.dailyQueueDate !== date) {
+    customer.dailyQueueDate = date;
+    customer.dailyQueueSequence = 0;
+    customer.dailyQueueAssignedAt = now.toISOString();
+  } else if (!customer.dailyQueueAssignedAt) {
+    customer.dailyQueueAssignedAt = now.toISOString();
+  }
+  customer.dailyQueueSalon = queueSalon;
+  customer.dailyQueueActiveUntil = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+  ensureDailyQueueSequences(date);
 }
 
 function activeCustomerTreatments(salon = "") {
   const key = `${customerDerivedDataVersion}|${salon}|${todayText()}|${activeAccount.role}|${activeAccount.salon}`;
   if (customerActiveTreatmentCache.key === key) return customerActiveTreatmentCache.items;
+  ensureDailyQueueSequences(todayText());
   const items = [];
   for (const customer of state.customers || []) {
     if (customer.deleted || customer.deletedAt) continue;
     let treatment = todaySalonTreatment(customer, salon);
     if (!treatment && serviceDateKey(customer.registeredAt) === todayText()) {
+      const queueActiveUntil = new Date(customer.dailyQueueActiveUntil || 0).getTime();
       const todayHistory = (customer.serviceHistory || []).filter(item => serviceDateKey(item.date || item.createdAt) === todayText());
       const hasOnlyKass = todayHistory.length > 0 && todayHistory.every(item => ["kass", "product"].includes(item.kind));
       const registeredSalon = customerRegisteredSalon(customer);
-      if (!hasOnlyKass && (!salon || registeredSalon === salon)) {
+      if (queueActiveUntil > Date.now() && !hasOnlyKass && (!salon || registeredSalon === salon)) {
         treatment = {
           service: "Үйлчилгээ сонгоогүй",
           progress: "Шинэ хэрэглэгч",
@@ -6162,19 +6248,14 @@ function activeCustomerTreatments(salon = "") {
         };
       }
     }
-    if (treatment && canAccessSalon(treatment.salon)) items.push({ customer, treatment });
+    if (treatment && canAccessSalon(treatment.salon)) {
+      items.push({ customer, treatment, sequence: Number(customer.dailyQueueSequence || 0) });
+    }
   }
   items.sort((a, b) => {
-    const aKey = dailyQueueSortKey(a.customer) || "9999";
-    const bKey = dailyQueueSortKey(b.customer) || "9999";
-    return aKey.localeCompare(bKey) || Number(a.customer.id) - Number(b.customer.id);
-  });
-  const salonSequences = new Map();
-  items.forEach(entry => {
-    const salonKey = entry.treatment.salon || entry.customer.salon || "";
-    const nextSequence = (salonSequences.get(salonKey) || 0) + 1;
-    salonSequences.set(salonKey, nextSequence);
-    entry.sequence = nextSequence;
+    return Number(b.sequence || 0) - Number(a.sequence || 0) ||
+      String(dailyQueueSortKey(b.customer)).localeCompare(String(dailyQueueSortKey(a.customer))) ||
+      Number(b.customer.id) - Number(a.customer.id);
   });
   customerActiveTreatmentCache = { key, items };
   return items;
@@ -6183,11 +6264,13 @@ function activeCustomerTreatments(salon = "") {
 function scheduleCurrentTreatmentExpiryRefresh() {
   if (currentTreatmentExpiryTimer) return;
   const now = Date.now();
-  const expiries = (state.customers || []).flatMap(customer =>
-    (customer.serviceHistory || []).flatMap(item =>
-      item.kind === "course" ? (item.visits || []).map(visit => new Date(visit.activeUntil || 0).getTime()) : []
-    )
-  ).filter(value => Number.isFinite(value) && value > now);
+  const expiries = (state.customers || []).flatMap(customer => [
+    new Date(customer.dailyQueueActiveUntil || 0).getTime(),
+    ...(customer.serviceHistory || []).flatMap(item => [
+      new Date(item.activeUntil || 0).getTime(),
+      ...(item.kind === "course" ? (item.visits || []).map(visit => new Date(visit.activeUntil || 0).getTime()) : [])
+    ])
+  ]).filter(value => Number.isFinite(value) && value > now);
   if (!expiries.length) return;
   const delay = Math.min(Math.max(50, Math.min(...expiries) - now + 50), 2147483647);
   currentTreatmentExpiryTimer = setTimeout(() => {
@@ -6255,7 +6338,7 @@ function saveInlineCustomer(event) {
   const customerId = uniqueNumericId(state.customers);
   const ageValue = formValue("inlineCustomerAge");
   const birthYear = birthYearFromAge(ageValue);
-  state.customers.unshift({
+  const newCustomer = {
     id: customerId,
     name: formValue("inlineCustomerName"),
     phone,
@@ -6275,15 +6358,15 @@ function saveInlineCustomer(event) {
     last: "-",
     registeredAt: todayText(),
     registeredTime: currentTimeText(),
-    dailyQueueDate: todayText(),
-    dailyQueueAssignedAt: new Date().toISOString(),
     registeredSalon,
     salon: registeredSalon,
     groupId: null,
     groupRole: "",
     currentTreatment: null,
     serviceHistory: []
-  });
+  };
+  state.customers.unshift(newCustomer);
+  assignDailyQueue(newCustomer, todayText(), registeredSalon);
   state.selectedCustomerId = customerId;
   const auditEntry = {
     id: entityId("audit"),
@@ -8334,7 +8417,7 @@ function bindCourseVisitInlineForms(customer) {
       customer.activeCourse = done < Number(course.visitsTotal || 0);
       customer.currentTreatment = currentTreatmentFromHistory(customer, { ...course, salon: visit.salon, staff: visit.staff, date: visit.date }, `Курс ${visitNumber}/${course.visitsTotal}`);
       customer.currentTreatment.activeUntil = visit.activeUntil;
-      if (visit.date === todayText()) assignDailyQueue(customer, visit.date);
+      if (visit.date === todayText()) assignDailyQueue(customer, visit.date, visit.salon);
       customer.last = visit.date;
       saveAndRefreshCustomerProfile("Курсийн оролт бүртгэгдлээ");
     });
@@ -9254,7 +9337,7 @@ function bindProfileServiceInlineForm(customer) {
       customer.serviceHistory = customer.serviceHistory || [];
       if (editingItem) customer.serviceHistory[editingIndex] = historyItem;
       else customer.serviceHistory.unshift(historyItem);
-      if (date === todayText()) assignDailyQueue(customer, date);
+      if (date === todayText()) assignDailyQueue(customer, date, historyItem.salon);
       customer.last = date;
       customer.profileServiceOpen = false;
       customer.profileServiceKind = "diagnosis";
@@ -9320,6 +9403,8 @@ function bindProfileServiceInlineForm(customer) {
       service: standardServiceName(item.name, kind),
       date,
       createdAt: todayText(),
+      registeredAt: editingItem?.registeredAt || new Date().toISOString(),
+      activeUntil: editingItem?.activeUntil || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       staff,
       salon,
       price: Number(priceParts.total || 0),
@@ -9340,8 +9425,6 @@ function bindProfileServiceInlineForm(customer) {
       historyItem.masterStaffFee = 0;
       customer.activeCourse = true;
       customer.course = `Курс 0/${historyItem.visitsTotal}`;
-      historyItem.registeredAt = editingItem?.registeredAt || new Date().toISOString();
-      historyItem.activeUntil = editingItem?.activeUntil || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
     }
     customer.serviceHistory = customer.serviceHistory || [];
     if (editingItem) {
@@ -9361,7 +9444,7 @@ function bindProfileServiceInlineForm(customer) {
     } else {
       customer.serviceHistory.unshift(historyItem);
     }
-    if (date === todayText()) assignDailyQueue(customer, date);
+    if (date === todayText()) assignDailyQueue(customer, date, salon);
     customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, kind === "course" ? `Курс ${(historyItem.visits || []).length}/${historyItem.visitsTotal}` : "Нэг удаа");
     customer.unpaid = customerBalance(customer) > 0;
     customer.last = date;
@@ -10375,6 +10458,8 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           service: standardServiceName(item.name, kind),
           date,
           createdAt: todayText(),
+          registeredAt: new Date().toISOString(),
+          activeUntil: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
           staff,
           salon,
           price,
@@ -10386,14 +10471,12 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           historyItem.visits = [];
           customer.activeCourse = true;
           customer.course = `Курс 0/${historyItem.visitsTotal}`;
-          historyItem.registeredAt = new Date().toISOString();
-          historyItem.activeUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
         } else {
           customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, "Нэг удаа");
         }
         customer.serviceHistory = customer.serviceHistory || [];
         customer.serviceHistory.unshift(historyItem);
-        if (date === todayText()) assignDailyQueue(customer, date);
+        if (date === todayText()) assignDailyQueue(customer, date, salon);
         customer.unpaid = true;
         customer.last = date;
         const auditEntry = {
@@ -12509,7 +12592,7 @@ function openCustomerModal() {
         }
         const ageValue = formValue("modalCustomerAge");
         const birthYear = birthYearFromAge(ageValue);
-        state.customers.unshift({
+        const newCustomer = {
           id: customerId,
           name: formValue("modalCustomerName"),
           phone,
@@ -12529,15 +12612,15 @@ function openCustomerModal() {
           last: "-",
           registeredAt: todayText(),
           registeredTime: currentTimeText(),
-          dailyQueueDate: todayText(),
-          dailyQueueAssignedAt: new Date().toISOString(),
           registeredSalon,
           salon: registeredSalon,
           groupId: null,
           groupRole: "",
           currentTreatment: null,
           serviceHistory: []
-        });
+        };
+        state.customers.unshift(newCustomer);
+        assignDailyQueue(newCustomer, todayText(), registeredSalon);
         state.selectedCustomerId = customerId;
         const auditEntry = {
           id: entityId("audit"),
