@@ -706,6 +706,39 @@ body.sidebar-collapsed .sidebar-logout {
   gap: 12px;
 }
 
+.active-treatment-card.is-recent {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.active-treatment-card.is-inactive {
+  background: color-mix(in srgb, var(--surface) 94%, var(--page));
+  cursor: pointer;
+}
+
+.active-treatment-card.is-collapsed {
+  min-height: 50px;
+  padding-block: 9px;
+}
+
+.active-treatment-card.is-collapsed .active-treatment-copy > span,
+.active-treatment-card.is-collapsed .active-treatment-meta {
+  display: none;
+}
+
+.active-treatment-card.is-service-deleted.is-collapsed .active-treatment-meta {
+  display: flex;
+}
+
+.active-treatment-card.is-service-deleted.is-collapsed .active-treatment-salon,
+.active-treatment-card.is-service-deleted.is-collapsed .active-treatment-meta i {
+  display: none;
+}
+
+.active-treatment-card.is-service-deleted .active-treatment-stage {
+  color: var(--muted);
+}
+
 .active-treatment-copy {
   min-width: 0;
   display: grid;
