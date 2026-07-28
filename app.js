@@ -737,6 +737,7 @@ function clearCustomerUiState(customer) {
     delete item.diagnosisViewVisit;
     delete item.diagnosisOpen;
     delete item.diagnosisExpanded;
+    delete item.diagnosisWorkOpen;
     delete item.diagnosisAddOpen;
     delete item.diagnosisDetailId;
     delete item.signatureOpen;
@@ -6100,7 +6101,7 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
         service: "Оношилгоо",
         progress: "Оношилгоо",
         salon: itemSalon,
-        stage: "Оношилгоо бүртгэгдсэн"
+        stage: item.diagnosisPending ? "Оношилгоо хүлээж байна" : "Оношилгоо дууссан"
       };
     }
     if (item.kind === "course") {
@@ -6214,33 +6215,66 @@ function dailyQueueTreatmentFromHistory(customer, date = todayText(), salon = ""
       progress: item.kind === "diagnosis" ? "Оношилгоо" : "Нэг удаа",
       salon: itemSalon,
       stage: item.kind === "diagnosis"
-        ? "Оношилгоо бүртгэгдсэн"
+        ? (item.diagnosisPending ? "Оношилгоо хүлээж байна" : "Оношилгоо дууссан")
         : (Number(item.balance || 0) > 0 ? "Үйлчилгээ эхэлсэн" : "Төлбөр хаагдсан")
     }, item.registeredAt || item.createdAt || item.date);
   });
   return latest;
 }
 
-function dailyQueueDeletedByAudit(customer, date = todayText()) {
-  const customerMarker = `• ${String(customer?.name || "").trim()} •`;
-  return (state.audit || []).some(item => {
-    if (item.title !== "service_deleted" || !String(item.meta || "").includes(customerMarker)) return false;
-    const auditDate = serviceDateKey(item.createdAt);
-    return !auditDate || auditDate === date;
-  });
+function clearDailyQueueAssignment(customer) {
+  [
+    "dailyQueueDate",
+    "dailyQueueAssignedAt",
+    "dailyQueueSalon",
+    "dailyQueueSequence",
+    "dailyQueueActiveUntil",
+    "dailyQueueHadService",
+    "dailyQueueServiceDeleted",
+    "dailyQueueVacant",
+    "dailyQueueLastTreatment"
+  ].forEach(key => delete customer[key]);
+}
+
+function trimVacantDailyQueueTail(date = todayText(), salon = "") {
+  let changed = false;
+  while (true) {
+    const lastEntry = (state.customers || [])
+      .filter(customer =>
+        customer.dailyQueueDate === date &&
+        dailyQueueSalon(customer) === salon &&
+        Number(customer.dailyQueueSequence || 0) > 0
+      )
+      .sort((a, b) => Number(b.dailyQueueSequence || 0) - Number(a.dailyQueueSequence || 0))[0];
+    if (!lastEntry?.dailyQueueVacant) break;
+    clearDailyQueueAssignment(lastEntry);
+    expandedDailyQueueCustomerIds.delete(Number(lastEntry.id));
+    changed = true;
+  }
+  return changed;
 }
 
 function ensureDailyQueueSequences(date = todayText()) {
   const grouped = new Map();
+  let changed = false;
   (state.customers || []).forEach(customer => {
-    const queueDate = customer.dailyQueueDate || serviceDateKey(customer.registeredAt);
-    if (queueDate !== date) return;
+    if (customer.dailyQueueDate !== date) return;
     const salon = dailyQueueSalon(customer);
     if (!salon) return;
+    const historyTreatment = dailyQueueTreatmentFromHistory(customer, date, salon);
+    if (customer.dailyQueueServiceDeleted && !historyTreatment) {
+      customer.dailyQueueVacant = true;
+      delete customer.dailyQueueServiceDeleted;
+      changed = true;
+    }
+    if (!historyTreatment && !customer.dailyQueueHadService && !customer.dailyQueueVacant) {
+      clearDailyQueueAssignment(customer);
+      changed = true;
+      return;
+    }
     if (!grouped.has(salon)) grouped.set(salon, []);
     grouped.get(salon).push(customer);
   });
-  let changed = false;
   grouped.forEach((customers, salon) => {
     customers.sort((a, b) => {
       const aKey = dailyQueueSortKey(a, date) || "9999";
@@ -6282,13 +6316,14 @@ function ensureDailyQueueSequences(date = todayText()) {
           customer.dailyQueueLastTreatment = historyTreatment;
           changed = true;
         }
-        if (!customer.dailyQueueHadService || customer.dailyQueueServiceDeleted) {
+        if (!customer.dailyQueueHadService || customer.dailyQueueVacant) {
           customer.dailyQueueHadService = true;
-          customer.dailyQueueServiceDeleted = false;
+          customer.dailyQueueVacant = false;
           changed = true;
         }
       }
     });
+    if (trimVacantDailyQueueTail(date, salon)) changed = true;
   });
   if (changed) {
     queueLocalStateSave();
@@ -6308,11 +6343,12 @@ function assignDailyQueue(customer, date = todayText(), salon = "") {
     customer.dailyQueueAssignedAt = now.toISOString();
   }
   customer.dailyQueueSalon = queueSalon;
+  customer.dailyQueueVacant = false;
   customer.dailyQueueActiveUntil = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
   const historyTreatment = dailyQueueTreatmentFromHistory(customer, date, queueSalon);
   if (historyTreatment) {
     customer.dailyQueueHadService = true;
-    customer.dailyQueueServiceDeleted = false;
+    customer.dailyQueueVacant = false;
     customer.dailyQueueLastTreatment = historyTreatment;
   }
   ensureDailyQueueSequences(date);
@@ -6320,43 +6356,41 @@ function assignDailyQueue(customer, date = todayText(), salon = "") {
 
 function activeCustomerTreatments(salon = "") {
   const key = `${customerDerivedDataVersion}|${salon}|${todayText()}|${activeAccount.role}|${activeAccount.salon}`;
-  if (customerActiveTreatmentCache.key === key) return customerActiveTreatmentCache.items;
   ensureDailyQueueSequences(todayText());
+  if (customerActiveTreatmentCache.key === key) return customerActiveTreatmentCache.items;
   const items = [];
   for (const customer of state.customers || []) {
     if (customer.deleted || customer.deletedAt) continue;
     if (customer.dailyQueueDate !== todayText() || !Number(customer.dailyQueueSequence || 0)) continue;
     const queueSalon = dailyQueueSalon(customer);
     if ((salon && queueSalon !== salon) || !canAccessSalon(queueSalon)) continue;
+    if (customer.dailyQueueVacant) {
+      items.push({
+        customer,
+        treatment: { salon: queueSalon },
+        sequence: Number(customer.dailyQueueSequence || 0),
+        isRecent: false,
+        vacant: true
+      });
+      continue;
+    }
     const historyTreatment = dailyQueueTreatmentFromHistory(customer, todayText(), queueSalon);
     const activeTreatment = todaySalonTreatment(customer, queueSalon);
-    const registeredToday = serviceDateKey(customer.registeredAt) === todayText();
-    const serviceDeleted = !historyTreatment && (
-      Boolean(customer.dailyQueueServiceDeleted) ||
-      Boolean(customer.dailyQueueHadService) ||
-      (!registeredToday && Boolean(customer.dailyQueueAssignedAt)) ||
-      dailyQueueDeletedByAudit(customer)
-    );
-    const fallbackTreatment = customer.dailyQueueLastTreatment || {
-      service: "Үйлчилгээ сонгоогүй",
-      progress: "Шинэ хэрэглэгч",
-      salon: queueSalon,
-      stage: "Шинээр бүртгэгдсэн"
-    };
+    if (!historyTreatment && !activeTreatment) continue;
+    const fallbackTreatment = customer.dailyQueueLastTreatment || historyTreatment || activeTreatment;
     const treatment = {
       ...fallbackTreatment,
       ...(historyTreatment || activeTreatment || {}),
       salon: queueSalon || fallbackTreatment.salon || ""
     };
-    if (serviceDeleted) treatment.stage = "Үйлчилгээ устгасан";
     const queueActiveUntil = new Date(customer.dailyQueueActiveUntil || 0).getTime();
-    const isRecent = !serviceDeleted && Number.isFinite(queueActiveUntil) && queueActiveUntil > Date.now();
+    const isRecent = Number.isFinite(queueActiveUntil) && queueActiveUntil > Date.now();
     items.push({
       customer,
       treatment,
       sequence: Number(customer.dailyQueueSequence || 0),
       isRecent,
-      serviceDeleted
+      vacant: false
     });
   }
   items.sort((a, b) => {
@@ -6473,7 +6507,6 @@ function saveInlineCustomer(event) {
     serviceHistory: []
   };
   state.customers.unshift(newCustomer);
-  assignDailyQueue(newCustomer, todayText(), registeredSalon);
   state.selectedCustomerId = customerId;
   const auditEntry = {
     id: entityId("audit"),
@@ -6619,12 +6652,19 @@ function renderCustomers() {
   const treatmentSalonScope = isSalonAccount() ? activeAccount.salon : "";
   const activeTreatments = activeCustomerTreatments(treatmentSalonScope);
   const showTreatmentSalon = ["admin", "manager"].includes(activeAccount.role);
-  const treatmentCardMarkup = ({ customer, treatment, sequence, isRecent, serviceDeleted }) => {
+  const treatmentCardMarkup = ({ customer, treatment, sequence, isRecent, vacant }) => {
+    if (vacant) {
+      return `
+        <div class="active-treatment-card is-inactive is-collapsed is-vacant" aria-label="${sequence}-р дугаар хоосон">
+          <b class="active-treatment-sequence">${sequence}</b>
+        </div>
+      `;
+    }
     const expanded = expandedDailyQueueCustomerIds.has(Number(customer.id));
     const compact = !isRecent && !expanded;
     return `
     <button
-      class="active-treatment-card ${isRecent ? "is-recent customer-detail-open" : `daily-queue-toggle is-inactive ${compact ? "is-collapsed" : "is-expanded"}`} ${serviceDeleted ? "is-service-deleted" : ""}"
+      class="active-treatment-card ${isRecent ? "is-recent customer-detail-open" : `daily-queue-toggle is-inactive ${compact ? "is-collapsed" : "is-expanded"}`}"
       type="button"
       data-id="${customer.id}"
       ${isRecent ? "" : `aria-expanded="${expanded}"`}
@@ -6662,7 +6702,7 @@ function renderCustomers() {
             <section class="active-treatment-group">
               <div class="active-treatment-group-head">
                 <strong>${htmlSafe(salonName)}</strong>
-                <span>${entries.length} хэрэглэгч</span>
+                <span>${entries.filter(entry => !entry.vacant).length} хэрэглэгч</span>
               </div>
               <div class="active-treatment-list">${entries.map(treatmentCardMarkup).join("")}</div>
             </section>
@@ -6674,10 +6714,11 @@ function renderCustomers() {
   scheduleCurrentTreatmentExpiryRefresh();
   const activeStrip = document.getElementById("activeTreatmentStrip");
   if (activeStrip) {
+    const visibleCustomerCount = activeTreatments.filter(entry => !entry.vacant).length;
     activeStrip.innerHTML = `
       <div class="customer-strip-head">
         <strong>Одоо үйлчилгээтэй</strong>
-        <span>${activeTreatments.length} хэрэглэгч</span>
+        <span>${visibleCustomerCount} хэрэглэгч</span>
       </div>
       ${activeTreatments.length ? activeTreatmentMarkup : `<div class="active-treatment-empty">Одоогоор явж буй үйлчилгээ алга</div>`}
     `;
@@ -6995,6 +7036,18 @@ function renderCourseSignature(item, historyIndex) {
   `;
 }
 
+function renderPendingDiagnosisWorkForm(item, historyIndex) {
+  const prefix = `pendingDiagnosis${historyIndex}`;
+  return `
+    <form class="pending-diagnosis-work-form" data-history-index="${historyIndex}" data-prefix="${prefix}">
+      ${diagnosisFormHtml(prefix, true)}
+      <div class="pending-diagnosis-work-actions">
+        <button class="primary-btn" type="submit">Оношилгоо хадгалах</button>
+      </div>
+    </form>
+  `;
+}
+
 function renderCustomerServiceHistory(customer) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   if (!history.length) return `<div class="empty-state">Үйлчилгээний түүх алга</div>`;
@@ -7002,6 +7055,7 @@ function renderCustomerServiceHistory(customer) {
     const isCourse = item.kind === "course";
     const isKass = item.kind === "kass" || item.kind === "product";
     const isDiagnosis = item.kind === "diagnosis";
+    const diagnosisPending = isDiagnosis && Boolean(item.diagnosisPending);
     const title = item.title || item.service || "Үйлчилгээ";
     const date = item.date || item.createdAt || customer.last || "-";
     const staff = item.staff || "Ажилтан сонгоогүй";
@@ -7011,16 +7065,24 @@ function renderCustomerServiceHistory(customer) {
     const editMode = profileServiceEditMode(item);
     const editAllowed = editMode !== "locked";
     const deleteAllowed = isServiceDeletable(item);
-    const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.diagnosisExpanded || item.signatureOpen || customer.profileServiceEditingIndex === index);
+    const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.diagnosisExpanded || item.diagnosisWorkOpen || item.signatureOpen || customer.profileServiceEditingIndex === index);
     return `
-      <article class="profile-service-card ${active ? "active" : ""}">
+      <article class="profile-service-card ${active ? "active" : ""} ${diagnosisPending ? "diagnosis-pending" : ""}">
         <div class="profile-service-head">
-          <div>
-            <strong>${title}</strong>
-            <span><b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}</span>
-          </div>
+          ${diagnosisPending ? `
+            <button class="diagnosis-pending-toggle" type="button" data-history-index="${index}" aria-expanded="${Boolean(item.diagnosisWorkOpen)}">
+              <strong>${title}</strong>
+              <span><b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b> • ${salon}</span>
+              <em>Оношилгоо хүлээж байна ${item.diagnosisWorkOpen ? "↑" : "↓"}</em>
+            </button>
+          ` : `
+            <div>
+              <strong>${title}</strong>
+              <span><b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}</span>
+            </div>
+          `}
           <div class="service-card-actions ${editAllowed || deleteAllowed ? "" : "actions-disabled"}">
-            <button class="secondary-btn icon-action profile-service-edit" type="button" data-history-index="${index}" aria-label="Засах" ${editAllowed ? "" : "disabled"}>${editIcon()}</button>
+            ${diagnosisPending ? "" : `<button class="secondary-btn icon-action profile-service-edit" type="button" data-history-index="${index}" aria-label="Засах" ${editAllowed ? "" : "disabled"}>${editIcon()}</button>`}
             <button class="danger-btn icon-danger profile-service-delete" type="button" data-history-index="${index}" aria-label="Устгах" ${deleteAllowed ? "" : "disabled"}>${trashIcon()}</button>
           </div>
         </div>
@@ -7031,7 +7093,10 @@ function renderCustomerServiceHistory(customer) {
           </div>
         ` : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
-        ${isDiagnosis && customer.profileServiceEditingIndex !== index ? `
+        ${diagnosisPending && customer.profileServiceEditingIndex !== index ? `
+          ${item.diagnosisWorkOpen ? renderPendingDiagnosisWorkForm(item, index) : ""}
+        ` : ""}
+        ${isDiagnosis && !diagnosisPending && customer.profileServiceEditingIndex !== index ? `
           ${renderDiagnosisCompactSummary(item.diagnosis || item, index, Boolean(item.diagnosisExpanded))}
           ${item.diagnosisExpanded ? `<div class="profile-diagnosis-expanded">${renderDiagnosisSummary(item.diagnosis || item)}</div>` : ""}
         ` : ""}
@@ -8051,6 +8116,7 @@ function collapseCustomerServicePanels(customer) {
     item.paymentFormOpen = false;
     item.diagnosisOpen = false;
     item.diagnosisExpanded = false;
+    item.diagnosisWorkOpen = false;
     item.diagnosisAddOpen = false;
     item.diagnosisDetailId = null;
     item.signatureOpen = false;
@@ -8350,18 +8416,41 @@ function renderProfileServiceInlineForm(customer) {
   if (!editingItem && kind === "kass") return renderProfileKassInlineForm(customer);
   if (kind === "diagnosis") {
     const prefix = `profileDiagnosis${editingIndex ?? "new"}`;
+    if (!editingItem) {
+      return `
+        <form id="profileServiceForm" class="profile-inline-service-form profile-diagnosis-registration-form" data-kind="diagnosis" data-mode="create-pending" novalidate>
+          ${profileServiceTabsHtml(kind)}
+          <div class="profile-diagnosis-registration-row">
+            <label>Огноо
+              <input class="input" id="profileServiceDate" type="date" value="${todayText()}" required>
+            </label>
+            ${showSalon ? `
+              <label>Салбар
+                <select class="input" id="profileServiceSalon" required>
+                  <option value="">Салбар сонгох</option>
+                  ${state.salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("")}
+                </select>
+              </label>
+            ` : ""}
+            <div class="profile-diagnosis-registration-actions">
+              <button class="secondary-btn icon-clear profile-service-cancel-edit" type="button" aria-label="Оношилгоо бүртгэхийг цуцлах">×</button>
+              <button class="primary-btn" type="submit">Үйлчилгээ бүртгэх</button>
+            </div>
+          </div>
+        </form>
+      `;
+    }
     return `
       <form id="profileServiceForm" class="profile-inline-service-form profile-diagnosis-form" data-kind="diagnosis" data-prefix="${prefix}" novalidate>
-        ${editingItem ? "" : profileServiceTabsHtml(kind)}
         <label class="profile-diagnosis-date">Огноо
-          <input class="input" id="profileServiceDate" type="date" value="${editingItem?.date || todayText()}" required>
+          <input class="input" id="profileServiceDate" type="date" value="${editingItem.date || todayText()}" required>
         </label>
         ${diagnosisFormHtml(prefix, true)}
         <div class="profile-service-submit-row">
           <span></span>
           <div class="form-actions">
             <button class="secondary-btn icon-clear profile-service-cancel-edit" type="button" aria-label="${editingItem ? "Засахыг болих" : "Оношилгоо бүртгэхийг цуцлах"}">×</button>
-            <button class="primary-btn" type="submit">${editingItem ? "Оношилгоо шинэчлэх" : "Оношилгоо бүртгэх"}</button>
+            <button class="primary-btn" type="submit">Оношилгоо шинэчлэх</button>
           </div>
         </div>
       </form>
@@ -8828,6 +8917,47 @@ function bindDiagnosisPhotoPreview(root = document) {
   });
 }
 
+function bindPendingDiagnosisWorkForms(customer, root = document) {
+  root?.querySelectorAll(".diagnosis-pending-toggle").forEach(button => {
+    button.addEventListener("click", () => {
+      const historyIndex = Number(button.dataset.historyIndex);
+      const item = customer.serviceHistory?.[historyIndex];
+      if (!item?.diagnosisPending) return;
+      const wasOpen = Boolean(item.diagnosisWorkOpen);
+      collapseCustomerServicePanels(customer);
+      item.diagnosisWorkOpen = !wasOpen;
+      renderProfile();
+    });
+  });
+  root?.querySelectorAll(".pending-diagnosis-work-form").forEach(form => {
+    const historyIndex = Number(form.dataset.historyIndex);
+    const item = customer.serviceHistory?.[historyIndex];
+    const prefix = form.dataset.prefix;
+    if (!item?.diagnosisPending || !prefix) return;
+    bindDiagnosisControls(prefix);
+    hydrateDiagnosisForm(prefix, item.diagnosis, true);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const diagnosis = readDiagnosisPayload(prefix);
+      if (!diagnosisHasContent(diagnosis)) return showToast("Оношилгооны мэдээлэл оруулна уу");
+      item.diagnosis = diagnosis;
+      item.diagnosisPending = false;
+      item.diagnosisCompletedAt = new Date().toISOString();
+      item.staff = activeAccount.displayName || activeAccount.username || "";
+      item.diagnosisWorkOpen = false;
+      customer.last = item.date || todayText();
+      const auditEntry = {
+        id: entityId("audit"),
+        title: "diagnosis_completed",
+        createdAt: auditNowText(),
+        meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.salon || ""} • ${item.date || todayText()}`
+      };
+      state.audit.unshift(auditEntry);
+      saveAndRefreshCustomerProfile("Оношилгоо хадгалагдлаа", { auditEntries: [auditEntry] });
+    });
+  });
+}
+
 function showDiagnosisPhotoPreview(source = "", label = "Оношилгооны зураг") {
   if (!source) return;
   openModal(
@@ -8955,6 +9085,7 @@ function renderProfile() {
   });
   bindProfileInfoForm(customer);
   bindProfileServiceInlineForm(customer);
+  bindPendingDiagnosisWorkForms(customer, document.getElementById("historyList"));
   document.getElementById("profileCreateGroupBtn")?.addEventListener("click", () => createCustomerGroup(customer.id));
   document.getElementById("profileJoinGroupBtn")?.addEventListener("click", () => {
     customer.profileJoinGroupOpen = !customer.profileJoinGroupOpen;
@@ -9434,6 +9565,52 @@ function bindProfileServiceInlineForm(customer) {
     renderProfile();
   });
   if (formKind === "diagnosis") {
+    if (!editingItem && form.dataset.mode === "create-pending") {
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        if (!customer.groupId) return showToast("Эхлээд групп үүсгэх эсвэл группт нэгтгэнэ");
+        const date = formValue("profileServiceDate") || todayText();
+        const salon = showSalon ? formValue("profileServiceSalon") : activeAccount.salon;
+        if (!salon || !canAccessSalon(salon)) return showToast("Салбар сонгоно уу");
+        const historyItem = {
+          id: entityId("diagnosis"),
+          kind: "diagnosis",
+          title: "Оношилгоо",
+          service: "Оношилгоо",
+          date,
+          createdAt: new Date().toISOString(),
+          registeredAt: new Date().toISOString(),
+          activeUntil: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+          salon,
+          staff: "",
+          price: 0,
+          balance: 0,
+          diagnosisPending: true,
+          diagnosis: {
+            types: [],
+            note: "",
+            generalPhotos: [],
+            scopePhotos: [],
+            scopePhotoLimit: Number(generalSettings().diagnosisPhotoLimit || 5)
+          }
+        };
+        customer.serviceHistory = customer.serviceHistory || [];
+        customer.serviceHistory.unshift(historyItem);
+        if (date === todayText()) assignDailyQueue(customer, date, salon);
+        customer.last = date;
+        customer.profileServiceOpen = false;
+        customer.profileServiceKind = "diagnosis";
+        const auditEntry = {
+          id: entityId("audit"),
+          title: "diagnosis_service_created",
+          createdAt: auditNowText(),
+          meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${salon} • ${date}`
+        };
+        state.audit.unshift(auditEntry);
+        saveAndRefreshCustomerProfile("Оношилгооны үйлчилгээ бүртгэгдлээ", { auditEntries: [auditEntry] });
+      });
+      return;
+    }
     const prefix = form.dataset.prefix;
     bindDiagnosisControls(prefix);
     if (editingItem) hydrateDiagnosisForm(prefix, editingItem.diagnosis || editingItem, true);
@@ -9456,6 +9633,8 @@ function bindProfileServiceInlineForm(customer) {
         staff: activeAccount.displayName || activeAccount.username || "",
         price: 0,
         balance: 0,
+        diagnosisPending: false,
+        diagnosisCompletedAt: editingItem?.diagnosisCompletedAt || new Date().toISOString(),
         diagnosis
       };
       customer.serviceHistory = customer.serviceHistory || [];
@@ -9943,13 +10122,19 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
   customer.serviceHistory.splice(historyIndex, 1);
   if (queueDate === todayText() && Number(customer.dailyQueueSequence || 0)) {
     const remainingQueueTreatment = dailyQueueTreatmentFromHistory(customer, queueDate, queueSalon);
-    customer.dailyQueueHadService = true;
-    customer.dailyQueueServiceDeleted = !remainingQueueTreatment;
-    customer.dailyQueueLastTreatment = remainingQueueTreatment || {
-      ...deletedQueueTreatment,
-      stage: "Үйлчилгээ устгасан"
-    };
-    if (!remainingQueueTreatment) customer.dailyQueueActiveUntil = new Date().toISOString();
+    if (remainingQueueTreatment) {
+      customer.dailyQueueHadService = true;
+      customer.dailyQueueVacant = false;
+      customer.dailyQueueLastTreatment = remainingQueueTreatment;
+    } else {
+      customer.dailyQueueVacant = true;
+      customer.dailyQueueLastTreatment = {
+        ...deletedQueueTreatment,
+        stage: "Үйлчилгээ устгасан"
+      };
+      expandedDailyQueueCustomerIds.delete(Number(customer.id));
+      trimVacantDailyQueueTail(queueDate, queueSalon);
+    }
   }
   const remainingCourse = customerCourseEntryStatus(customer);
   customer.activeCourse = remainingCourse?.kind === "course";
@@ -12552,6 +12737,8 @@ function auditActionText(title = "") {
     customer_permanently_deleted: "Хэрэглэгчийг бүр мөсөн устгасан",
     service_created: "Үйлчилгээ бүртгэсэн",
     diagnosis_created: "Оношилгоо бүртгэсэн",
+    diagnosis_service_created: "Оношилгооны үйлчилгээ бүртгэсэн",
+    diagnosis_completed: "Оношилгоо дуусгасан",
     course_visit_signed: "Курсийн оролт баталгаажуулсан",
     service_deleted: "Үйлчилгээ устгасан",
     service_settings_created: "Үйлчилгээний тохиргоонд нэмсэн",
@@ -12770,7 +12957,6 @@ function openCustomerModal() {
           serviceHistory: []
         };
         state.customers.unshift(newCustomer);
-        assignDailyQueue(newCustomer, todayText(), registeredSalon);
         state.selectedCustomerId = customerId;
         const auditEntry = {
           id: entityId("audit"),

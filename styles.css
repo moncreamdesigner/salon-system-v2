@@ -726,16 +726,15 @@ body.sidebar-collapsed .sidebar-logout {
   display: none;
 }
 
-.active-treatment-card.is-service-deleted.is-collapsed .active-treatment-meta {
-  display: flex;
+.active-treatment-card.is-vacant {
+  min-height: 50px;
+  border-style: dashed;
+  background: transparent;
+  cursor: default;
+  opacity: .58;
 }
 
-.active-treatment-card.is-service-deleted.is-collapsed .active-treatment-salon,
-.active-treatment-card.is-service-deleted.is-collapsed .active-treatment-meta i {
-  display: none;
-}
-
-.active-treatment-card.is-service-deleted .active-treatment-stage {
+.active-treatment-card.is-vacant .active-treatment-sequence {
   color: var(--muted);
 }
 
@@ -3200,6 +3199,25 @@ body.camera-overlay-open {
   display: grid;
   max-width: 220px;
   gap: 6px;
+}
+
+.profile-diagnosis-registration-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.profile-diagnosis-registration-row > label {
+  display: grid;
+  gap: 6px;
+}
+
+.profile-diagnosis-registration-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .diagnosis-camera-overlay:fullscreen,
@@ -6817,6 +6835,37 @@ td.empty-state {
   line-height: 2;
 }
 
+.diagnosis-pending-toggle {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  cursor: pointer;
+}
+
+.diagnosis-pending-toggle em {
+  color: var(--accent);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.pending-diagnosis-work-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.pending-diagnosis-work-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .profile-service-price {
   text-align: right;
   white-space: nowrap;
@@ -9166,6 +9215,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     grid-template-columns: 1fr;
   }
 
+  .profile-diagnosis-registration-row {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-diagnosis-registration-actions,
+  .profile-diagnosis-registration-actions .primary-btn {
+    width: 100%;
+  }
+
   .camera-position-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -9541,6 +9599,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .profile-service-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .profile-diagnosis-registration-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-diagnosis-registration-actions {
+    grid-column: 1 / -1;
   }
 
   .profile-side-column {
