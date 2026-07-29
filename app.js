@@ -134,6 +134,7 @@ const defaultState = {
     masterStaffFee: 15000,
     performance: {
       version: 1,
+      configured: false,
       effectiveFrom: "0000-01-01",
       service: {
         rate: 10,
@@ -288,6 +289,12 @@ state.pricePolicy = {
   performance: {
     ...structuredClone(defaultState.pricePolicy.performance),
     ...(state.pricePolicy?.performance || {}),
+    configured: Object.prototype.hasOwnProperty.call(state.pricePolicy?.performance || {}, "configured")
+      ? Boolean(state.pricePolicy.performance.configured)
+      : Boolean(
+          state.pricePolicy?.performance?.createdAt ||
+          (Array.isArray(state.pricePolicy?.performanceVersions) && state.pricePolicy.performanceVersions.length)
+        ),
     service: {
       ...structuredClone(defaultState.pricePolicy.performance.service),
       ...(state.pricePolicy?.performance?.service || {})
@@ -2589,6 +2596,12 @@ function pricePolicy() {
     performance: {
       ...structuredClone(defaultState.pricePolicy.performance),
       ...(stored.performance || {}),
+      configured: Object.prototype.hasOwnProperty.call(stored.performance || {}, "configured")
+        ? Boolean(stored.performance.configured)
+        : Boolean(
+            stored.performance?.createdAt ||
+            (Array.isArray(stored.performanceVersions) && stored.performanceVersions.length)
+          ),
       service: {
         ...structuredClone(defaultState.pricePolicy.performance.service),
         ...(stored.performance?.service || {})
@@ -2706,10 +2719,14 @@ const PERFORMANCE_PAYMENT_METHODS = [
 
 function normalizedPerformancePolicy(source = {}) {
   const defaults = defaultState.pricePolicy.performance;
+  const explicitlyConfigured = Object.prototype.hasOwnProperty.call(source || {}, "configured")
+    ? Boolean(source.configured)
+    : Boolean(source?.createdAt || source?.createdBy);
   return {
     ...structuredClone(defaults),
     ...structuredClone(source || {}),
     version: Math.max(1, Number(source?.version) || Number(defaults.version) || 1),
+    configured: explicitlyConfigured,
     effectiveFrom: String(source?.effectiveFrom || defaults.effectiveFrom || "0000-01-01"),
     service: {
       ...structuredClone(defaults.service),
@@ -2765,6 +2782,7 @@ function performancePolicyForDate(date, overridePolicy = null) {
   const current = currentPerformancePolicy();
   const versions = [...(pricePolicy().performanceVersions || []), current]
     .map(normalizedPerformancePolicy)
+    .filter(version => version.configured)
     .filter(version => String(version.effectiveFrom || "0000-01-01") <= String(date || todayText()))
     .sort((a, b) => {
       const dateOrder = String(a.effectiveFrom).localeCompare(String(b.effectiveFrom));
@@ -2807,6 +2825,7 @@ function savePerformancePolicyVersion(event) {
     ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0))
   );
   next.version = maxVersion + 1;
+  next.configured = true;
   next.createdAt = new Date().toISOString();
   next.createdBy = activeAccount.displayName || activeAccount.username || "Админ";
   state.pricePolicy.performance = next;
@@ -2847,7 +2866,7 @@ function renderPricePolicySettings() {
   masterStaff.value = policy.masterStaffFee;
   if (tierSummary) tierSummary.textContent = bonusTierSummary();
   const version = document.getElementById("performancePolicyVersion");
-  if (version) version.textContent = `Хувилбар ${performancePolicy.version}`;
+  if (version) version.textContent = performancePolicy.configured ? `Хувилбар ${performancePolicy.version}` : "Тохируулаагүй";
   const effectiveFrom = document.getElementById("performancePolicyEffectiveFrom");
   if (effectiveFrom) effectiveFrom.value = performancePolicy.effectiveFrom === "0000-01-01" ? todayText() : performancePolicy.effectiveFrom;
   const serviceRate = document.getElementById("performanceServiceRate");
@@ -7879,23 +7898,29 @@ function performanceMonthStatus(month, salon) {
 function performanceMonthPreflight(month, selectedSalon) {
   const range = performanceRangeForMonth(month);
   const issues = [];
+  const inRange = date => Boolean(date && date >= range.from && date <= range.to);
+  const inSalon = salon => selectedSalon === "all" || salon === selectedSalon;
   state.customers.forEach(customer => {
     (customer.serviceHistory || []).forEach(item => {
       if (!item || item.deleted) return;
       const itemSalon = item.salon || customer.salon || "";
-      if (selectedSalon !== "all" && itemSalon !== selectedSalon) return;
       const itemDate = String(item.date || item.createdAt || "").slice(0, 10);
-      if (itemDate < range.from || itemDate > range.to) return;
-      if (item.kind === "single" && !item.staff) issues.push(`${customer.name}: нэг удаагийн үйлчилгээнд ажилтан сонгоогүй`);
+      if (item.kind === "single" && inRange(itemDate) && inSalon(itemSalon) && !item.staff) {
+        issues.push(`${customer.name}: нэг удаагийн үйлчилгээнд ажилтан сонгоогүй`);
+      }
       if (item.kind === "course") {
         (item.visits || []).filter(visit => !visit.deleted).forEach((visit, index) => {
-          if (!visit.staff && !item.staff) issues.push(`${customer.name}: курсийн ${index + 1}-р оролтод ажилтан сонгоогүй`);
+          const visitDate = String(visit.date || itemDate).slice(0, 10);
+          const visitSalon = visit.salon || itemSalon;
+          if (inRange(visitDate) && inSalon(visitSalon) && !visit.staff && !item.staff) {
+            issues.push(`${customer.name}: курсийн ${index + 1}-р оролтод ажилтан сонгоогүй`);
+          }
         });
       }
       (item.payments || []).forEach(payment => {
         const date = payment.date || String(payment.createdAt || "").slice(0, 10) || itemDate;
-        if (date < range.from || date > range.to) return;
         const paymentSalon = itemSalon;
+        if (!inRange(date) || !inSalon(paymentSalon)) return;
         const policy = performancePolicyForDate(date);
         if (performancePaymentEligible(payment, policy.cashier) && !state.kassSchedules.some(entry => entry.date === date && entry.salon === paymentSalon && entry.staff)) {
           issues.push(`${date} ${paymentSalon}: кассын хуваарьгүй төлбөр`);
@@ -8086,15 +8111,24 @@ function renderPerformanceMonthWorkflow() {
 
 function previewPerformanceRecalculation() {
   if (!isAdminAccount()) return showToast("Зөвхөн админ өмнөх тайлан дахин тооцно", "error");
-  const from = formValue("performanceRecalculateFrom");
-  const to = formValue("performanceRecalculateTo");
-  if (!from || !to || to < from) return showToast("Дахин тооцох огнооны дарааллыг шалгана уу", "error");
+  const requestedFrom = formValue("performanceRecalculateFrom");
+  const requestedTo = formValue("performanceRecalculateTo");
+  if (!requestedFrom || !requestedTo || requestedTo < requestedFrom) return showToast("Дахин тооцох огнооны дарааллыг шалгана уу", "error");
+  const from = performanceRangeForMonth(requestedFrom.slice(0, 7)).from;
+  const to = performanceRangeForMonth(requestedTo.slice(0, 7)).to;
+  document.getElementById("performanceRecalculateFrom").value = from;
+  document.getElementById("performanceRecalculateTo").value = to;
   const policy = currentPerformancePolicy();
+  if (!policy.configured) return showToast("Эхлээд гүйцэтгэлийн бодлогоо хадгална уу", "error");
   const recalculated = calculatePerformanceTransactions({ policyOverride: policy })
     .filter(item => item.date >= from && item.date <= to);
-  if (!recalculated.length) return showToast("Сонгосон хугацаанд дахин тооцох гүйлгээ алга", "warning");
   const current = performanceTransactions().filter(item => item.date >= from && item.date <= to);
+  if (!recalculated.length && !current.length) return showToast("Сонгосон хугацаанд дахин тооцох гүйлгээ алга", "warning");
   const groups = new Map();
+  current.forEach(item => {
+    const key = performanceStatementScopeKey(item.date.slice(0, 7), item.salon);
+    if (!groups.has(key)) groups.set(key, []);
+  });
   recalculated.forEach(item => {
     const key = performanceStatementScopeKey(item.date.slice(0, 7), item.salon);
     if (!groups.has(key)) groups.set(key, []);
@@ -8114,7 +8148,7 @@ function previewPerformanceRecalculation() {
   const result = document.getElementById("performanceRecalculateResult");
   if (result) result.innerHTML = `
     <strong>${performanceRecalculatePreviewData.groups.length} сар-салбар • ${recalculated.length} гүйлгээ</strong>
-    <span>Одоогийн дүн ${money(oldTotal)} → Шинэ зөв дүн <b>${money(newTotal)}</b> • Зөрүү ${money(newTotal - oldTotal)}</span>
+    <span>${from}–${to} бүтэн сараар • Одоогийн дүн ${money(oldTotal)} → Шинэ зөв дүн <b>${money(newTotal)}</b> • Зөрүү ${money(newTotal - oldTotal)}</span>
   `;
   const apply = document.getElementById("performanceRecalculateApply");
   if (apply) apply.disabled = false;
@@ -8157,11 +8191,25 @@ function buildPerformanceReport() {
   const schedules = state.kassSchedules.filter(item =>
     item.date >= from && item.date <= to && (salon === "all" || item.salon === salon)
   );
-  const rows = state.staff
-    .filter(staff => staff.status !== "inactive")
+  const staffPool = state.staff.map(staff => ({ ...staff }));
+  transactions.forEach(transaction => {
+    if (staffPool.some(staff => Number(staff.id) === Number(transaction.staffId))) return;
+    staffPool.push({
+      id: transaction.staffId,
+      name: transaction.staff || "Түүхэн ажилтан",
+      salon: transaction.homeSalon || transaction.salon || "",
+      status: "historical"
+    });
+  });
+  const rows = staffPool
+    .filter(staff => staff.status !== "inactive" || transactions.some(item => Number(item.staffId) === Number(staff.id)))
     .filter(staff => salon === "all" || staff.salon === salon || transactions.some(item => Number(item.staffId) === Number(staff.id)) || state.assignments.some(item => Number(item.staffId) === Number(staff.id) && item.to === salon && item.startDate <= to && item.endDate >= from))
     .map(staff => {
       const staffTransactions = transactions.filter(item => Number(item.staffId) === Number(staff.id));
+      const snapshot = staffTransactions.find(item => item.staff || item.homeSalon);
+      const reportStaff = snapshot
+        ? { ...staff, name: snapshot.staff || staff.name, salon: snapshot.homeSalon || staff.salon }
+        : staff;
       const kassDays = new Set([
         ...schedules.filter(item => item.staff === staff.name).map(item => item.date),
         ...staffTransactions.filter(item => item.type === "kass").map(item => item.date)
@@ -8169,7 +8217,7 @@ function buildPerformanceReport() {
       const serviceCommission = staffTransactions.filter(item => item.type !== "kass").reduce((sum, item) => sum + item.commission, 0);
       const kassCommission = staffTransactions.filter(item => item.type === "kass").reduce((sum, item) => sum + item.commission, 0);
       return {
-        staff,
+        staff: reportStaff,
         transactions: staffTransactions,
         singleCount: staffTransactions.filter(item => item.type === "single").length,
         courseCount: staffTransactions.filter(item => item.type === "course").length,
