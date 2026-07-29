@@ -10623,16 +10623,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-bottom: 1px solid var(--line);
 }
 
-.performance-policy-head h2,
-.performance-recalculate-panel h2 {
+.performance-policy-head h2 {
   margin: 0 0 4px;
   color: var(--text);
   font-size: 18px;
   font-weight: 750;
 }
 
-.performance-policy-head p,
-.performance-recalculate-panel p {
+.performance-policy-head p {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
@@ -10705,25 +10703,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .performance-policy-card-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.performance-policy-card-mark {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
-  color: var(--accent);
-  background: var(--accent-soft);
-  font-size: 14px;
-  font-weight: 800;
 }
 
 .performance-policy-card-head h3 {
   margin: 0 0 2px;
-  color: var(--text);
+  color: var(--accent);
   font-size: 14px;
   font-weight: 750;
 }
@@ -10750,16 +10734,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .performance-rate-input {
   position: relative;
+  width: 180px;
+  max-width: 100%;
 }
 
 .performance-rate-input .input {
-  padding-right: 38px;
+  width: 100%;
+  padding-right: 54px;
 }
 
 .performance-rate-input > span {
   position: absolute;
   top: 50%;
-  right: 13px;
+  right: 34px;
   transform: translateY(-50%);
   color: var(--muted);
   font-size: 13px;
@@ -10810,6 +10797,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   line-height: 1.5;
 }
 
+.performance-gift-card-note {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 .performance-policy-save {
   justify-content: flex-end;
   padding-top: 2px;
@@ -10830,6 +10826,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .performance-recalculate-panel {
   align-items: flex-end;
   flex-wrap: wrap;
+}
+
+.performance-recalculate-panel h2 {
+  margin: 0 0 4px;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.performance-recalculate-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .performance-recalculate-form {

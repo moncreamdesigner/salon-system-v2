@@ -2883,7 +2883,6 @@ function renderPricePolicySettings() {
       ${PERFORMANCE_PAYMENT_METHODS.map(([key, label]) => `
         <label><input class="performance-payment-method" type="checkbox" value="${key}" ${performancePolicy.cashier.paymentMethods.includes(key) ? "checked" : ""}> ${label}</label>
       `).join("")}
-      <small>Бэлгийн картын борлуулалт нь худалдан авахдаа ашигласан Бэлэн/Карт/QPay зэрэг хэлбэрээр тооцогдоно. “Бэлгийн карт ашиглалт”-ыг сонговол зарцуулах үед нь нэмж тооцно.</small>
     `;
   }
   const voucherRoles = document.getElementById("performanceVoucherRoles");
