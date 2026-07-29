@@ -106,6 +106,37 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_backups_created (created_at),
         CHECK (JSON_VALID(payload))
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_recovery_journal (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        revision BIGINT UNSIGNED NOT NULL,
+        actor_user_id BIGINT UNSIGNED NULL,
+        actor_username VARCHAR(64) NOT NULL DEFAULT '',
+        actor_role VARCHAR(20) NOT NULL DEFAULT '',
+        actor_salon VARCHAR(190) NOT NULL DEFAULT '',
+        entity_type VARCHAR(40) NOT NULL,
+        entity_id VARCHAR(190) NOT NULL DEFAULT '',
+        parent_id VARCHAR(190) NOT NULL DEFAULT '',
+        payload LONGTEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_recovery_created (created_at),
+        INDEX idx_recovery_entity (entity_type, entity_id),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_write_log (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        revision BIGINT UNSIGNED NOT NULL,
+        actor_user_id BIGINT UNSIGNED NULL,
+        actor_username VARCHAR(64) NOT NULL DEFAULT '',
+        actor_role VARCHAR(20) NOT NULL DEFAULT '',
+        actor_salon VARCHAR(190) NOT NULL DEFAULT '',
+        client_id VARCHAR(80) NOT NULL DEFAULT '',
+        sections LONGTEXT NOT NULL,
+        removed_count INT UNSIGNED NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_write_log_created (created_at),
+        INDEX idx_write_log_revision (revision),
+        CHECK (JSON_VALID(sections))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS app_users (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(64) NOT NULL UNIQUE,
@@ -123,11 +154,16 @@ function ensure_schema(PDO $pdo): void
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
     $pdo->exec("INSERT IGNORE INTO app_scope_revisions (scope_key, revision) VALUES ('global', 0)");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '1')");
+    $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_hours', '6')");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_policy_version', '0')");
     $backupPolicyVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_policy_version'")->fetchColumn();
     if ($backupPolicyVersion < 2) {
         $pdo->exec("UPDATE app_meta SET meta_value = '1' WHERE meta_key = 'backup_interval_days'");
         $pdo->exec("UPDATE app_meta SET meta_value = '2' WHERE meta_key = 'backup_policy_version'");
+    }
+    if ($backupPolicyVersion < 3) {
+        $pdo->exec("UPDATE app_meta SET meta_value = '6' WHERE meta_key = 'backup_interval_hours'");
+        $pdo->exec("UPDATE app_meta SET meta_value = '3' WHERE meta_key = 'backup_policy_version'");
     }
     $ready = true;
 }

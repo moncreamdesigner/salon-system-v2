@@ -9,6 +9,7 @@ const PENDING_CUSTOMER_MUTATIONS_KEY = "khalgai_salon_pending_customer_mutations
 const PENDING_PAYMENT_MUTATIONS_KEY = "khalgai_salon_pending_payments_v1";
 const ACTIVE_VIEW_SESSION_KEY = "khalgai_salon_active_view_v1";
 const ACTIVE_CUSTOMER_SESSION_KEY = "khalgai_salon_active_customer_v1";
+const SERVER_CLIENT_ID_KEY = "khalgai_salon_server_client_id_v1";
 const LOCAL_DATA_SOURCE_KEY = `${STORAGE_KEY}:data-source`;
 const LOCAL_LIVE_DATA_SOURCE = "live-import";
 const PROTOTYPE_DATA_RESET_VERSION = 2;
@@ -24,6 +25,7 @@ let nativeSelectCloseBound = false;
 let serverStorageReady = false;
 let serverStorageRevision = 0;
 let serverScopeRevision = 0;
+const serverSectionRevisions = new Map();
 const viewServerRevisions = new Map();
 let serverSaveTimer = null;
 let serverSaveInFlight = false;
@@ -43,9 +45,23 @@ const pendingCustomerGroupUpdates = new Map();
 const pendingCustomerAuditEntries = new Map();
 const pendingCustomerSaveMessages = [];
 const pendingPaymentMutations = new Map();
+const lastSyncedCustomerFingerprints = new Map();
+const lastSyncedGroupFingerprints = new Map();
 const expandedDailyQueueCustomerIds = new Set();
+const serverClientId = (() => {
+  try {
+    const existing = localStorage.getItem(SERVER_CLIENT_ID_KEY);
+    if (existing) return existing;
+    const created = globalThis.crypto?.randomUUID?.() || `browser-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(SERVER_CLIENT_ID_KEY, created);
+    return created;
+  } catch (error) {
+    return `browser-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+})();
 let pendingServiceSettingsMutation = null;
 let serverSaveRetryDelay = 1000;
+let serverConflictResolutionActive = false;
 let sidebarManualCollapsed = null;
 
 const defaultState = {
@@ -389,8 +405,11 @@ let diagnosisCameraStream = null;
 let voucherRoleEditingId = null;
 let systemUsers = [];
 let serverDatabaseBackups = [];
+let serverRollingBackups = [];
+let serverRecoveryEntries = [];
 let serverFullBackups = [];
-let serverBackupIntervalDays = 1;
+let serverBackupIntervalHours = 6;
+let scheduledRollingBackupChecked = false;
 let scheduledFullBackupChecked = false;
 let systemUserEditingId = null;
 let systemUserMigratingLegacy = false;
@@ -883,8 +902,10 @@ function serverStateData() {
 function serverStateRequestBody(revision) {
   const keys = pendingServerSections.size ? Array.from(pendingServerSections.keys()) : Object.keys(state).filter(key => key !== "selectedCustomerId");
   const data = {};
+  const sectionRevisions = {};
   keys.forEach(key => {
     if (Object.prototype.hasOwnProperty.call(state, key)) data[key] = state[key];
+    sectionRevisions[key] = Number(serverSectionRevisions.get(key) || 0);
   });
   if (keys.includes("_serviceSettings")) {
     data._serviceSettings = { data: serviceSettingsData, groups: productGroups };
@@ -892,8 +913,17 @@ function serverStateRequestBody(revision) {
   return JSON.stringify({
     revision: Number(revision) || 0,
     scopeRevision: Number(serverScopeRevision) || 0,
+    sectionRevisions,
+    clientId: serverClientId,
     partial: true,
     data
+  });
+}
+
+function applyServerSectionRevisions(revisions = {}, { replace = false } = {}) {
+  if (replace) serverSectionRevisions.clear();
+  Object.entries(revisions || {}).forEach(([key, revision]) => {
+    serverSectionRevisions.set(key, Number(revision) || 0);
   });
 }
 
@@ -961,6 +991,68 @@ function cleanCustomerGroupUiState(group) {
   delete group.directoryExpanded;
 }
 
+function syncedEntityFingerprint(value) {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch (error) {
+    return "";
+  }
+}
+
+function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) {
+  if (replace) {
+    lastSyncedCustomerFingerprints.clear();
+    lastSyncedGroupFingerprints.clear();
+  }
+  if (Array.isArray(data.customers)) {
+    data.customers.forEach(customer => {
+      if (customer?.id) lastSyncedCustomerFingerprints.set(Number(customer.id), syncedEntityFingerprint(customer));
+    });
+  }
+  if (Array.isArray(data.customerGroups)) {
+    data.customerGroups.forEach(group => {
+      if (group?.id) lastSyncedGroupFingerprints.set(Number(group.id), syncedEntityFingerprint(group));
+    });
+  }
+}
+
+function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0) {
+  const remoteCustomers = new Map((Array.isArray(remoteData.customers) ? remoteData.customers : []).map(item => [Number(item.id), item]));
+  const remoteGroups = new Map((Array.isArray(remoteData.customerGroups) ? remoteData.customerGroups : []).map(item => [Number(item.id), item]));
+  const unsafeVersions = new Set();
+  pendingCustomerProfileUpdates.forEach((update, customerId) => {
+    if (Number(update.mutationVersion || 0) > savingMutationVersion) return;
+    const remoteCustomer = remoteCustomers.get(Number(customerId));
+    const baseFingerprint = update.baseFingerprint ?? null;
+    const safe = baseFingerprint === null
+      ? !remoteCustomer
+      : Boolean(remoteCustomer) && syncedEntityFingerprint(remoteCustomer) === baseFingerprint;
+    if (safe) return;
+    unsafeVersions.add(Number(update.mutationVersion || 0));
+    pendingCustomerProfileUpdates.delete(customerId);
+  });
+  pendingCustomerGroupUpdates.forEach((update, groupId) => {
+    if (Number(update.mutationVersion || 0) > savingMutationVersion) return;
+    const remoteGroup = remoteGroups.get(Number(groupId));
+    const baseFingerprint = update.baseFingerprint ?? null;
+    const safe = baseFingerprint === null
+      ? !remoteGroup
+      : Boolean(remoteGroup) && syncedEntityFingerprint(remoteGroup) === baseFingerprint;
+    if (safe) return;
+    unsafeVersions.add(Number(update.mutationVersion || 0));
+    pendingCustomerGroupUpdates.delete(groupId);
+  });
+  if (!unsafeVersions.size) return 0;
+  pendingCustomerAuditEntries.forEach((update, entryId) => {
+    if (unsafeVersions.has(Number(update.mutationVersion || 0))) pendingCustomerAuditEntries.delete(entryId);
+  });
+  for (let index = pendingCustomerSaveMessages.length - 1; index >= 0; index -= 1) {
+    if (unsafeVersions.has(Number(pendingCustomerSaveMessages[index].mutationVersion || 0))) pendingCustomerSaveMessages.splice(index, 1);
+  }
+  persistPendingCustomerMutations();
+  return unsafeVersions.size;
+}
+
 function registerPendingCustomerMutation({
   customerIds = [],
   groupIds = [],
@@ -976,7 +1068,12 @@ function registerPendingCustomerMutation({
     if (!customer) return;
     const snapshot = structuredClone(customer);
     clearCustomerUiState(snapshot);
-    pendingCustomerProfileUpdates.set(customerId, { ...snapshot, mutationVersion });
+    const previous = pendingCustomerProfileUpdates.get(customerId);
+    pendingCustomerProfileUpdates.set(customerId, {
+      ...snapshot,
+      mutationVersion,
+      baseFingerprint: previous?.baseFingerprint ?? lastSyncedCustomerFingerprints.get(customerId) ?? null
+    });
     if (snapshot.groupId) groupIdSet.add(Number(snapshot.groupId));
   });
   groupIdSet.forEach(groupId => {
@@ -984,7 +1081,12 @@ function registerPendingCustomerMutation({
     if (!group) return;
     const snapshot = structuredClone(group);
     cleanCustomerGroupUiState(snapshot);
-    pendingCustomerGroupUpdates.set(groupId, { ...snapshot, mutationVersion });
+    const previous = pendingCustomerGroupUpdates.get(groupId);
+    pendingCustomerGroupUpdates.set(groupId, {
+      ...snapshot,
+      mutationVersion,
+      baseFingerprint: previous?.baseFingerprint ?? lastSyncedGroupFingerprints.get(groupId) ?? null
+    });
   });
   auditEntries.forEach(entry => {
     if (!entry) return;
@@ -1154,6 +1256,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
   } else {
     state = clearTransientState({ ...initialStateForRuntime(), ...incoming }, { clone: false });
   }
+  captureSyncedCustomerFingerprints(incoming, { replace: !partial });
   invalidatePersistedStateCache();
   invalidateCustomerDerivedData();
   const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
@@ -1189,6 +1292,57 @@ function applyServerData(data = {}, { partial = false } = {}) {
   return customerNamesChanged || embeddedImagesRemoved > 0 || pendingCustomersApplied || pendingPaymentsApplied || bonusTypeRulesChanged;
 }
 
+function showServerSyncOverlay(message = "Мэдээллийг шинэчилж, таны үйлдлийг хадгалж байна…") {
+  let overlay = document.getElementById("serverSyncOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "serverSyncOverlay";
+    overlay.className = "server-sync-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.setAttribute("aria-live", "polite");
+    overlay.innerHTML = `
+      <div class="server-sync-card">
+        <span class="server-sync-spinner" aria-hidden="true"></span>
+        <strong>Түр хүлээнэ үү</strong>
+        <p></p>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+  overlay.querySelector("p").textContent = message;
+  overlay.hidden = false;
+  document.body.classList.add("server-sync-active");
+}
+
+function hideServerSyncOverlay() {
+  const overlay = document.getElementById("serverSyncOverlay");
+  if (overlay) overlay.hidden = true;
+  document.body.classList.remove("server-sync-active");
+}
+
+function showServerProtectionNotice(message = "Мэдээллийг хамгаалж энэ үйлдлийг хадгалсангүй.") {
+  hideServerSyncOverlay();
+  let overlay = document.getElementById("serverProtectionOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "serverProtectionOverlay";
+    overlay.className = "server-protection-overlay";
+    overlay.innerHTML = `
+      <section class="server-protection-card" role="alertdialog" aria-modal="true" aria-labelledby="serverProtectionTitle">
+        <span class="server-protection-icon" aria-hidden="true">!</span>
+        <strong id="serverProtectionTitle">Мэдээллийг хамгааллаа</strong>
+        <p></p>
+        <button class="primary-btn" type="button">Ойлголоо</button>
+      </section>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("button")?.addEventListener("click", () => {
+      overlay.hidden = true;
+    });
+  }
+  overlay.querySelector("p").textContent = `${message} Хамгийн сүүлийн мэдээллийг ачааллаа. Үйлдлээ шалгаад дахин оролдоно уу. Давтагдвал админд мэдэгдэнэ үү.`;
+  overlay.hidden = false;
+  overlay.querySelector("button")?.focus();
+}
+
 async function saveServerStateNow() {
   if (!serverStorageReady) return;
   if (!pendingServerSections.size) return;
@@ -1209,6 +1363,7 @@ async function saveServerStateNow() {
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
+    applyServerSectionRevisions(result.sectionRevisions || {});
     // This browser already owns every mutation in the successful request.
     // Mark every local view current so switching menus does not immediately
     // download and render the same sections again.
@@ -1222,10 +1377,18 @@ async function saveServerStateNow() {
       .filter(Boolean);
     serverSaveRetryDelay = 1000;
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
-      if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerProfileUpdates.delete(customerId);
+      if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
+        const customer = state.customers.find(item => Number(item.id) === Number(customerId));
+        if (customer) lastSyncedCustomerFingerprints.set(Number(customerId), syncedEntityFingerprint(customer));
+        pendingCustomerProfileUpdates.delete(customerId);
+      }
     });
     pendingCustomerGroupUpdates.forEach((update, groupId) => {
-      if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerGroupUpdates.delete(groupId);
+      if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
+        const group = state.customerGroups.find(item => Number(item.id) === Number(groupId));
+        if (group) lastSyncedGroupFingerprints.set(Number(groupId), syncedEntityFingerprint(group));
+        pendingCustomerGroupUpdates.delete(groupId);
+      }
     });
     pendingCustomerAuditEntries.forEach((update, entryId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerAuditEntries.delete(entryId);
@@ -1246,15 +1409,37 @@ async function saveServerStateNow() {
     persistPendingCustomerMutations();
     persistPendingPaymentMutations();
     if (confirmedCustomerMessages.length) showToast(confirmedCustomerMessages.at(-1));
+    if (serverConflictResolutionActive) {
+      serverConflictResolutionActive = false;
+      hideServerSyncOverlay();
+      if (!confirmedCustomerMessages.length) showToast("Өөрчлөлт амжилттай хадгалагдлаа");
+    }
   } catch (error) {
     if (error.status === 409 && error.payload?.conflict) {
       try {
+        showServerSyncOverlay();
         const remote = await serverApi("state.php");
+        const unsafeReplayCount = discardUnsafeCustomerReplays(remote.data || {}, savingMutationVersion);
         serverStorageRevision = Number(remote.revision || 0);
         serverScopeRevision = Number(remote.scopeRevision || 0);
+        applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
         virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
         renderActiveView(activeView, { force: true });
+        if (error.payload?.dangerousChange) {
+          savingSections.forEach(key => {
+            if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+          });
+          showServerProtectionNotice(error.payload.message || "Олон мэдээлэл хасагдах өөрчлөлтийг хамгаалж зогсоолоо.");
+          return;
+        }
+        if (unsafeReplayCount > 0) {
+          savingSections.forEach(key => {
+            if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+          });
+          showServerProtectionNotice("Таны нээсэн хэрэглэгчийн мэдээллийг өөр ажилтан мөн шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
+          return;
+        }
         if (pendingServiceSettingsMutation) {
           serviceSettingsData.single = structuredClone(pendingServiceSettingsMutation.data.single || []);
           serviceSettingsData.course = structuredClone(pendingServiceSettingsMutation.data.course || []);
@@ -1275,10 +1460,13 @@ async function saveServerStateNow() {
           pendingCustomerAuditEntries.size > 0 ||
           pendingPaymentMutations.size > 0 ||
           Boolean(pendingServiceSettingsMutation);
-        if (retryingLocalMutation) serverSavePending = true;
-        showToast(retryingLocalMutation
-          ? "Шинэ мэдээлэлтэй нэгтгээд өөрчлөлтийг дахин хадгалж байна"
-          : "Өөр хэрэглэгч мэдээлэл шинэчилсэн тул хамгийн сүүлийн хувилбарыг ачааллаа. Үйлдлээ дахин хийнэ үү");
+        if (retryingLocalMutation) {
+          serverConflictResolutionActive = true;
+          serverSavePending = true;
+          showServerSyncOverlay("Шинэ мэдээлэлтэй нэгтгээд таны үйлдлийг дуусгаж байна…");
+        } else {
+          showServerProtectionNotice("Өөр хэрэглэгч мэдээлэл шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
+        }
         return;
       } catch (refreshError) {
         console.error("Conflict refresh failed", refreshError);
@@ -1288,7 +1476,11 @@ async function saveServerStateNow() {
     serverSavePending = true;
     nextSaveDelay = serverSaveRetryDelay;
     serverSaveRetryDelay = Math.min(30000, serverSaveRetryDelay * 2);
-    showToast("Server хадгалалт түр амжилтгүй. Автоматаар дахин оролдож байна");
+    if (serverConflictResolutionActive) {
+      showServerSyncOverlay("Server холболт түр саатлаа. Таны үйлдлийг автоматаар дахин хадгалж байна…");
+    } else {
+      showToast("Server хадгалалт түр амжилтгүй. Автоматаар дахин оролдож байна");
+    }
   } finally {
     serverSaveInFlight = false;
     if (serverSavePending) {
@@ -1355,6 +1547,8 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         hideServerLogin();
         await synchronizeServerState();
         await loadDatabaseBackups({ silent: true });
+        await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
+        void ensureScheduledRollingBackup();
         await loadFullBackups({ silent: true });
         void ensureScheduledFullBackup();
         rerenderAll();
@@ -1390,6 +1584,7 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
   if (expectedLocalVersion !== null && expectedLocalVersion !== localStateMutationVersion) return false;
   serverStorageRevision = Number(remote.revision || 0);
   serverScopeRevision = Number(remote.scopeRevision || 0);
+  applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: !(remote.partial || query) });
   if (viewName) viewServerRevisions.set(viewName, serverScopeRevision);
   if (remote.empty) {
     serverStorageReady = true;
@@ -1429,6 +1624,8 @@ async function initializeServerStorage() {
     applyActiveAccount(status.user);
     await synchronizeServerState();
     await loadDatabaseBackups({ silent: true });
+    await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
+    void ensureScheduledRollingBackup();
     await loadFullBackups({ silent: true });
     void ensureScheduledFullBackup();
     renderActiveView(activeView, { force: true });
@@ -2664,7 +2861,7 @@ function applyPendingCustomerProfileUpdates(targetState) {
   targetState.audit = Array.isArray(targetState.audit) ? targetState.audit : [];
   pendingCustomerProfileUpdates.forEach((update, customerId) => {
     let customer = targetState.customers.find(item => Number(item.id) === Number(customerId));
-    const { mutationVersion, ...profile } = update;
+    const { mutationVersion, baseFingerprint, ...profile } = update;
     if (customer) Object.assign(customer, structuredClone(profile));
     else {
       customer = structuredClone(profile);
@@ -2674,7 +2871,7 @@ function applyPendingCustomerProfileUpdates(targetState) {
   });
   pendingCustomerGroupUpdates.forEach((update, groupId) => {
     let group = targetState.customerGroups.find(item => Number(item.id) === Number(groupId));
-    const { mutationVersion, ...profile } = update;
+    const { mutationVersion, baseFingerprint, ...profile } = update;
     if (group) Object.assign(group, structuredClone(profile));
     else {
       group = structuredClone(profile);
@@ -13173,7 +13370,7 @@ async function loadDatabaseBackups({ silent = false } = {}) {
   try {
     const result = await serverApi("backups.php");
     serverDatabaseBackups = Array.isArray(result.backups) ? result.backups : [];
-    serverBackupIntervalDays = Number(result.settings?.intervalDays ?? 1);
+    serverBackupIntervalHours = Number(result.settings?.intervalHours ?? 6);
     localStorage.removeItem(DATABASE_BACKUP_KEY);
     renderDatabaseBackups();
     renderInfoHeader(activeView);
@@ -13181,6 +13378,60 @@ async function loadDatabaseBackups({ silent = false } = {}) {
   } catch (error) {
     if (!silent) showToast(error?.message || "Backup жагсаалт ачаалсангүй");
     return [];
+  }
+}
+
+async function loadRollingBackups({ silent = false } = {}) {
+  if (!serverStorageReady || !isAdminAccount()) {
+    serverRollingBackups = [];
+    renderRollingBackups();
+    return [];
+  }
+  try {
+    const result = await serverApi("rolling-backups.php");
+    serverRollingBackups = Array.isArray(result.backups) ? result.backups : [];
+    serverBackupIntervalHours = Number(result.settings?.intervalHours ?? serverBackupIntervalHours ?? 6);
+    renderRollingBackups();
+    return serverRollingBackups;
+  } catch (error) {
+    if (!silent) showToast(error?.message || "Rolling backup жагсаалт ачаалсангүй");
+    return [];
+  }
+}
+
+async function loadRecoveryJournal({ silent = false } = {}) {
+  if (!serverStorageReady || !isAdminAccount()) {
+    serverRecoveryEntries = [];
+    renderRecoveryJournal();
+    return [];
+  }
+  try {
+    const result = await serverApi("recovery.php");
+    serverRecoveryEntries = Array.isArray(result.entries) ? result.entries : [];
+    renderRecoveryJournal();
+    return serverRecoveryEntries;
+  } catch (error) {
+    if (!silent) showToast(error?.message || "Recovery журнал ачаалсангүй");
+    return [];
+  }
+}
+
+async function ensureScheduledRollingBackup() {
+  if (scheduledRollingBackupChecked || !serverStorageReady || !isAdminAccount()) return;
+  scheduledRollingBackupChecked = true;
+  try {
+    const result = await serverApi("rolling-backups.php", {
+      method: "POST",
+      body: JSON.stringify({ mode: "scheduled" })
+    });
+    if (!result.skipped) await loadRollingBackups({ silent: true });
+  } catch (error) {
+    console.error("Scheduled rolling backup failed", error);
+  } finally {
+    window.setTimeout(() => {
+      scheduledRollingBackupChecked = false;
+      void ensureScheduledRollingBackup();
+    }, 60 * 60 * 1000);
   }
 }
 
@@ -13328,7 +13579,10 @@ function setDatabaseTab(name = "import") {
   document.getElementById("databaseBackupTab")?.classList.toggle("hidden", activeDatabaseTab !== "backup");
   document.getElementById("databaseCleanupTab")?.classList.toggle("hidden", activeDatabaseTab !== "cleanup");
   document.getElementById("databaseScopeBar")?.classList.toggle("hidden", activeDatabaseTab === "cleanup");
-  if (activeDatabaseTab === "backup") renderDatabaseBackups();
+  if (activeDatabaseTab === "backup") {
+    renderDatabaseBackups();
+    void Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
+  }
 }
 
 function formatBackupCreatedAt(value = "") {
@@ -13353,14 +13607,101 @@ function formatBackupCreatedAt(value = "") {
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+function renderRollingBackups() {
+  const list = document.getElementById("databaseRollingBackupList");
+  if (!list) return;
+  list.innerHTML = serverRollingBackups.map(backup => `
+    <div class="database-backup-item">
+      <div>
+        <strong>${htmlSafe(formatBackupCreatedAt(backup.createdAt))}</strong>
+        <span>Revision ${Number(backup.revision || 0)} • ${formatBackupSize(backup.sizeBytes)} • gzip шахалттай</span>
+      </div>
+      <div class="table-actions">
+        <button class="secondary-btn database-rolling-download" type="button" data-file="${htmlSafe(backup.file || "")}">Татах</button>
+        <button class="secondary-btn database-rolling-restore" type="button" data-file="${htmlSafe(backup.file || "")}">Сэргээх</button>
+      </div>
+    </div>
+  `).join("") || `<div class="empty-state">Rolling backup хараахан үүсээгүй байна</div>`;
+
+  list.querySelectorAll(".database-rolling-download").forEach(button => {
+    button.addEventListener("click", () => {
+      const filename = String(button.dataset.file || "");
+      if (!filename) return;
+      const anchor = document.createElement("a");
+      anchor.href = `${SERVER_API_BASE}/rolling-backups.php?download=${encodeURIComponent(filename)}`;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    });
+  });
+  list.querySelectorAll(".database-rolling-restore").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (!await requireEditCode()) return;
+      const filename = String(button.dataset.file || "");
+      if (!filename || !window.confirm("Энэ rolling backup-аас бүх мэдээллийг сэргээх үү?")) return;
+      button.disabled = true;
+      try {
+        await serverApi("rolling-backups.php", {
+          method: "PUT",
+          body: JSON.stringify({ file: filename })
+        });
+        localStorage.removeItem(STORAGE_KEY);
+        window.location.reload();
+      } catch (error) {
+        button.disabled = false;
+        showToast(error?.message || "Rolling backup сэргээж чадсангүй");
+      }
+    });
+  });
+}
+
+function recoveryEntityLabel(type = "") {
+  return ({
+    customer: "Хэрэглэгч",
+    customerGroup: "Групп",
+    service: "Үйлчилгээ",
+    payment: "Төлбөр"
+  })[type] || type || "Мэдээлэл";
+}
+
+function renderRecoveryJournal() {
+  const list = document.getElementById("databaseRecoveryList");
+  if (!list) return;
+  list.innerHTML = serverRecoveryEntries.map(entry => `
+    <div class="database-backup-item">
+      <div>
+        <strong>${htmlSafe(formatBackupCreatedAt(entry.createdAt))} • ${htmlSafe(recoveryEntityLabel(entry.entityType))}${entry.displayName ? ` • ${htmlSafe(entry.displayName)}` : ""}</strong>
+        <span>${htmlSafe(entry.actorSalon || "Нийт систем")} • ${htmlSafe(entry.actorUsername || "—")} • revision ${Number(entry.revision || 0)}</span>
+      </div>
+      <div class="table-actions">
+        <button class="secondary-btn database-recovery-download" type="button" data-id="${Number(entry.id || 0)}">JSON татах</button>
+      </div>
+    </div>
+  `).join("") || `<div class="empty-state">Сүүлийн 30 хоногт хасагдсан мэдээлэл алга</div>`;
+
+  list.querySelectorAll(".database-recovery-download").forEach(button => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const result = await serverApi(`recovery.php?id=${Number(button.dataset.id || 0)}`);
+        const entry = result.entry || {};
+        downloadDatabaseJson(
+          `khalgai-recovery-${entry.entityType || "data"}-${entry.id || button.dataset.id}.json`,
+          entry
+        );
+      } catch (error) {
+        showToast(error?.message || "Recovery мэдээлэл татаж чадсангүй");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
 function renderDatabaseBackups() {
   const list = document.getElementById("databaseBackupList");
   if (!list) return;
-  const interval = document.getElementById("databaseBackupInterval");
-  if (interval) {
-    interval.value = String(serverBackupIntervalDays);
-    syncNativeSelectProxy(interval);
-  }
   const backups = databaseBackups();
   list.innerHTML = backups.map(backup => {
     const size = Math.max(1, Math.ceil(Number(backup.sizeBytes || 0) / 1024));
@@ -13431,6 +13772,8 @@ function renderDatabaseBackups() {
       }
     });
   });
+  renderRollingBackups();
+  renderRecoveryJournal();
   renderFullBackups();
 }
 
@@ -13529,9 +13872,21 @@ async function importDatabaseFile(event) {
         groups: structuredClone(productGroups)
       }
     };
+    const sectionRevisions = {};
+    Object.keys(nextServerData).forEach(key => {
+      sectionRevisions[key] = Number(serverSectionRevisions.get(key) || 0);
+    });
     const result = await serverApi("state.php", {
       method: "PUT",
-      body: JSON.stringify({ revision: serverStorageRevision, data: nextServerData })
+      body: JSON.stringify({
+        revision: serverStorageRevision,
+        scopeRevision: serverScopeRevision,
+        sectionRevisions,
+        clientId: serverClientId,
+        allowBulkRemoval: mode === "replace",
+        removalReason: mode === "replace" ? "database_import_replace" : "",
+        data: nextServerData
+      })
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     state = nextState;
@@ -13561,9 +13916,22 @@ async function clearOperationalDatabase() {
     cleaned.selectedCustomerId = null;
     cleaned.permanentlyDeletedCustomerIds = state.customers.map(item => Number(item.id));
     cleaned.databaseOperationalDataCleared = true;
+    const sectionRevisions = {};
+    Object.keys(cleaned).forEach(key => {
+      if (key !== "selectedCustomerId") sectionRevisions[key] = Number(serverSectionRevisions.get(key) || 0);
+    });
+    sectionRevisions._serviceSettings = Number(serverSectionRevisions.get("_serviceSettings") || 0);
     const result = await serverApi("state.php", {
       method: "PUT",
-      body: JSON.stringify({ revision: serverStorageRevision, data: { ...clearTransientState(cleaned), _serviceSettings: serverStateData()._serviceSettings } })
+      body: JSON.stringify({
+        revision: serverStorageRevision,
+        scopeRevision: serverScopeRevision,
+        sectionRevisions,
+        clientId: serverClientId,
+        allowBulkRemoval: true,
+        removalReason: "operational_database_cleanup",
+        data: { ...clearTransientState(cleaned), _serviceSettings: serverStateData()._serviceSettings }
+      })
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     localStorage.removeItem(STORAGE_KEY);
@@ -14888,26 +15256,6 @@ function bindEvents() {
     } finally {
       button.disabled = false;
       button.textContent = originalText;
-    }
-  });
-  document.getElementById("databaseBackupInterval")?.addEventListener("change", async event => {
-    const select = event.currentTarget;
-    const previousValue = serverBackupIntervalDays;
-    const intervalDays = Number(select.value);
-    select.disabled = true;
-    try {
-      const result = await serverApi("backups.php", {
-        method: "PATCH",
-        body: JSON.stringify({ intervalDays })
-      });
-      serverBackupIntervalDays = Number(result.settings?.intervalDays ?? intervalDays);
-      showToast(intervalDays === 0 ? "Автомат backup унтарлаа" : `Автомат backup ${intervalDays} хоног тутам үүснэ`);
-    } catch (error) {
-      serverBackupIntervalDays = previousValue;
-      select.value = String(previousValue);
-      showToast(error?.message || "Backup хугацаа хадгалсангүй");
-    } finally {
-      select.disabled = false;
     }
   });
   document.getElementById("databaseClearOperationalData")?.addEventListener("click", clearOperationalDatabase);

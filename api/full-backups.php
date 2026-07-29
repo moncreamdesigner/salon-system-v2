@@ -87,14 +87,17 @@ function database_full_snapshot(PDO $pdo): array
         'formatVersion' => 1,
         'exportedAt' => date('c'),
         'meta' => $pdo->query('SELECT meta_key, meta_value, updated_at FROM app_meta ORDER BY meta_key')->fetchAll(),
+        'scopeRevisions' => $pdo->query('SELECT scope_key, revision, updated_at FROM app_scope_revisions ORDER BY scope_key')->fetchAll(),
         'users' => $pdo->query('SELECT id, username, display_name, password_hash, role, salon_name, is_active, last_login_at, created_at, updated_at FROM app_users ORDER BY id')->fetchAll(),
+        'recoveryJournal' => $pdo->query('SELECT * FROM app_recovery_journal ORDER BY id')->fetchAll(),
+        'writeLog' => $pdo->query('SELECT * FROM app_write_log ORDER BY id')->fetchAll(),
         'sections' => $sections,
     ];
 }
 
 function database_sql_dump(PDO $pdo): string
 {
-    $tables = ['app_meta', 'app_sections', 'app_users'];
+    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log'];
     $lines = [
         '-- Khalgai Salon System full backup',
         '-- Created: ' . date('c'),

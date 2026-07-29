@@ -1073,15 +1073,41 @@
           <section class="database-card">
             <div class="database-backup-toolbar">
               <div class="database-card-head">
-                <strong>Backup жагсаалт</strong>
+                <strong>Автомат rolling backup</strong>
+                <span>Үндсэн хадгалалтаас тусдаа үүснэ. Gzip шахалттай тул ажлын ажиллагааг хүлээлгэхгүй.</span>
+              </div>
+              <div class="database-backup-actions">
+                <span class="database-backup-policy">6 цаг тутам · 7 хоног · 28 хувилбар</span>
+              </div>
+            </div>
+            <div class="database-backup-list" id="databaseRollingBackupList"></div>
+          </section>
+
+          <section class="database-card">
+            <div class="database-backup-toolbar">
+              <div class="database-card-head">
+                <strong>Гараар үүсгэсэн backup</strong>
                 <span>Сэргээхээс өмнө одоогийн мэдээлэл мөн автоматаар хадгалагдана.</span>
               </div>
               <div class="database-backup-actions">
-                <span class="database-backup-policy">Өдөр тутам · сүүлийн 7</span>
+                <span class="database-backup-policy">Сүүлийн 10 хувилбар</span>
                 <button class="primary-btn" id="databaseCreateBackup" type="button">Data backup үүсгэх</button>
               </div>
             </div>
             <div class="database-backup-list" id="databaseBackupList"></div>
+          </section>
+
+          <section class="database-card">
+            <div class="database-backup-toolbar">
+              <div class="database-card-head">
+                <strong>Устсан мэдээллийн recovery журнал</strong>
+                <span>Хасагдсан хэрэглэгч, үйлчилгээ, төлбөрийн өмнөх мэдээллийг JSON хэлбэрээр 30 хоног хадгална.</span>
+              </div>
+              <div class="database-backup-actions">
+                <span class="database-backup-policy">30 хоног · сүүлийн 100 үйлдэл</span>
+              </div>
+            </div>
+            <div class="database-backup-list" id="databaseRecoveryList"></div>
           </section>
 
           <section class="database-card database-full-backup-card">

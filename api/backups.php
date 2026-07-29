@@ -32,7 +32,9 @@ function insert_backup(PDO $pdo, int $revision, string $reason, array $data): in
 
 function prune_backups(PDO $pdo): void
 {
-    $pdo->exec('DELETE FROM app_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM app_backups ORDER BY id DESC LIMIT 7) AS keep_rows)');
+    // Automatic rolling backups are stored as compressed private files.
+    // Keep these database backups for explicit/manual safety points only.
+    $pdo->exec('DELETE FROM app_backups WHERE id NOT IN (SELECT id FROM (SELECT id FROM app_backups ORDER BY id DESC LIMIT 10) AS keep_rows)');
 }
 
 function backup_metadata(array $row): array
@@ -60,25 +62,25 @@ if ($method === 'GET') {
     }
 
     prune_backups($pdo);
-    $rows = $pdo->query('SELECT id, revision, reason, created_at, OCTET_LENGTH(payload) AS size_bytes FROM app_backups ORDER BY id DESC LIMIT 7')->fetchAll();
-    $intervalDays = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_interval_days'")->fetchColumn();
-    if (!in_array($intervalDays, [0, 1, 7, 14, 30, 90], true)) $intervalDays = 1;
+    $rows = $pdo->query('SELECT id, revision, reason, created_at, OCTET_LENGTH(payload) AS size_bytes FROM app_backups ORDER BY id DESC LIMIT 10')->fetchAll();
+    $intervalHours = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_interval_hours'")->fetchColumn();
+    if ($intervalHours < 1 || $intervalHours > 24) $intervalHours = 6;
     json_response([
         'ok' => true,
         'backups' => array_map('backup_metadata', $rows),
-        'settings' => ['intervalDays' => $intervalDays],
+        'settings' => ['intervalHours' => $intervalHours, 'manualLimit' => 10],
     ]);
 }
 
 if ($method === 'PATCH') {
     $payload = request_payload();
-    $intervalDays = (int)($payload['intervalDays'] ?? -1);
-    if (!in_array($intervalDays, [0, 1, 7, 14, 30, 90], true)) {
+    $intervalHours = (int)($payload['intervalHours'] ?? -1);
+    if (!in_array($intervalHours, [3, 6, 12, 24], true)) {
         json_response(['ok' => false, 'message' => 'Backup хугацааны сонголт буруу байна.'], 422);
     }
-    $statement = $pdo->prepare("INSERT INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
-    $statement->execute([(string)$intervalDays]);
-    json_response(['ok' => true, 'settings' => ['intervalDays' => $intervalDays]]);
+    $statement = $pdo->prepare("INSERT INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_hours', ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
+    $statement->execute([(string)$intervalHours]);
+    json_response(['ok' => true, 'settings' => ['intervalHours' => $intervalHours]]);
 }
 
 if ($method === 'POST') {
@@ -131,9 +133,10 @@ if ($method === 'PUT') {
         }
         $meta = $pdo->prepare("UPDATE app_meta SET meta_value = ? WHERE meta_key = 'revision'");
         $meta->execute([(string)$nextRevision]);
+        $nextScopeRevision = bump_scope_revisions($pdo, $currentUser, array_keys($restoredData));
         prune_backups($pdo);
         $pdo->commit();
-        json_response(['ok' => true, 'revision' => $nextRevision]);
+        json_response(['ok' => true, 'revision' => $nextRevision, 'scopeRevision' => $nextScopeRevision]);
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         json_response(['ok' => false, 'message' => 'Backup сэргээж чадсангүй.'], 500);
