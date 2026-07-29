@@ -98,6 +98,8 @@ const defaultState = {
     diagnosisCaptureSize: "1280x960",
     diagnosisJpegQuality: 0.98,
     deleteCode: "1989",
+    dataEditDays: 3,
+    performanceSnapshotDay: 3,
     kassEditDays: 3,
     serviceEditDays: 3,
     customerEditDays: 3
@@ -470,6 +472,7 @@ let giftCardEditingId = null;
 let customerSortMode = "date";
 let discountEditingId = null;
 let performanceRecalculatePreviewData = null;
+let automaticPerformanceSnapshotCheckedDate = "";
 
 const serviceSettingsData = {
   single: [
@@ -649,7 +652,7 @@ function serviceSettingsAuditEntry(action, before = null, after = null) {
     id: entityId("audit"),
     title: action,
     createdAt: auditNowText(),
-    meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • ${changeText}`
+    meta: `${auditActorUsername()} • ${changeText}`
   };
 }
 
@@ -1563,6 +1566,7 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         applyActiveAccount(loginResult.user);
         hideServerLogin();
         await synchronizeServerState();
+        ensureAutomaticPerformanceSnapshot();
         await loadDatabaseBackups({ silent: true });
         await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
         void ensureScheduledRollingBackup();
@@ -1629,6 +1633,7 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
 async function initializeServerStorage() {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
     hideServerLogin();
+    ensureAutomaticPerformanceSnapshot();
     renderActiveView(activeView, { force: true });
     return;
   }
@@ -1640,6 +1645,7 @@ async function initializeServerStorage() {
     }
     applyActiveAccount(status.user);
     await synchronizeServerState();
+    ensureAutomaticPerformanceSnapshot();
     await loadDatabaseBackups({ silent: true });
     await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
     void ensureScheduledRollingBackup();
@@ -3059,7 +3065,7 @@ async function savePerformancePolicyVersion(event) {
   next.version = maxVersion + 1;
   next.configured = true;
   next.createdAt = new Date().toISOString();
-  next.createdBy = activeAccount.displayName || activeAccount.username || "Админ";
+  next.createdBy = auditActorUsername();
   setCurrentPerformancePolicyVersion(next);
   const eligibleVoucherIds = new Set(next.cashier.voucherRoleIds.map(String));
   state.voucherRoles.forEach(role => {
@@ -3185,7 +3191,7 @@ async function restorePerformancePolicyVersion(version) {
     Number(currentPerformancePolicy().version || 0),
     ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0))
   );
-  const actor = activeAccount.displayName || activeAccount.username || "Админ";
+  const actor = auditActorUsername();
   const next = normalizedPerformancePolicy({
     ...structuredClone(selected),
     version: maxVersion + 1,
@@ -3222,7 +3228,7 @@ async function archivePerformancePolicyVersion(version) {
   if (!selected) return showToast("Устгах хувилбар олдсонгүй", "error");
   if (!await requireDeleteCode()) return;
   if (!window.confirm(`Хувилбар ${version}-ийг түүхээс устгах уу?\n\nХуучин тайлангийн тооцоог хамгаалахын тулд системд архивлагдсан хэвээр үлдэнэ.`)) return;
-  const actor = activeAccount.displayName || activeAccount.username || "Админ";
+  const actor = auditActorUsername();
   policy.performanceVersions = (policy.performanceVersions || []).map(item =>
     Number(item.version) === Number(version)
       ? { ...item, archivedAt: new Date().toISOString(), archivedBy: actor }
@@ -3412,26 +3418,30 @@ function generalSettings() {
     ...(state.generalSettings || {})
   };
   state.generalSettings.childAgeLimit = Math.max(1, Math.min(18, Number(state.generalSettings.childAgeLimit) || defaultState.generalSettings.childAgeLimit));
-  if (Number(state.generalSettings.kassEditDays) <= 0) {
-    state.generalSettings.kassEditDays = defaultState.generalSettings.kassEditDays;
-  }
-  if (Number(state.generalSettings.serviceEditDays) <= 0) {
-    state.generalSettings.serviceEditDays = defaultState.generalSettings.serviceEditDays;
-  }
+  const legacyEditDays = Number(state.generalSettings.serviceEditDays)
+    || Number(state.generalSettings.kassEditDays)
+    || Number(state.generalSettings.customerEditDays)
+    || defaultState.generalSettings.dataEditDays;
+  state.generalSettings.dataEditDays = Math.max(1, Number(state.generalSettings.dataEditDays) || legacyEditDays);
+  state.generalSettings.performanceSnapshotDay = Math.max(1, Math.min(28, Number(state.generalSettings.performanceSnapshotDay) || 3));
+  // Хуучин хувилбар нээгдсэн үед ч нэг тохиргооноос зөрөхгүй байлгах compatibility талбарууд.
+  state.generalSettings.kassEditDays = state.generalSettings.dataEditDays;
+  state.generalSettings.serviceEditDays = state.generalSettings.dataEditDays;
+  state.generalSettings.customerEditDays = state.generalSettings.dataEditDays;
   return state.generalSettings;
 }
 
 function renderGeneralSettings() {
   const settings = generalSettings();
   const deleteCode = document.getElementById("deleteActionCode");
-  const kassDays = document.getElementById("kassEditDays");
-  const serviceDays = document.getElementById("serviceEditDays");
+  const dataEditDays = document.getElementById("dataEditDays");
+  const performanceSnapshotDay = document.getElementById("performanceSnapshotDay");
   const captureMode = document.getElementById("diagnosisCaptureMode");
   const captureSize = document.getElementById("diagnosisCaptureSize");
   const photoLimit = document.getElementById("diagnosisPhotoLimit");
   if (deleteCode) deleteCode.value = settings.deleteCode;
-  if (kassDays) kassDays.value = settings.kassEditDays;
-  if (serviceDays) serviceDays.value = settings.serviceEditDays;
+  if (dataEditDays) dataEditDays.value = settings.dataEditDays;
+  if (performanceSnapshotDay) performanceSnapshotDay.value = settings.performanceSnapshotDay;
   if (captureMode) captureMode.value = settings.diagnosisCaptureMode || "fixed";
   if (captureSize) captureSize.value = settings.diagnosisCaptureSize || "1280x960";
   if (photoLimit) photoLimit.value = String([5, 10].includes(Number(settings.diagnosisPhotoLimit)) ? Number(settings.diagnosisPhotoLimit) : 5);
@@ -3456,13 +3466,16 @@ function saveGeneralSettings(event) {
   state.generalSettings = {
     ...generalSettings(),
     deleteCode,
-    kassEditDays: Number(formValue("kassEditDays")) || generalSettings().kassEditDays,
-    serviceEditDays: Number(formValue("serviceEditDays")) || generalSettings().serviceEditDays,
+    dataEditDays: Math.max(1, Number(formValue("dataEditDays")) || generalSettings().dataEditDays),
+    performanceSnapshotDay: Math.max(1, Math.min(28, Number(formValue("performanceSnapshotDay")) || 3)),
     diagnosisCaptureMode: formValue("diagnosisCaptureMode") === "native" ? "native" : "fixed",
     diagnosisCaptureSize: formValue("diagnosisCaptureSize") || "1280x960",
     diagnosisPhotoLimit: [5, 10].includes(Number(formValue("diagnosisPhotoLimit"))) ? Number(formValue("diagnosisPhotoLimit")) : 5,
     diagnosisJpegQuality: 0.98
   };
+  state.generalSettings.kassEditDays = state.generalSettings.dataEditDays;
+  state.generalSettings.serviceEditDays = state.generalSettings.dataEditDays;
+  state.generalSettings.customerEditDays = state.generalSettings.dataEditDays;
   saveState();
   renderInfoHeader(activeView);
   showToast("Ерөнхий тохиргоо хадгалагдлаа");
@@ -3522,11 +3535,23 @@ function daysBetween(fromDate, toDate) {
   return Math.floor((to - from) / 86400000);
 }
 
+function operationalEditDays() {
+  return Math.max(1, Number(generalSettings().dataEditDays) || defaultState.generalSettings.dataEditDays);
+}
+
+function isOperationalDateEditable(dateText) {
+  const age = daysBetween(dateText, todayText());
+  return age <= operationalEditDays();
+}
+
+function requireOperationalDateEditable(dateText, action = "өөрчлөх") {
+  if (isOperationalDateEditable(dateText)) return true;
+  showToast(`${operationalEditDays()} хоногоос өмнөх мэдээллийг ${action} боломжгүй`, "error");
+  return false;
+}
+
 function canEditKassSchedule(item) {
-  const configuredDays = Number(generalSettings().kassEditDays);
-  const allowedDays = configuredDays > 0 ? configuredDays : defaultState.generalSettings.kassEditDays;
-  const age = daysBetween(item.date, todayText());
-  return age <= allowedDays;
+  return isOperationalDateEditable(item.date);
 }
 
 function kassScheduleConflict(date, salon, staff, editingId = null) {
@@ -3800,6 +3825,7 @@ function saveKassSchedule(event) {
   let salon = formValue("kassSalon");
   const staff = formValue("kassStaff");
   if (!startDate || !endDate || !salon || !staff) return;
+  if (!requireOperationalDateEditable(startDate, wasEditing ? "засах" : "нөхөж бүртгэх")) return;
   if (isSalonAccount() && salon !== activeAccount.salon) {
     showToast("Өөр салбарын хуваарь нэмэх боломжгүй");
     return;
@@ -3843,7 +3869,7 @@ function saveKassSchedule(event) {
       state.kassSchedules.unshift({ id: nextId(state.kassSchedules), date: value, salon, staff, createdAt: todayText() });
     }
   }
-  state.audit.unshift({ title: "kass_schedule_saved", meta: `Менежер • ${staff} • ${salon} • ${startDate}` });
+  state.audit.unshift({ title: "kass_schedule_saved", meta: `${auditActorUsername()} • ${staff} • ${salon} • ${startDate}` });
   saveState();
   resetKassForm();
   renderKassSchedule();
@@ -4006,7 +4032,7 @@ function saveChildAgeLimit() {
     id: entityId("audit"),
     title: "service_settings_updated",
     createdAt: auditNowText(),
-    meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • Хүүхдийн насны хязгаар ${previous} → ${next}`
+    meta: `${auditActorUsername()} • Хүүхдийн насны хязгаар ${previous} → ${next}`
   });
   saveState(["generalSettings", "audit"]);
   setChildAgeLimit(next);
@@ -4579,8 +4605,8 @@ function infoForView(name) {
       ["Салбар", new Set(state.holidays.map(item => item.salon)).size]
     ]],
     settingsGeneral: ["ЕРӨНХИЙ ТОХИРГОО", [
-      ["Үйлчилгээ засах/устгах хоног", generalSettings().serviceEditDays],
-      ["Касс, томилгоо", generalSettings().kassEditDays],
+      ["Өгөгдөл засах хугацаа", `${generalSettings().dataEditDays} хоног`],
+      ["Автомат snapshot", `Сар бүрийн ${generalSettings().performanceSnapshotDay}-нд`],
       ["Зургийн хэмжээ", generalSettings().diagnosisCaptureMode === "native" ? "Камерын үндсэн" : generalSettings().diagnosisCaptureSize],
       ["Оношилгоо", state.diagnosisTypes.length]
     ]],
@@ -5947,6 +5973,10 @@ function accountRoleLabel(role) {
   return ({ admin: "Админ", manager: "Менежер", salon: "Салбарын эрх" })[role] || "Хэрэглэгч";
 }
 
+function auditActorUsername() {
+  return String(activeAccount.username || "").trim() || "Систем";
+}
+
 function applyActiveAccount(account = {}) {
   activeAccount = {
     id: Number(account.id || 0),
@@ -6115,7 +6145,7 @@ async function saveSystemUser(event) {
     if (systemUserMigratingLegacy && result.user) applyActiveAccount(result.user);
     state.audit.unshift({
       title: wasEditing ? "user_updated" : "user_created",
-      meta: `${activeAccount.displayName || activeAccount.username} • ${displayName} • ${systemUserRoleLabel(role)}`
+      meta: `${auditActorUsername()} • ${displayName} • ${systemUserRoleLabel(role)}`
     });
     saveState();
     resetSystemUserForm();
@@ -6145,7 +6175,7 @@ async function toggleSystemUser(id) {
         active: !user.active
       })
     });
-    state.audit.unshift({ title: "user_status_changed", meta: `${activeAccount.displayName || activeAccount.username} • ${user.displayName} • ${user.active ? "Идэвхгүй" : "Идэвхтэй"}` });
+    state.audit.unshift({ title: "user_status_changed", meta: `${auditActorUsername()} • ${user.displayName} • ${user.active ? "Идэвхгүй" : "Идэвхтэй"}` });
     saveState();
     await loadSystemUsers(true);
     renderAudit();
@@ -6316,7 +6346,7 @@ function saveHoliday(event) {
       state.holidays.unshift({ id: nextId(state.holidays), salon, date, name, note });
     }
   });
-  state.audit.unshift({ title: "holiday_saved", meta: `Менежер • ${selectedSalons.join(", ")} • ${date} • ${name}` });
+  state.audit.unshift({ title: "holiday_saved", meta: `${auditActorUsername()} • ${selectedSalons.join(", ")} • ${date} • ${name}` });
   saveState();
   closeHolidayForm();
   renderHolidaySettings();
@@ -6330,7 +6360,7 @@ async function deleteHoliday(id) {
   if (!holiday || !canAccessSalon(holiday.salon)) return showToast("Өөр салбарын амралтын өдрийг устгах эрхгүй");
   if (!await requireDeleteCode()) return;
   state.holidays = state.holidays.filter(item => Number(item.id) !== Number(id));
-  state.audit.unshift({ title: "holiday_deleted", meta: "Менежер • амралтын өдөр устгасан" });
+  state.audit.unshift({ title: "holiday_deleted", meta: `${auditActorUsername()} • амралтын өдөр устгасан` });
   saveState();
   renderHolidaySettings();
   renderBookings();
@@ -6651,7 +6681,7 @@ function saveBranch(event) {
   if (branchEditingId) {
     const branch = state.salons.find(item => Number(item.id) === Number(branchEditingId));
     if (branch) Object.assign(branch, payload);
-    state.audit.unshift({ title: "branch_updated", meta: `Менежер • ${name}` });
+    state.audit.unshift({ title: "branch_updated", meta: `${auditActorUsername()} • ${name}` });
   } else {
     state.salons.unshift({
       id: nextId(state.salons),
@@ -6663,7 +6693,7 @@ function saveBranch(event) {
       schedule: { ...defaultState.scheduleSettings },
       status: "Ачаалал хэвийн"
     });
-    state.audit.unshift({ title: "branch_created", meta: `Менежер • ${name}` });
+    state.audit.unshift({ title: "branch_created", meta: `${auditActorUsername()} • ${name}` });
   }
   saveState();
   closeBranchForm();
@@ -6687,7 +6717,7 @@ function toggleBranch(id) {
   const branch = state.salons.find(item => Number(item.id) === Number(id));
   if (!branch) return;
   branch.active = branch.active === false;
-  state.audit.unshift({ title: "branch_status_changed", meta: `Менежер • ${branch.name} • ${branch.active ? "Идэвхтэй" : "Идэвхгүй"}` });
+  state.audit.unshift({ title: "branch_status_changed", meta: `${auditActorUsername()} • ${branch.name} • ${branch.active ? "Идэвхтэй" : "Идэвхгүй"}` });
   saveState();
   renderBranches();
   renderInfoHeader(activeView);
@@ -6698,7 +6728,7 @@ async function deleteBranch(id) {
   if (!await requireDeleteCode()) return;
   const branch = state.salons.find(item => Number(item.id) === Number(id));
   state.salons = state.salons.filter(item => Number(item.id) !== Number(id));
-  if (branch) state.audit.unshift({ title: "branch_deleted", meta: `Менежер • ${branch.name}` });
+  if (branch) state.audit.unshift({ title: "branch_deleted", meta: `${auditActorUsername()} • ${branch.name}` });
   saveState();
   closeBranchForm();
   rerenderAll();
@@ -7211,7 +7241,7 @@ function saveInlineCustomer(event) {
     id: entityId("audit"),
     title: "customer_created",
     createdAt: auditNowText(),
-    meta: `Менежер • ${formValue("inlineCustomerName")} • ${selectedType}`
+    meta: `${auditActorUsername()} • ${formValue("inlineCustomerName")} • ${selectedType}`
   };
   state.audit.unshift(auditEntry);
   registerPendingCustomerMutation({
@@ -7954,7 +7984,11 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
   }
   const transactions = [];
   const add = payload => {
-    const staff = state.staff.find(item => Number(item.id) === Number(payload.staffId) || item.name === payload.staff);
+    const staff = state.staff.find(item =>
+      Number(item.id) === Number(payload.staffId) ||
+      item.name === payload.staff ||
+      (Array.isArray(item.previousNames) && item.previousNames.includes(payload.staff))
+    );
     if (!staff || !payload.date || !payload.salon) return;
     const revenue = payload.allowNegative ? Number(payload.revenue || 0) : Math.max(0, Number(payload.revenue || 0));
     const appliedPolicy = performancePolicyForDate(payload.date, policyOverride);
@@ -8059,6 +8093,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
             id: `service:${item.id || title}:visit:${visit.id || index}`,
             sourceId: visit.id || item.id || "",
             staff: visit.staff || item.staff,
+            staffId: visit.staffId || item.staffId || null,
             date: visitDate,
             salon: visit.salon || salon,
             type: "course",
@@ -8073,6 +8108,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
               id: `master:${item.id || title}:visit:${visit.id || index}`,
               sourceId: visit.id || item.id || "",
               staff: visit.staff || item.staff,
+              staffId: visit.staffId || item.staffId || null,
               date: visitDate,
               salon: visit.salon || salon,
               type: "master",
@@ -8097,6 +8133,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
           id: `service:${item.id || `${customer.id}:${title}:${date}`}`,
           sourceId: item.id || "",
           staff: item.staff,
+          staffId: item.staffId || null,
           date,
           salon,
           type: "single",
@@ -8113,6 +8150,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
             id: `master:${item.id || `${customer.id}:${title}:${date}`}`,
             sourceId: item.id || "",
             staff: item.staff,
+            staffId: item.staffId || null,
             date,
             salon,
             type: "master",
@@ -8251,16 +8289,16 @@ function archivePerformanceStatement(statement, reason) {
   state.performanceStatementHistory.unshift({
     ...structuredClone(statement),
     archivedAt: new Date().toISOString(),
-    archivedBy: activeAccount.displayName || activeAccount.username || "Систем",
+    archivedBy: auditActorUsername(),
     archiveReason: reason
   });
 }
 
-function upsertPerformanceStatement({ month, salon, status, transactions, policy, reason = "" }) {
+function upsertPerformanceStatement({ month, salon, status, transactions, policy, reason = "", actor: actorOverride = "" }) {
   const existing = performanceStatementFor(month, salon);
   if (existing) archivePerformanceStatement(existing, reason || "Шинэ хувилбараар сольсон");
   const now = new Date().toISOString();
-  const actor = activeAccount.displayName || activeAccount.username || "Систем";
+  const actor = actorOverride || auditActorUsername();
   const statement = {
     id: existing?.id || entityId("performance-statement"),
     month,
@@ -8281,6 +8319,48 @@ function upsertPerformanceStatement({ month, salon, status, transactions, policy
   state.performanceStatements = (state.performanceStatements || []).filter(item => !(item.month === month && item.salon === salon));
   state.performanceStatements.push(statement);
   return statement;
+}
+
+function previousCalendarMonth(date = new Date()) {
+  return localDateText(new Date(date.getFullYear(), date.getMonth() - 1, 1)).slice(0, 7);
+}
+
+function ensureAutomaticPerformanceSnapshot() {
+  if (!IS_LOCAL_RUNTIME && !serverStorageReady) return false;
+  const now = new Date();
+  const checkDate = localDateText(now);
+  if (automaticPerformanceSnapshotCheckedDate === checkDate) return false;
+  automaticPerformanceSnapshotCheckedDate = checkDate;
+  if (now.getDate() < Number(generalSettings().performanceSnapshotDay || 3)) return false;
+  const month = previousCalendarMonth(now);
+  const raw = calculatePerformanceTransactions();
+  const range = performanceRangeForMonth(month);
+  const salons = [...new Set([
+    ...accountSalons().filter(item => item.active !== false).map(item => item.name),
+    ...raw.filter(item => item.date >= range.from && item.date <= range.to).map(item => item.salon)
+  ].filter(Boolean))];
+  const pending = salons.filter(salon => performanceStatementFor(month, salon)?.status !== "locked");
+  if (!pending.length) return false;
+  pending.forEach(salon => {
+    const transactions = raw.filter(item => item.salon === salon && item.date >= range.from && item.date <= range.to);
+    upsertPerformanceStatement({
+      month,
+      salon,
+      status: "locked",
+      transactions,
+      policy: performancePolicyForDate(range.to),
+      reason: "Сарын 3-ны автомат snapshot",
+      actor: "system:auto-snapshot"
+    });
+  });
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "performance_month_auto_locked",
+    createdAt: auditNowText(),
+    meta: `system:auto-snapshot • ${month} • ${pending.join(", ")}`
+  });
+  saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
+  return true;
 }
 
 function selectedPerformanceMonth() {
@@ -8379,7 +8459,7 @@ function savePerformanceMonthStatus(status) {
     id: entityId("audit"),
     title: status === "locked" ? "performance_month_locked" : "performance_month_submitted",
     createdAt: auditNowText(),
-    meta: `${activeAccount.displayName || "Систем"} • ${month} • ${salon === "all" ? "Бүх салбар" : salon}`
+    meta: `${auditActorUsername()} • ${month} • ${salon === "all" ? "Бүх салбар" : salon}`
   });
   saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
   renderPerformance();
@@ -8402,7 +8482,7 @@ function reopenPerformanceMonth() {
     id: entityId("audit"),
     title: "performance_month_reopened",
     createdAt: auditNowText(),
-    meta: `${activeAccount.displayName || "Админ"} • ${month} • ${salon} • ${reason.trim()}`
+    meta: `${auditActorUsername()} • ${month} • ${salon} • ${reason.trim()}`
   });
   saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
   renderPerformance();
@@ -8471,7 +8551,7 @@ function openPerformanceAdjustmentModal() {
           amount,
           reason,
           createdAt: new Date().toISOString(),
-          createdBy: activeAccount.displayName || activeAccount.username || "Админ"
+          createdBy: auditActorUsername()
         };
         state.performanceAdjustments.unshift(adjustment);
         state.audit.unshift({
@@ -8580,7 +8660,7 @@ async function applyPerformanceRecalculation() {
     id: entityId("audit"),
     title: "performance_history_recalculated",
     createdAt: auditNowText(),
-    meta: `${activeAccount.displayName || "Админ"} • ${preview.from}–${preview.to} • ${preview.groups.length} сар-салбар`
+    meta: `${auditActorUsername()} • ${preview.from}–${preview.to} • ${preview.groups.length} сар-салбар`
   });
   saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
   performanceRecalculatePreviewData = null;
@@ -9006,53 +9086,37 @@ function deletedCustomers() {
     .sort((a, b) => String(b.deletedAt || "").localeCompare(String(a.deletedAt || "")) || String(a.name || "").localeCompare(String(b.name || "")));
 }
 
+function deletedCustomerHistoryStats(customer = {}) {
+  const services = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
+  const payments = services.reduce((sum, item) => sum + (Array.isArray(item?.payments) ? item.payments.length : 0), 0);
+  return { services: services.length, payments };
+}
+
+function deletedCustomerActor(customer = {}) {
+  const actor = String(customer.deletedByUsername || customer.deletedBy || "").trim();
+  return !actor || actor === "Менежер" ? "Хуучин бүртгэл (тодорхойгүй)" : actor;
+}
+
 function renderDeletedCustomerDirectory() {
   const rows = document.getElementById("groupDeletedCustomerRows");
   if (!rows) return;
   const customers = deletedCustomers();
   const count = document.getElementById("groupDeletedTabCount");
   if (count) count.textContent = customers.length;
-  rows.innerHTML = customers.map(customer => `
+  rows.innerHTML = customers.map(customer => {
+    const history = deletedCustomerHistoryStats(customer);
+    return `
     <tr>
       <td><strong>${htmlSafe(customer.name || "—")}</strong></td>
       <td>${htmlSafe(customer.phone || "—")}</td>
       <td>${htmlSafe(customer.salon || "—")}</td>
       <td>${htmlSafe(customer.deletedAt || "—")}</td>
-      <td>${htmlSafe(customer.deletedBy || "Менежер")}</td>
-      <td>
-        <div class="table-actions deleted-customer-actions">
-          <button class="danger-btn icon-danger deleted-customer-permanent-delete" type="button" data-customer-id="${customer.id}" aria-label="Бүр мөсөн устгах" title="Бүр мөсөн устгах">${trashIcon()}</button>
-        </div>
-      </td>
+      <td>${htmlSafe(deletedCustomerActor(customer))}</td>
+      <td><strong>${history.services}</strong> ${history.services ? "бүртгэлтэй" : "байхгүй"}</td>
+      <td><strong>${history.payments}</strong> ${history.payments ? "гүйлгээтэй" : "байхгүй"}</td>
     </tr>
-  `).join("") || `<tr><td colspan="6" class="empty-state">Устгасан хэрэглэгч байхгүй</td></tr>`;
-  rows.querySelectorAll(".deleted-customer-permanent-delete").forEach(button => {
-    button.addEventListener("click", () => permanentlyDeleteCustomer(Number(button.dataset.customerId)));
-  });
-}
-
-async function permanentlyDeleteCustomer(customerId) {
-  const customer = state.customers.find(item => Number(item.id) === Number(customerId) && (item.deleted || item.deletedAt));
-  if (!customer) return;
-  if (!await requireDeleteCode()) return;
-  state.customerGroups.forEach(group => {
-    group.members = (group.members || []).filter(id => Number(id) !== Number(customer.id));
-    if (Number(group.adminCustomerId) === Number(customer.id)) group.adminCustomerId = null;
-  });
-  state.permanentlyDeletedCustomerIds = Array.from(new Set([...(state.permanentlyDeletedCustomerIds || []).map(Number), Number(customer.id)]));
-  state.customers = state.customers.filter(item => Number(item.id) !== Number(customer.id));
-  if (Number(state.selectedCustomerId) === Number(customer.id)) {
-    state.selectedCustomerId = state.customers.find(item => !item.deleted && !item.deletedAt)?.id || null;
-  }
-  state.audit.unshift({ title: "customer_permanently_deleted", meta: `Менежер • ${customer.name || "—"} • ${customer.phone || ""}` });
-  saveState();
-  renderCustomers();
-  renderCustomerSideProfile();
-  renderProfile();
-  renderGroupDirectory();
-  renderAudit();
-  renderInfoHeader(activeView);
-  showToast("Хэрэглэгч бүр мөсөн устлаа");
+  `;
+  }).join("") || `<tr><td colspan="7" class="empty-state">Устгасан хэрэглэгч байхгүй</td></tr>`;
 }
 
 function renderGroupDirectory() {
@@ -9084,7 +9148,7 @@ function renderGroupDirectory() {
         <div class="table-wrap group-deleted-table-wrap">
           <table class="booking-table group-deleted-table">
             <thead>
-              <tr><th>Нэр</th><th>Утас</th><th>Салбар</th><th>Устгасан огноо</th><th>Устгасан</th><th>Үйлдэл</th></tr>
+              <tr><th>Нэр</th><th>Утас</th><th>Салбар</th><th>Устгасан огноо</th><th>Устгасан</th><th>Үйлчилгээний түүх</th><th>Төлбөрийн түүх</th></tr>
             </thead>
             <tbody id="groupDeletedCustomerRows"></tbody>
           </table>
@@ -9279,7 +9343,7 @@ function renderGroupDirectory() {
       if (!await requireEditCode()) return;
       group.name = name;
       delete group.directoryEditingName;
-      state.audit.unshift({ title: "group_updated", meta: `Менежер • Групп ${name}` });
+      state.audit.unshift({ title: "group_updated", meta: `${auditActorUsername()} • Групп ${name}` });
       saveState();
       renderGroupDirectory();
       renderAudit();
@@ -9843,6 +9907,8 @@ function bindCourseVisitInlineForms(customer) {
         showToast("Оролт засах хугацаа дууссан байна");
         return;
       }
+      const visitDate = form.querySelector(".course-visit-date")?.value || todayText();
+      if (!requireOperationalDateEditable(visitDate, existingVisit ? "засах" : "нөхөж бүртгэх")) return;
       const room = form.querySelector(".course-visit-room")?.value || "standard";
       const salon = form.querySelector(".course-visit-salon")?.value || activeAccount.salon;
       if (!salon || !canAccessSalon(salon)) return showToast("Салбар сонгоно уу");
@@ -9856,9 +9922,10 @@ function bindCourseVisitInlineForms(customer) {
       const visit = {
         ...(existingVisit || {}),
         number: visitNumber,
-        date: form.querySelector(".course-visit-date")?.value || todayText(),
+        date: visitDate,
         salon,
         staff,
+        staffId: state.staff.find(item => item.name === staff)?.id || existingVisit?.staffId || null,
         room,
         vipRoom: room === "vip",
         vipRoomFee,
@@ -10014,6 +10081,7 @@ function bindServiceClinicalControls(customer, rootOverride = null) {
       const diagnosis = readDiagnosisPayload(prefix);
       if (!diagnosisHasContent(diagnosis)) return showToast("Оношилгооны мэдээлэл оруулна уу");
       const date = form.querySelector('input[type="date"]')?.value || todayText();
+      if (!requireOperationalDateEditable(date, "нөхөж оношилгоо бүртгэх")) return;
       ensureServiceDiagnosisHistory(item).unshift({
         id: entityId("diagnosis"),
         date,
@@ -10022,7 +10090,7 @@ function bindServiceClinicalControls(customer, rootOverride = null) {
       });
       item.diagnosisAddOpen = false;
       item.diagnosisDetailId = item.diagnosisHistory[0].id;
-      state.audit.unshift({ title: "diagnosis_created", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${date}` });
+      state.audit.unshift({ title: "diagnosis_created", meta: `${auditActorUsername()} • ${customer.name} • ${item.service || item.title} • ${date}` });
       saveAndRefreshCustomerProfile("Оношилгоо хадгалагдлаа");
     });
   });
@@ -10098,13 +10166,14 @@ function bindCourseVisitSignature(panel, customer) {
   });
   panel.querySelector(".course-signature-submit")?.addEventListener("click", () => {
     if (!hasInk) return showToast("Гарын үсгээ зурна уу");
+    if (!requireOperationalDateEditable(visit.date || todayText(), "баталгаажуулах")) return;
     const signedAt = new Date().toISOString();
     visit.confirmation = { signed: true, signature: canvas.toDataURL("image/png"), signedAt };
     visit.signed = true;
     visit.signatureOpen = false;
     item.diagnosisViewVisit = null;
     document.body.classList.remove("signature-modal-open");
-    state.audit.unshift({ title: "course_visit_signed", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${visit.number}-р оролт` });
+    state.audit.unshift({ title: "course_visit_signed", meta: `${auditActorUsername()} • ${customer.name} • ${item.service || item.title} • ${visit.number}-р оролт` });
     saveAndRefreshCustomerProfile("Курсийн оролт баталгаажлаа");
   });
 }
@@ -10148,10 +10217,11 @@ function bindCourseLevelSignature(panel, customer) {
   });
   panel.querySelector(".course-signature-submit")?.addEventListener("click", () => {
     if (!hasInk) return showToast("Гарын үсгээ зурна уу");
+    if (!requireOperationalDateEditable(item.date || todayText(), "баталгаажуулах")) return;
     const signedAt = new Date().toISOString();
     item.courseSignature = { signed: true, signature: canvas.toDataURL("image/png"), signedAt };
     item.signatureOpen = false;
-    state.audit.unshift({ title: "course_signed", meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.service || item.title} • ${signedAt}` });
+    state.audit.unshift({ title: "course_signed", meta: `${auditActorUsername()} • ${customer.name} • ${item.service || item.title} • ${signedAt}` });
     saveAndRefreshCustomerProfile("Курс баталгаажлаа");
   });
 }
@@ -10204,6 +10274,7 @@ function bindPendingDiagnosisWorkForms(customer, root = document) {
       event.preventDefault();
       const diagnosis = readDiagnosisPayload(prefix);
       if (!diagnosisHasContent(diagnosis)) return showToast("Оношилгооны мэдээлэл оруулна уу");
+      if (!requireOperationalDateEditable(item.date || todayText(), "оношилгоог дуусгах")) return;
       item.diagnosis = diagnosis;
       item.diagnosisPending = false;
       item.diagnosisCompletedAt = new Date().toISOString();
@@ -10214,7 +10285,7 @@ function bindPendingDiagnosisWorkForms(customer, root = document) {
         id: entityId("audit"),
         title: "diagnosis_completed",
         createdAt: auditNowText(),
-        meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${item.salon || ""} • ${item.date || todayText()}`
+        meta: `${auditActorUsername()} • ${customer.name} • ${item.salon || ""} • ${item.date || todayText()}`
       };
       state.audit.unshift(auditEntry);
       saveAndRefreshCustomerProfile("Оношилгоо хадгалагдлаа", { auditEntries: [auditEntry] });
@@ -10241,8 +10312,7 @@ function serviceHasPayment(item = {}) {
 }
 
 function isServiceWithinEditDays(item = {}) {
-  const allowed = Number(generalSettings().serviceEditDays || 3);
-  return daysBetween(item.createdAt || item.date || todayText(), todayText()) <= allowed;
+  return isOperationalDateEditable(item.date || item.createdAt || todayText());
 }
 
 function isServiceEditable(item) {
@@ -10563,11 +10633,13 @@ async function deleteProfileCustomer(customerId) {
   }
   if (!await requireDeleteCode()) return;
   customer.deletedAt = todayText();
-  customer.deletedBy = "Менежер";
+  customer.deletedBy = auditActorUsername();
+  customer.deletedByUsername = auditActorUsername();
+  customer.deletedByRole = activeAccount.role || "";
   customer.deleted = true;
   customer.profileInfoEditing = false;
   state.selectedCustomerId = null;
-  state.audit.unshift({ title: "customer_deleted", meta: `Менежер • ${customer.name} • ${customer.phone || ""}` });
+  state.audit.unshift({ title: "customer_deleted", meta: `${auditActorUsername()} • ${customer.name} • ${customer.phone || ""}` });
   saveState(["customers", "customerGroups", "audit"]);
   try {
     sessionStorage.removeItem(ACTIVE_CUSTOMER_SESSION_KEY);
@@ -10757,6 +10829,7 @@ function bindProfileKassInlineForm(customer, form) {
       return;
     }
     const date = formValue("profileKassDate") || todayText();
+    if (!requireOperationalDateEditable(date, Number.isInteger(customer.profileKassEditingIndex) ? "засах" : "нөхөж бүртгэх")) return;
     const products = cart.map(item => {
       const qty = Math.max(1, Math.floor(Number(item.qty || 1)));
       const unitPrice = kassLineUnitPrice(item, qty);
@@ -10844,6 +10917,7 @@ function bindProfileServiceInlineForm(customer) {
         event.preventDefault();
         if (!customer.groupId) return showToast("Эхлээд групп үүсгэх эсвэл группт нэгтгэнэ");
         const date = formValue("profileServiceDate") || todayText();
+        if (!requireOperationalDateEditable(date, "нөхөж бүртгэх")) return;
         const salon = showSalon ? formValue("profileServiceSalon") : activeAccount.salon;
         if (!salon || !canAccessSalon(salon)) return showToast("Салбар сонгоно уу");
         const historyItem = {
@@ -10878,7 +10952,7 @@ function bindProfileServiceInlineForm(customer) {
           id: entityId("audit"),
           title: "diagnosis_service_created",
           createdAt: auditNowText(),
-          meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${salon} • ${date}`
+          meta: `${auditActorUsername()} • ${customer.name} • ${salon} • ${date}`
         };
         state.audit.unshift(auditEntry);
         saveAndRefreshCustomerProfile("Оношилгооны үйлчилгээ бүртгэгдлээ", { auditEntries: [auditEntry] });
@@ -10894,6 +10968,7 @@ function bindProfileServiceInlineForm(customer) {
       const diagnosis = readDiagnosisPayload(prefix);
       if (!diagnosisHasContent(diagnosis)) return showToast("Оношилгооны мэдээлэл оруулна уу");
       const date = formValue("profileServiceDate") || todayText();
+      if (!requireOperationalDateEditable(date, editingItem ? "засах" : "нөхөж бүртгэх")) return;
       const historyItem = {
         id: editingItem?.id || entityId("diagnosis"),
         kind: "diagnosis",
@@ -10924,7 +10999,7 @@ function bindProfileServiceInlineForm(customer) {
         id: entityId("audit"),
         title: editingItem ? "customer_updated" : "diagnosis_created",
         createdAt: auditNowText(),
-        meta: `${activeAccount.displayName || "Систем"} • ${customer.name} • ${date}`
+        meta: `${auditActorUsername()} • ${customer.name} • ${date}`
       };
       state.audit.unshift(auditEntry);
       saveAndRefreshCustomerProfile(editingItem ? "Оношилгоо шинэчлэгдлээ" : "Оношилгоо бүртгэгдлээ", { auditEntries: [auditEntry] });
@@ -10963,6 +11038,7 @@ function bindProfileServiceInlineForm(customer) {
     const item = priceParts.item;
     if (!item) return;
     const date = formValue("profileServiceDate") || todayText();
+    if (!requireOperationalDateEditable(date, editingItem ? "засах" : "нөхөж бүртгэх")) return;
     const salon = showSalon ? formValue("profileServiceSalon") : activeAccount.salon;
     if (showSalon && !formValue("profileServiceSalon")) {
       showToast("Салбар сонгоно уу");
@@ -10983,6 +11059,7 @@ function bindProfileServiceInlineForm(customer) {
       registeredAt: editingItem?.registeredAt || new Date().toISOString(),
       activeUntil: editingItem?.activeUntil || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       staff,
+      staffId: state.staff.find(entry => entry.name === staff)?.id || editingItem?.staffId || null,
       salon,
       price: Number(priceParts.total || 0),
       balance: Number(priceParts.total || 0),
@@ -11032,7 +11109,7 @@ function bindProfileServiceInlineForm(customer) {
       id: entityId("audit"),
       title: editingItem ? "customer_updated" : "service_created",
       createdAt: auditNowText(),
-      meta: `Менежер • ${customer.name} • ${historyItem.service}`
+      meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service}`
     };
     state.audit.unshift(auditEntry);
     saveAndRefreshCustomerProfile(editingItem ? "Үйлчилгээ шинэчлэгдлээ" : "Үйлчилгээ нэмэгдлээ", {
@@ -11196,6 +11273,7 @@ function bindInlinePaymentForms(customer) {
         return;
       }
       const paidDate = form.querySelector(".inline-payment-date")?.value || todayText();
+      if (!requireOperationalDateEditable(paidDate, "нөхөж төлбөр бүртгэх")) return;
       const paymentId = entityId("pay");
       let referenceLabel = "";
       let giftCardUsageId = "";
@@ -11274,7 +11352,7 @@ function bindInlinePaymentForms(customer) {
         giftCardUsageId,
         voucherLogId: voucherLog?.id || "",
         createdById: activeAccount.id || 0,
-        createdBy: activeAccount.displayName || activeAccount.username || "Систем",
+        createdBy: auditActorUsername(),
         createdByRole: activeAccount.role || "",
         ...(groupPayment || {})
       };
@@ -11294,7 +11372,7 @@ function bindInlinePaymentForms(customer) {
         title: "payment_created",
         paymentId,
         createdAt: auditNowText(),
-        meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • ${money(appliedAmount)}`
+        meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • ${money(appliedAmount)}`
       };
       state.audit.unshift(auditEntry);
       registerPendingPaymentMutation({
@@ -11390,7 +11468,7 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
       title: "payment_reversed",
       paymentId: payment.id || "",
       createdAt: auditNowText(),
-      meta: `${activeAccount.displayName || activeAccount.username || "Систем"} • ${customer.name} • ${money(payment.amount || payment.paidAmount || 0)}`
+      meta: `${auditActorUsername()} • ${customer.name} • ${money(payment.amount || payment.paidAmount || 0)}`
     });
   });
   persistPendingPaymentMutations();
@@ -11420,7 +11498,7 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     id: entityId("audit"),
     title: "service_deleted",
     createdAt: auditNowText(),
-    meta: `Менежер • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • гүйцэтгэлээс давхар хасна`
+    meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • гүйцэтгэлээс давхар хасна`
   });
   saveAndRefreshCustomerProfile("Үйлчилгээ устлаа");
 }
@@ -12093,7 +12171,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           id: entityId("audit"),
           title: "service_created",
           createdAt: auditNowText(),
-          meta: `Менежер • ${customer.name} • ${historyItem.service}`
+          meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service}`
         };
         state.audit.unshift(auditEntry);
         closeModal();
@@ -12437,7 +12515,7 @@ function renderHumanResources() {
       <td>
         <div class="table-actions">
           <button class="secondary-btn icon-action hr-edit" type="button" data-id="${staff.id}" aria-label="Засах">${editIcon()}</button>
-          <button class="danger-btn icon-danger hr-delete" type="button" data-id="${staff.id}" aria-label="Устгах">${trashIcon()}</button>
+          <button class="danger-btn icon-danger hr-delete" type="button" data-id="${staff.id}" aria-label="Архивлах" title="Идэвхгүй болгож архивлах" ${staff.status === "inactive" ? "disabled" : ""}>${trashIcon()}</button>
         </div>
       </td>
     </tr>
@@ -12563,6 +12641,7 @@ function saveHumanResourceAssignment(event) {
   const startTime = formValue("hrAssignmentStartTime") || "09:00";
   const endTime = formValue("hrAssignmentEndTime") || "20:00";
   if (!staff || !destination) return showToast("Ажилтан болон очих салбарыг сонгоно уу");
+  if (!requireOperationalDateEditable(startDate, assignmentEditingId ? "засах" : "нөхөж бүртгэх")) return;
   if (isSalonAccount() && staff.salon !== activeAccount.salon) return showToast("Зөвхөн өөрийн салбарын ажилтныг томилно");
   if (staff.salon === destination) return showToast("Үндсэн салбараас өөр салбар сонгоно уу");
   const newStart = `${startDate}T${startTime}`;
@@ -12593,7 +12672,7 @@ function saveHumanResourceAssignment(event) {
   const editing = state.assignments.find(item => Number(item.id) === Number(assignmentEditingId));
   if (editing) Object.assign(editing, payload);
   else state.assignments.unshift({ id: nextId(state.assignments), ...payload });
-  state.audit.unshift({ title: editing ? "staff_assignment_updated" : "staff_assigned", meta: `Менежер • ${staff.name} • ${staff.salon} → ${destination} • ${startDate}` });
+  state.audit.unshift({ title: editing ? "staff_assignment_updated" : "staff_assigned", meta: `${auditActorUsername()} • ${staff.name} • ${staff.salon} → ${destination} • ${startDate}` });
   saveState();
   resetHumanResourceAssignmentForm();
   renderHumanResourceAssignments();
@@ -12640,7 +12719,7 @@ async function deleteHumanResourceAssignment(id) {
   if (!canEditAssignment(assignment)) return showToast("Устгах хугацаа дууссан байна");
   if (!await requireDeleteCode()) return;
   state.assignments = state.assignments.filter(item => Number(item.id) !== Number(id));
-  if (assignment) state.audit.unshift({ title: "staff_assignment_deleted", meta: `Менежер • ${assignment.staff} • ${assignment.to}` });
+  if (assignment) state.audit.unshift({ title: "staff_assignment_deleted", meta: `${auditActorUsername()} • ${assignment.staff} • ${assignment.to}` });
   saveState();
   if (Number(assignmentEditingId) === Number(id)) resetHumanResourceAssignmentForm();
   renderHumanResourceAssignments();
@@ -12664,12 +12743,15 @@ function saveHumanResourceStaff(event) {
   if (humanResourceEditingId) {
     const staff = state.staff.find(item => item.id === humanResourceEditingId);
     if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтны мэдээллийг засах эрхгүй");
+    if (staff.name && staff.name !== name) {
+      staff.previousNames = Array.from(new Set([...(staff.previousNames || []), staff.name]));
+    }
     if (staff) Object.assign(staff, payload);
-    state.audit.unshift({ title: "staff_updated", meta: `Менежер • ${name}` });
+    state.audit.unshift({ title: "staff_updated", meta: `${auditActorUsername()} • ${name}` });
     showToast("Ажилтан шинэчлэгдлээ");
   } else {
     state.staff.unshift({ id: nextId(state.staff), ...payload });
-    state.audit.unshift({ title: "staff_created", meta: `Менежер • ${name}` });
+    state.audit.unshift({ title: "staff_created", meta: `${auditActorUsername()} • ${name}` });
     showToast("Ажилтан нэмэгдлээ");
   }
   saveState();
@@ -12699,7 +12781,7 @@ function toggleHumanResourceStatus(id) {
   const staff = state.staff.find(item => item.id === id);
   if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтны төлөвийг засах эрхгүй");
   staff.status = staff.status === "inactive" ? "active" : "inactive";
-  state.audit.unshift({ title: "staff_status_updated", meta: `Менежер • ${staff.name} • ${humanResourceStatusText(staff.status)}` });
+  state.audit.unshift({ title: "staff_status_updated", meta: `${auditActorUsername()} • ${staff.name} • ${humanResourceStatusText(staff.status)}` });
   saveState();
   renderHumanResources();
   renderKassSchedule();
@@ -12709,16 +12791,19 @@ function toggleHumanResourceStatus(id) {
 
 async function deleteHumanResourceStaff(id) {
   const staff = state.staff.find(item => item.id === id);
-  if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтныг устгах эрхгүй");
+  if (!staff || !canAccessSalon(staff.salon)) return showToast("Өөр салбарын ажилтныг архивлах эрхгүй");
   if (!await requireDeleteCode()) return;
-  state.staff = state.staff.filter(item => item.id !== id);
+  staff.status = "inactive";
+  staff.archivedAt = new Date().toISOString();
+  staff.archivedBy = auditActorUsername();
   if (humanResourceEditingId === id) resetHumanResourceForm();
-  state.audit.unshift({ title: "staff_deleted", meta: `Менежер • ${staff?.name || id}` });
+  state.audit.unshift({ title: "staff_archived", meta: `${auditActorUsername()} • ${staff?.name || id}` });
   saveState();
+  renderKassSchedule();
   renderHumanResources();
   renderStaff();
   renderAudit();
-  showToast("Ажилтан устлаа");
+  showToast("Ажилтан идэвхгүй болж архивлагдлаа");
 }
 
 function renderStaff() {
@@ -12984,7 +13069,7 @@ function renderVouchers() {
           version: maxVersion + 1,
           effectiveFrom: todayText(),
           createdAt: new Date().toISOString(),
-          createdBy: activeAccount.displayName || activeAccount.username || "Админ",
+          createdBy: auditActorUsername(),
           cashier: {
             ...currentPolicy.cashier,
             voucherRoleIds: currentPolicy.cashier.voucherRoleIds.filter(roleId => String(roleId) !== String(id))
@@ -14147,7 +14232,7 @@ async function clearOperationalDatabase() {
     ["customers", "customerGroups", "bookings", "holidays", "assignments", "kassSchedules", "services", "voucherLogs", "giftCards"].forEach(key => {
       cleaned[key] = [];
     });
-    cleaned.audit = [{ title: "database_cleared", meta: "Админ • Үйл ажиллагааны өгөгдөл цэвэрлэсэн", createdAt: auditNowText() }];
+    cleaned.audit = [{ title: "database_cleared", meta: `${auditActorUsername()} • Үйл ажиллагааны өгөгдөл цэвэрлэсэн`, createdAt: auditNowText() }];
     cleaned.selectedCustomerId = null;
     cleaned.permanentlyDeletedCustomerIds = state.customers.map(item => Number(item.id));
     cleaned.databaseOperationalDataCleared = true;
@@ -14206,7 +14291,8 @@ function auditActionText(title = "") {
     staff_created: "Шинэ ажилтан бүртгэсэн",
     staff_updated: "Ажилтны мэдээллийг зассан",
     staff_status_updated: "Ажилтны төлөв өөрчилсөн",
-    staff_deleted: "Ажилтан устгасан",
+    staff_deleted: "Ажилтан устгасан (хуучин бүртгэл)",
+    staff_archived: "Ажилтныг архивласан",
     branch_created: "Шинэ салбар нэмсэн",
     branch_updated: "Салбарын мэдээллийг зассан",
     branch_status_changed: "Салбарын төлөв өөрчилсөн",
@@ -14221,6 +14307,7 @@ function auditActionText(title = "") {
     performance_policy_archived: "Гүйцэтгэлийн бодлогын хувилбар устгасан",
     performance_month_submitted: "Сарын гүйцэтгэлийг хяналтад илгээсэн",
     performance_month_locked: "Сарын гүйцэтгэлийг баталж түгжсэн",
+    performance_month_auto_locked: "Сарын гүйцэтгэлийг автоматаар snapshot хийж түгжсэн",
     performance_month_reopened: "Сарын гүйцэтгэлийн тайланг дахин нээсэн",
     performance_history_recalculated: "Өмнөх гүйцэтгэлийг дахин тооцсон",
     performance_adjustment_created: "Гүйцэтгэлийн залруулга нэмсэн",
@@ -14244,8 +14331,9 @@ function auditMetaText(meta = "") {
 
 function auditMetaParts(meta = "") {
   const parts = auditMetaText(meta).split(" • ").map(part => part.trim()).filter(Boolean);
+  const storedActor = parts.shift() || "";
   return {
-    actor: parts.shift() || "Менежер",
+    actor: storedActor === "Менежер" ? "Хуучин бүртгэл (тодорхойгүй)" : (storedActor || "Систем"),
     details: parts.join(" • ") || "Системийн мэдээлэл шинэчилсэн"
   };
 }
@@ -14422,7 +14510,7 @@ function openCustomerModal() {
           id: entityId("audit"),
           title: "customer_created",
           createdAt: auditNowText(),
-          meta: `Менежер • ${formValue("modalCustomerName")} • ${selectedType}`
+          meta: `${auditActorUsername()} • ${formValue("modalCustomerName")} • ${selectedType}`
         };
         state.audit.unshift(auditEntry);
         registerPendingCustomerMutation({
@@ -14476,7 +14564,7 @@ function openStaffModal() {
           commission: formValue("modalStaffCommission") || "10%",
           status: "active"
         });
-        state.audit.unshift({ title: "staff_created", meta: `Менежер • ${formValue("modalStaffName")} • ${formValue("modalStaffSalon")}` });
+        state.audit.unshift({ title: "staff_created", meta: `${auditActorUsername()} • ${formValue("modalStaffName")} • ${formValue("modalStaffSalon")}` });
         saveState();
         closeModal();
         renderStaff();
@@ -14550,7 +14638,7 @@ function updateBookingStatus(id, status) {
   const booking = state.bookings.find(item => Number(item.id) === Number(id));
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг өөрчлөх эрхгүй");
   booking.status = status;
-  state.audit.unshift({ title: "booking_status_updated", meta: `Админ • ${booking.phone} • ${bookingStatusText(status)}` });
+  state.audit.unshift({ title: "booking_status_updated", meta: `${auditActorUsername()} • ${booking.phone} • ${bookingStatusText(status)}` });
   saveState();
   renderBookings();
   renderAudit();
@@ -14622,7 +14710,7 @@ async function deleteBooking(id) {
   if (!await requireDeleteCode()) return;
   state.bookings = state.bookings.filter(item => Number(item.id) !== Number(id));
   if (booking) {
-    state.audit.unshift({ title: "booking_deleted", meta: `Админ • ${booking.phone} • ${booking.date} ${booking.time}` });
+    state.audit.unshift({ title: "booking_deleted", meta: `${auditActorUsername()} • ${booking.phone} • ${booking.date} ${booking.time}` });
   }
   saveState();
   renderBookings();
@@ -15192,7 +15280,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
       editing.date = firstSlot.date;
       editing.time = firstSlot.time;
       editing.phone = phone;
-      state.audit.unshift({ title: "booking_updated", meta: `Админ • ${phone} • ${editing.date} ${editing.time} • ${bookingStatusText(editing.status)}` });
+      state.audit.unshift({ title: "booking_updated", meta: `${auditActorUsername()} • ${phone} • ${editing.date} ${editing.time} • ${bookingStatusText(editing.status)}` });
     } else {
       slotValues.slice().reverse().forEach((item, index) => {
         state.bookings.unshift({
@@ -15205,7 +15293,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
           status: "confirmed"
         });
       });
-      state.audit.unshift({ title: "booking_created", meta: `Админ • ${phone} • ${slotValues.length} слот` });
+      state.audit.unshift({ title: "booking_created", meta: `${auditActorUsername()} • ${phone} • ${slotValues.length} слот` });
     }
     saveState();
     bookingInlineEditingId = null;
@@ -15343,7 +15431,7 @@ function bindEvents() {
         version: maxVersion + 1,
         effectiveFrom: todayText(),
         createdAt: new Date().toISOString(),
-        createdBy: activeAccount.displayName || activeAccount.username || "Админ",
+        createdBy: auditActorUsername(),
         cashier: { ...current.cashier, voucherRoleIds: [...ids] }
       });
       setCurrentPerformancePolicyVersion(nextPolicy);
@@ -15706,7 +15794,7 @@ function bindEvents() {
     const policy = pricePolicy();
     const surcharge = (document.getElementById("vipRoom").checked ? policy.vipRoomFee : 0) + (document.getElementById("vipStaff").checked ? policy.masterStaffFee : 0);
     state.services.unshift({ customer: customer.name, service: item.name, staff: staff.name, total: item.price + surcharge, salon: "Хан-Уул салбар" });
-    state.audit.unshift({ title: "service_created", meta: `Менежер • ${customer.name} • ${item.name} • давхар орохоос хамгаалсан` });
+    state.audit.unshift({ title: "service_created", meta: `${auditActorUsername()} • ${customer.name} • ${item.name} • давхар орохоос хамгаалсан` });
     saveState();
     renderServices();
     renderAudit();
@@ -15716,14 +15804,16 @@ function bindEvents() {
   document.getElementById("assignmentForm")?.addEventListener("submit", event => {
     event.preventDefault();
     const staff = state.staff.find(s => s.id === Number(document.getElementById("assignStaff").value));
+    const assignmentDate = document.getElementById("assignDate").value;
+    if (!requireOperationalDateEditable(assignmentDate, "нөхөж бүртгэх")) return;
     state.assignments.unshift({
       staff: staff.name,
       from: staff.salon,
       to: document.getElementById("assignSalon").value,
-      date: document.getElementById("assignDate").value,
+      date: assignmentDate,
       time: "09:00-18:00"
     });
-    state.audit.unshift({ title: "staff_assigned", meta: `Менежер • ${staff.name} → ${document.getElementById("assignSalon").value}` });
+    state.audit.unshift({ title: "staff_assigned", meta: `${auditActorUsername()} • ${staff.name} → ${document.getElementById("assignSalon").value}` });
     saveState();
     renderAssignments();
     renderAudit();
@@ -15863,12 +15953,17 @@ init();
 initializeServerStorage();
 
 window.addEventListener("focus", () => {
+  ensureAutomaticPerformanceSnapshot();
   if (AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
+  if (!document.hidden) {
+    ensureAutomaticPerformanceSnapshot();
+    if (AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
+  }
 });
 window.setInterval(() => {
+  ensureAutomaticPerformanceSnapshot();
   if (!document.hidden && AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
 }, 10000);
 window.addEventListener("pagehide", flushLocalStateSave);

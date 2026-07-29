@@ -216,6 +216,159 @@ function merge_append_only_audit(array $current, array $incoming): array
     return $incoming;
 }
 
+function operational_date(array $item, array $keys): string
+{
+    foreach ($keys as $key) {
+        $value = substr(trim((string)($item[$key] ?? '')), 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) return $value;
+    }
+    return '';
+}
+
+function operational_item_index(array $rows): array
+{
+    $indexed = [];
+    foreach ($rows as $index => $row) {
+        if (!is_array($row)) continue;
+        $indexed[recovery_entity_key($row, (int)$index)] = $row;
+    }
+    return $indexed;
+}
+
+function operational_cutoff(array $current, array $incoming): string
+{
+    $settings = is_array($incoming['generalSettings'] ?? null)
+        ? $incoming['generalSettings']
+        : (is_array($current['generalSettings'] ?? null) ? $current['generalSettings'] : []);
+    $days = max(1, (int)($settings['dataEditDays'] ?? $settings['serviceEditDays'] ?? $settings['kassEditDays'] ?? 3));
+    $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
+    return $today->modify('-' . $days . ' days')->format('Y-m-d');
+}
+
+function operational_date_is_locked(string $date, string $cutoff): bool
+{
+    return $date !== '' && $date < $cutoff;
+}
+
+function assert_dated_section_unlocked(array $current, array $incoming, string $section, array $dateKeys, string $cutoff): void
+{
+    if (!array_key_exists($section, $incoming)) return;
+    $oldRows = operational_item_index(is_array($current[$section] ?? null) ? $current[$section] : []);
+    $newRows = operational_item_index(is_array($incoming[$section] ?? null) ? $incoming[$section] : []);
+    foreach ($newRows as $id => $newItem) {
+        $date = operational_date($newItem, $dateKeys);
+        if (!isset($oldRows[$id]) && operational_date_is_locked($date, $cutoff)) {
+            throw new DomainException('3 хоногоос өмнөх огноогоор мэдээлэл нөхөж бүртгэх боломжгүй.');
+        }
+        if (isset($oldRows[$id]) && $oldRows[$id] !== $newItem) {
+            $oldDate = operational_date($oldRows[$id], $dateKeys);
+            if (operational_date_is_locked($oldDate, $cutoff)) {
+                throw new DomainException('3 хоногоос өмнөх мэдээллийг засах боломжгүй.');
+            }
+        }
+    }
+    foreach ($oldRows as $id => $oldItem) {
+        if (isset($newRows[$id])) continue;
+        if (operational_date_is_locked(operational_date($oldItem, $dateKeys), $cutoff)) {
+            throw new DomainException('3 хоногоос өмнөх мэдээллийг устгах боломжгүй.');
+        }
+    }
+}
+
+function service_core_for_lock(array $service): array
+{
+    $derived = ['payments', 'visits', 'diagnosisHistory', 'balance', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'signatureOpen'];
+    if (($service['kind'] ?? '') === 'course') {
+        $derived = array_merge($derived, ['staff', 'price']);
+    }
+    foreach ($derived as $key) {
+        unset($service[$key]);
+    }
+    return $service;
+}
+
+function assert_customer_operations_unlocked(array $current, array $incoming, string $cutoff): void
+{
+    if (!array_key_exists('customers', $incoming)) return;
+    $oldCustomers = operational_item_index(is_array($current['customers'] ?? null) ? $current['customers'] : []);
+    $newCustomers = operational_item_index(is_array($incoming['customers'] ?? null) ? $incoming['customers'] : []);
+    foreach ($oldCustomers as $customerId => $oldCustomer) {
+        // Хэрэглэгчийг archive хийхээс бусад бүр мөсөн устгалыг ердийн хадгалалтаар зөвшөөрөхгүй.
+        if (!isset($newCustomers[$customerId])) {
+            throw new DomainException('Хэрэглэгчийг бүр мөсөн устгах боломжгүй. Архивлана уу.');
+        }
+    }
+    foreach ($newCustomers as $customerId => $newCustomer) {
+        if (!isset($oldCustomers[$customerId])) {
+            foreach ((is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : []) as $service) {
+                if (!is_array($service)) continue;
+                if (operational_date_is_locked(operational_date($service, ['date', 'createdAt', 'registeredAt']), $cutoff)) {
+                    throw new DomainException('3 хоногоос өмнөх үйлчилгээ, оношилгоог нөхөж бүртгэх боломжгүй.');
+                }
+                foreach (['payments', 'visits', 'diagnosisHistory'] as $nestedKey) {
+                    foreach ((is_array($service[$nestedKey] ?? null) ? $service[$nestedKey] : []) as $row) {
+                        if (is_array($row) && operational_date_is_locked(operational_date($row, ['date', 'createdAt', 'registeredAt']), $cutoff)) {
+                            throw new DomainException('3 хоногоос өмнөх төлбөр эсвэл курсийн оролтыг нөхөж бүртгэх боломжгүй.');
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        $oldHistory = operational_item_index(is_array($oldCustomers[$customerId]['serviceHistory'] ?? null) ? $oldCustomers[$customerId]['serviceHistory'] : []);
+        $newHistory = operational_item_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : []);
+        foreach ($newHistory as $serviceId => $newService) {
+            $serviceDate = operational_date($newService, ['date', 'createdAt', 'registeredAt']);
+            if (!isset($oldHistory[$serviceId])) {
+                if (operational_date_is_locked($serviceDate, $cutoff)) {
+                    throw new DomainException('3 хоногоос өмнөх үйлчилгээ, оношилгоог нөхөж бүртгэх боломжгүй.');
+                }
+                continue;
+            }
+            $oldService = $oldHistory[$serviceId];
+            $oldServiceDate = operational_date($oldService, ['date', 'createdAt', 'registeredAt']);
+            if (operational_date_is_locked($oldServiceDate, $cutoff) && service_core_for_lock($oldService) !== service_core_for_lock($newService)) {
+                throw new DomainException('3 хоногоос өмнөх үйлчилгээ, оношилгоог засах боломжгүй.');
+            }
+            foreach ([
+                ['key' => 'payments', 'dates' => ['date', 'createdAt']],
+                ['key' => 'visits', 'dates' => ['date', 'createdAt', 'registeredAt']],
+                ['key' => 'diagnosisHistory', 'dates' => ['date', 'createdAt']]
+            ] as $nested) {
+                $oldRows = operational_item_index(is_array($oldService[$nested['key']] ?? null) ? $oldService[$nested['key']] : []);
+                $newRows = operational_item_index(is_array($newService[$nested['key']] ?? null) ? $newService[$nested['key']] : []);
+                foreach ($newRows as $rowId => $newRow) {
+                    $rowDate = operational_date($newRow, $nested['dates']);
+                    if (!isset($oldRows[$rowId]) && operational_date_is_locked($rowDate, $cutoff)) {
+                        throw new DomainException('3 хоногоос өмнөх төлбөр эсвэл курсийн оролтыг нөхөж бүртгэх боломжгүй.');
+                    }
+                    if (isset($oldRows[$rowId]) && $oldRows[$rowId] !== $newRow && operational_date_is_locked(operational_date($oldRows[$rowId], $nested['dates']), $cutoff)) {
+                        throw new DomainException('3 хоногоос өмнөх төлбөр эсвэл курсийн оролтыг засах боломжгүй.');
+                    }
+                }
+                foreach ($oldRows as $rowId => $oldRow) {
+                    if (!isset($newRows[$rowId]) && operational_date_is_locked(operational_date($oldRow, $nested['dates']), $cutoff)) {
+                        throw new DomainException('3 хоногоос өмнөх төлбөр эсвэл курсийн оролтыг устгах боломжгүй.');
+                    }
+                }
+            }
+        }
+        foreach ($oldHistory as $serviceId => $oldService) {
+            if (!isset($newHistory[$serviceId]) && operational_date_is_locked(operational_date($oldService, ['date', 'createdAt', 'registeredAt']), $cutoff)) {
+                throw new DomainException('3 хоногоос өмнөх үйлчилгээг устгах боломжгүй.');
+            }
+        }
+    }
+}
+
+function assert_operational_lock(array $current, array $incoming): void
+{
+    $cutoff = operational_cutoff($current, $incoming);
+    assert_dated_section_unlocked($current, $incoming, 'kassSchedules', ['date', 'createdAt'], $cutoff);
+    assert_dated_section_unlocked($current, $incoming, 'assignments', ['startDate', 'date'], $cutoff);
+    assert_customer_operations_unlocked($current, $incoming, $cutoff);
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $revision = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'revision'")->fetchColumn();
     $requestedSections = array_values(array_filter(array_map('trim', explode(',', (string)($_GET['sections'] ?? ''))), static fn(string $key): bool => preg_match('/^[A-Za-z0-9_:-]{1,80}$/', $key) === 1));
@@ -290,6 +443,10 @@ try {
         // customer/service/payment rows until those tabs reload the new build.
         $sections = merge_legacy_customer_data($currentSections, $sections);
     }
+    $allowProtectedOverride = ($user['role'] ?? '') === 'admin'
+        && ($payload['allowBulkRemoval'] ?? false) === true
+        && trim((string)($payload['removalReason'] ?? '')) !== '';
+    if (!$allowProtectedOverride) assert_operational_lock($currentSections, $sections);
     $nextRevision = $currentRevision + 1;
 
     $removedCount = journal_removed_customer_data($pdo, $nextRevision, $user, $currentSections, $sections);
@@ -336,6 +493,9 @@ try {
         'savedSections' => array_keys($sections),
         'savedBy' => $user['username'] ?? 'admin',
     ]);
+} catch (DomainException $error) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    json_response(['ok' => false, 'protectedData' => true, 'message' => $error->getMessage()], 409);
 } catch (Throwable $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     json_response(['ok' => false, 'message' => 'Server хадгалалт амжилтгүй.'], 500);

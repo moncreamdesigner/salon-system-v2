@@ -1522,17 +1522,13 @@ body.signature-modal-open {
 }
 
 .group-deleted-table {
-  min-width: 820px;
+  min-width: 1080px;
 }
 
-.group-deleted-table th:last-child,
-.group-deleted-table td:last-child {
-  width: 70px;
-  text-align: right;
-}
-
-.deleted-customer-actions {
-  min-width: 0;
+.group-deleted-table th:nth-last-child(-n + 2),
+.group-deleted-table td:nth-last-child(-n + 2) {
+  min-width: 145px;
+  white-space: nowrap;
 }
 
 .kass-revenue-filter-panel {
@@ -9009,6 +9005,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   pointer-events: none;
   transition: opacity .18s ease, transform .18s ease;
   z-index: 10000;
+}
+
+.general-settings-form label small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .toast::before {
