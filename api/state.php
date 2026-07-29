@@ -35,7 +35,7 @@ function scope_sections_for_user(array $data, array $user): array
 {
     if (($user['role'] ?? '') !== 'salon') return $data;
     $salon = (string)($user['salon'] ?? '');
-    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'staff'] as $section) {
+    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'staff', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
         if (!is_array($data[$section] ?? null)) continue;
         $data[$section] = array_values(array_filter($data[$section], static fn($item): bool =>
             is_array($item) && item_belongs_to_salon($item, $salon, $section)
@@ -54,7 +54,7 @@ function merge_salon_sections(array $current, array $incoming, array $user, bool
         elseif (array_key_exists($section, $current)) $incoming[$section] = $current[$section];
         else unset($incoming[$section]);
     }
-    foreach (['bookings', 'kassSchedules', 'services', 'holidays'] as $section) {
+    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
         if ($partial && !array_key_exists($section, $incoming)) continue;
         $oldRows = is_array($current[$section] ?? null) ? $current[$section] : [];
         $newRows = is_array($incoming[$section] ?? null) ? $incoming[$section] : [];

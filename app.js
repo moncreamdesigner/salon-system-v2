@@ -63,6 +63,9 @@ const defaultState = {
   voucherRoles: [],
   voucherLogs: [],
   giftCards: [],
+  performanceStatements: [],
+  performanceStatementHistory: [],
+  performanceAdjustments: [],
   selectedCustomerId: null,
   databaseOperationalDataCleared: true,
   scheduleSettings: {
@@ -129,6 +132,25 @@ const defaultState = {
   pricePolicy: {
     vipRoomFee: 20000,
     masterStaffFee: 15000,
+    performance: {
+      version: 1,
+      effectiveFrom: "0000-01-01",
+      service: {
+        rate: 10,
+        useStaffRate: false,
+        basis: "base",
+        serviceKinds: ["single", "course"],
+        vipFeeMode: "exclude",
+        masterFeeMode: "direct"
+      },
+      cashier: {
+        rate: 2,
+        useStaffRate: false,
+        paymentMethods: ["card", "qpay", "transfer", "cash", "loan_app"],
+        voucherRoleIds: []
+      }
+    },
+    performanceVersions: [],
     bonusTiers: [
       { threshold: 0, percent: 2 },
       { threshold: 2000000, percent: 3 },
@@ -211,7 +233,8 @@ function resetPrototypeOperationalData() {
   if (Number(state.prototypeDataResetVersion || 0) >= PROTOTYPE_DATA_RESET_VERSION) return;
   [
     "customers", "customerGroups", "catalog", "bookings", "holidays", "assignments",
-    "kassSchedules", "services", "audit", "voucherRoles", "voucherLogs", "giftCards", "discounts"
+    "kassSchedules", "services", "audit", "voucherRoles", "voucherLogs", "giftCards", "discounts",
+    "performanceStatements", "performanceStatementHistory", "performanceAdjustments"
   ].forEach(key => {
     state[key] = [];
   });
@@ -261,12 +284,30 @@ state.customerTypes.forEach(type => {
 ensureCustomerBonusTypeRules(state);
 state.pricePolicy = {
   ...structuredClone(defaultState.pricePolicy),
-  ...(state.pricePolicy || {})
+  ...(state.pricePolicy || {}),
+  performance: {
+    ...structuredClone(defaultState.pricePolicy.performance),
+    ...(state.pricePolicy?.performance || {}),
+    service: {
+      ...structuredClone(defaultState.pricePolicy.performance.service),
+      ...(state.pricePolicy?.performance?.service || {})
+    },
+    cashier: {
+      ...structuredClone(defaultState.pricePolicy.performance.cashier),
+      ...(state.pricePolicy?.performance?.cashier || {})
+    }
+  },
+  performanceVersions: Array.isArray(state.pricePolicy?.performanceVersions)
+    ? state.pricePolicy.performanceVersions
+    : []
 };
 state.discounts = Array.isArray(state.discounts) ? state.discounts : [];
 state.voucherRoles = Array.isArray(state.voucherRoles) ? state.voucherRoles : [];
 state.voucherLogs = Array.isArray(state.voucherLogs) ? state.voucherLogs : [];
 state.giftCards = Array.isArray(state.giftCards) ? state.giftCards : [];
+state.performanceStatements = Array.isArray(state.performanceStatements) ? state.performanceStatements : [];
+state.performanceStatementHistory = Array.isArray(state.performanceStatementHistory) ? state.performanceStatementHistory : [];
+state.performanceAdjustments = Array.isArray(state.performanceAdjustments) ? state.performanceAdjustments : [];
 state.generalSettings = {
   ...structuredClone(defaultState.generalSettings),
   ...(state.generalSettings || {})
@@ -396,6 +437,7 @@ let giftCardPage = 1;
 let giftCardEditingId = null;
 let customerSortMode = "date";
 let discountEditingId = null;
+let performanceRecalculatePreviewData = null;
 
 const serviceSettingsData = {
   single: [
@@ -763,7 +805,7 @@ function dirtySectionsForView(viewName = "") {
     branches: ["salons", "homepageSettings"],
     settingsResults: ["homepageSettings"],
     settingsServices: ["_serviceSettings"],
-    settingsPricing: ["pricePolicy", "customerTypes", "customerTypeRules", "customers"],
+    settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules", "customers", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
     groups: ["customers", "customerGroups"],
     settingsGeneral: ["generalSettings", "diagnosisTypes"],
     settingsUsers: ["audit"],
@@ -1325,13 +1367,14 @@ const VIEW_SERVER_SECTIONS = {
   customers: ["customers", "customerGroups"],
   profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
   kass: ["kassSchedules", "staff", "assignments", "salons"],
-  performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons"],
+  performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
   vouchers: ["voucherRoles", "voucherLogs"],
   giftCards: ["giftCards"],
   settingsServices: ["_serviceSettings"],
+  settingsPricing: ["pricePolicy", "voucherRoles", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
   groups: ["customers", "customerGroups"],
   audit: ["audit"],
-  dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons"]
+  dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"]
 };
 
 async function synchronizeServerState(expectedLocalVersion = null, sectionKeys = null, viewName = null) {
@@ -2539,9 +2582,23 @@ function salePriceCell(item) {
 }
 
 function pricePolicy() {
+  const stored = state.pricePolicy || {};
   state.pricePolicy = {
     ...structuredClone(defaultState.pricePolicy),
-    ...(state.pricePolicy || {})
+    ...stored,
+    performance: {
+      ...structuredClone(defaultState.pricePolicy.performance),
+      ...(stored.performance || {}),
+      service: {
+        ...structuredClone(defaultState.pricePolicy.performance.service),
+        ...(stored.performance?.service || {})
+      },
+      cashier: {
+        ...structuredClone(defaultState.pricePolicy.performance.cashier),
+        ...(stored.performance?.cashier || {})
+      }
+    },
+    performanceVersions: Array.isArray(stored.performanceVersions) ? stored.performanceVersions : []
   };
   return state.pricePolicy;
 }
@@ -2636,8 +2693,152 @@ function bonusTierSummary() {
     .join(" · ");
 }
 
+const PERFORMANCE_PAYMENT_METHODS = [
+  ["card", "Карт"],
+  ["qpay", "QPay"],
+  ["transfer", "Данс"],
+  ["cash", "Бэлэн"],
+  ["loan_app", "Зээлийн апп"],
+  ["voucher", "Ваучер"],
+  ["gift_card", "Бэлгийн карт ашиглалт"],
+  ["salary", "Цалингаас суутгах"]
+];
+
+function normalizedPerformancePolicy(source = {}) {
+  const defaults = defaultState.pricePolicy.performance;
+  return {
+    ...structuredClone(defaults),
+    ...structuredClone(source || {}),
+    version: Math.max(1, Number(source?.version) || Number(defaults.version) || 1),
+    effectiveFrom: String(source?.effectiveFrom || defaults.effectiveFrom || "0000-01-01"),
+    service: {
+      ...structuredClone(defaults.service),
+      ...(source?.service || {}),
+      rate: Math.max(0, Number(source?.service?.rate ?? defaults.service.rate) || 0),
+      serviceKinds: Array.isArray(source?.service?.serviceKinds)
+        ? source.service.serviceKinds.filter(kind => ["single", "course"].includes(kind))
+        : [...defaults.service.serviceKinds]
+    },
+    cashier: {
+      ...structuredClone(defaults.cashier),
+      ...(source?.cashier || {}),
+      rate: Math.max(0, Number(source?.cashier?.rate ?? defaults.cashier.rate) || 0),
+      paymentMethods: Array.isArray(source?.cashier?.paymentMethods)
+        ? source.cashier.paymentMethods.filter(method => PERFORMANCE_PAYMENT_METHODS.some(([key]) => key === method))
+        : [...defaults.cashier.paymentMethods],
+      voucherRoleIds: Array.isArray(source?.cashier?.voucherRoleIds)
+        ? source.cashier.voucherRoleIds.map(String)
+        : []
+    }
+  };
+}
+
+function currentPerformancePolicy() {
+  const policy = pricePolicy();
+  policy.performance = normalizedPerformancePolicy(policy.performance);
+  return policy.performance;
+}
+
+function legacyPerformancePolicy() {
+  return normalizedPerformancePolicy({
+    version: 0,
+    effectiveFrom: "0000-01-01",
+    service: {
+      rate: 10,
+      useStaffRate: true,
+      basis: "base",
+      serviceKinds: ["single", "course"],
+      vipFeeMode: "commission",
+      masterFeeMode: "commission"
+    },
+    cashier: {
+      rate: 2,
+      useStaffRate: true,
+      paymentMethods: ["card", "qpay", "transfer", "cash", "loan_app"],
+      voucherRoleIds: []
+    }
+  });
+}
+
+function performancePolicyForDate(date, overridePolicy = null) {
+  if (overridePolicy) return normalizedPerformancePolicy(overridePolicy);
+  const current = currentPerformancePolicy();
+  const versions = [...(pricePolicy().performanceVersions || []), current]
+    .map(normalizedPerformancePolicy)
+    .filter(version => String(version.effectiveFrom || "0000-01-01") <= String(date || todayText()))
+    .sort((a, b) => {
+      const dateOrder = String(a.effectiveFrom).localeCompare(String(b.effectiveFrom));
+      return dateOrder || Number(a.version || 0) - Number(b.version || 0);
+    });
+  return versions[versions.length - 1] || legacyPerformancePolicy();
+}
+
+function performancePolicyFromForm() {
+  const current = currentPerformancePolicy();
+  return normalizedPerformancePolicy({
+    ...current,
+    effectiveFrom: formValue("performancePolicyEffectiveFrom") || todayText(),
+    service: {
+      ...current.service,
+      rate: Number(formValue("performanceServiceRate")) || 0,
+      useStaffRate: Boolean(document.getElementById("performanceUseStaffServiceRate")?.checked),
+      basis: formValue("performanceServiceBasis") || "base",
+      vipFeeMode: formValue("performanceVipFeeMode") || "exclude",
+      masterFeeMode: formValue("performanceMasterFeeMode") || "direct",
+      serviceKinds: Array.from(document.querySelectorAll(".performance-service-kind:checked")).map(input => input.value)
+    },
+    cashier: {
+      ...current.cashier,
+      rate: Number(formValue("performanceCashierRate")) || 0,
+      useStaffRate: Boolean(document.getElementById("performanceUseStaffCashierRate")?.checked),
+      paymentMethods: Array.from(document.querySelectorAll(".performance-payment-method:checked")).map(input => input.value),
+      voucherRoleIds: Array.from(document.querySelectorAll(".performance-voucher-role:checked")).map(input => String(input.value))
+    }
+  });
+}
+
+function savePerformancePolicyVersion(event) {
+  event.preventDefault();
+  if (!isAdminAccount()) return showToast("Зөвхөн админ гүйцэтгэлийн бодлого өөрчилнө", "error");
+  const next = performancePolicyFromForm();
+  if (!next.service.serviceKinds.length) return showToast("Ядаж нэг үйлчилгээний дэд ангилал сонгоно уу", "error");
+  const maxVersion = Math.max(
+    Number(currentPerformancePolicy().version || 0),
+    ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0))
+  );
+  next.version = maxVersion + 1;
+  next.createdAt = new Date().toISOString();
+  next.createdBy = activeAccount.displayName || activeAccount.username || "Админ";
+  state.pricePolicy.performance = next;
+  state.pricePolicy.performanceVersions = [
+    ...(pricePolicy().performanceVersions || []),
+    structuredClone(next)
+  ];
+  const eligibleVoucherIds = new Set(next.cashier.voucherRoleIds.map(String));
+  state.voucherRoles.forEach(role => {
+    role.cashierCommissionEligible = eligibleVoucherIds.has(String(role.id));
+  });
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "performance_policy_created",
+    createdAt: auditNowText(),
+    meta: `${next.createdBy} • Хувилбар ${next.version} • ${next.effectiveFrom}`
+  });
+  saveState(["pricePolicy", "voucherRoles", "audit"]);
+  performanceRecalculatePreviewData = null;
+  renderPricePolicySettings();
+  renderInfoHeader(activeView);
+  showToast(`Гүйцэтгэлийн бодлогын ${next.version}-р хувилбар хадгалагдлаа`);
+}
+
+function previousMonthEndText() {
+  const now = new Date(`${todayText()}T00:00:00`);
+  return localDateText(new Date(now.getFullYear(), now.getMonth(), 0));
+}
+
 function renderPricePolicySettings() {
   const policy = pricePolicy();
+  const performancePolicy = currentPerformancePolicy();
   const vipRoom = document.getElementById("vipRoomFee");
   const masterStaff = document.getElementById("masterStaffFee");
   const tierSummary = document.getElementById("bonusTierSummary");
@@ -2645,8 +2846,64 @@ function renderPricePolicySettings() {
   vipRoom.value = policy.vipRoomFee;
   masterStaff.value = policy.masterStaffFee;
   if (tierSummary) tierSummary.textContent = bonusTierSummary();
+  const version = document.getElementById("performancePolicyVersion");
+  if (version) version.textContent = `Хувилбар ${performancePolicy.version}`;
+  const effectiveFrom = document.getElementById("performancePolicyEffectiveFrom");
+  if (effectiveFrom) effectiveFrom.value = performancePolicy.effectiveFrom === "0000-01-01" ? todayText() : performancePolicy.effectiveFrom;
+  const serviceRate = document.getElementById("performanceServiceRate");
+  if (serviceRate) serviceRate.value = performancePolicy.service.rate;
+  const serviceBasis = document.getElementById("performanceServiceBasis");
+  if (serviceBasis) serviceBasis.value = performancePolicy.service.basis;
+  const vipMode = document.getElementById("performanceVipFeeMode");
+  if (vipMode) vipMode.value = performancePolicy.service.vipFeeMode;
+  const masterMode = document.getElementById("performanceMasterFeeMode");
+  if (masterMode) masterMode.value = performancePolicy.service.masterFeeMode;
+  const useStaffServiceRate = document.getElementById("performanceUseStaffServiceRate");
+  if (useStaffServiceRate) useStaffServiceRate.checked = Boolean(performancePolicy.service.useStaffRate);
+  const cashierRate = document.getElementById("performanceCashierRate");
+  if (cashierRate) cashierRate.value = performancePolicy.cashier.rate;
+  const useStaffCashierRate = document.getElementById("performanceUseStaffCashierRate");
+  if (useStaffCashierRate) useStaffCashierRate.checked = Boolean(performancePolicy.cashier.useStaffRate);
+  document.querySelectorAll(".performance-service-kind").forEach(input => {
+    input.checked = performancePolicy.service.serviceKinds.includes(input.value);
+  });
+  const paymentMethods = document.getElementById("performancePaymentMethods");
+  if (paymentMethods) {
+    paymentMethods.innerHTML = `
+      <span>Кассын хувьд хамрагдах төлбөр</span>
+      ${PERFORMANCE_PAYMENT_METHODS.map(([key, label]) => `
+        <label><input class="performance-payment-method" type="checkbox" value="${key}" ${performancePolicy.cashier.paymentMethods.includes(key) ? "checked" : ""}> ${label}</label>
+      `).join("")}
+      <small>Бэлгийн картын борлуулалт нь худалдан авахдаа ашигласан Бэлэн/Карт/QPay зэрэг хэлбэрээр тооцогдоно. “Бэлгийн карт ашиглалт”-ыг сонговол зарцуулах үед нь нэмж тооцно.</small>
+    `;
+  }
+  const voucherRoles = document.getElementById("performanceVoucherRoles");
+  if (voucherRoles) {
+    const voucherEnabled = performancePolicy.cashier.paymentMethods.includes("voucher");
+    voucherRoles.classList.toggle("hidden", !voucherEnabled);
+    voucherRoles.innerHTML = `
+      <span>Урамшуулалд орох ваучерийн эрх</span>
+      ${state.voucherRoles.map(role => `
+        <label><input class="performance-voucher-role" type="checkbox" value="${htmlSafe(role.id)}" ${performancePolicy.cashier.voucherRoleIds.includes(String(role.id)) || role.cashierCommissionEligible === true ? "checked" : ""}> ${htmlSafe(role.name)}${role.position ? ` · ${htmlSafe(role.position)}` : ""}</label>
+      `).join("") || `<small>Ваучерийн эрх үүсгээгүй байна</small>`}
+    `;
+  }
+  paymentMethods?.querySelectorAll(".performance-payment-method").forEach(input => {
+    input.addEventListener("change", () => {
+      if (input.value === "voucher") voucherRoles?.classList.toggle("hidden", !input.checked);
+    });
+  });
+  const recalculateFrom = document.getElementById("performanceRecalculateFrom");
+  const recalculateTo = document.getElementById("performanceRecalculateTo");
+  if (recalculateFrom && !recalculateFrom.value) {
+    const dates = rawPerformanceTransactionDates();
+    recalculateFrom.value = dates[0] || `${todayText().slice(0, 4)}-01-01`;
+  }
+  if (recalculateTo && !recalculateTo.value) recalculateTo.value = previousMonthEndText();
+  const recalculateApply = document.getElementById("performanceRecalculateApply");
+  if (recalculateApply) recalculateApply.disabled = !performanceRecalculatePreviewData;
+  enhanceNativeSelects(["customerTypeDynamic", "performanceServiceBasis", "performanceVipFeeMode", "performanceMasterFeeMode"]);
   renderCustomerTypeManager();
-  enhanceNativeSelects(["customerTypeDynamic"]);
 }
 
 function savePricePolicy(event) {
@@ -7261,16 +7518,36 @@ function performanceDemoData() {
   return demo;
 }
 
-function performanceTransactions() {
+function performanceVoucherRoleIdForPayment(payment = {}) {
+  if (payment.voucherRoleId !== undefined && payment.voucherRoleId !== null && String(payment.voucherRoleId) !== "") {
+    return String(payment.voucherRoleId);
+  }
+  const log = state.voucherLogs.find(item => String(item.id) === String(payment.voucherLogId || ""));
+  if (log?.roleId !== undefined && log?.roleId !== null && String(log.roleId) !== "") return String(log.roleId);
+  const role = state.voucherRoles.find(item => String(item.name || "").trim() === String(payment.referenceLabel || "").trim());
+  return role ? String(role.id) : "";
+}
+
+function performancePaymentEligible(payment = {}, cashierPolicy = {}) {
+  const method = payment.method || "card";
+  if (!(cashierPolicy.paymentMethods || []).includes(method)) return false;
+  if (method !== "voucher") return true;
+  const roleId = performanceVoucherRoleIdForPayment(payment);
+  return Boolean(roleId && (cashierPolicy.voucherRoleIds || []).map(String).includes(roleId));
+}
+
+function calculatePerformanceTransactions({ policyOverride = null } = {}) {
   const transactions = [];
-  const kassEligiblePaymentMethods = new Set(["card", "qpay", "transfer", "cash", "loan_app"]);
   const add = payload => {
     const staff = state.staff.find(item => Number(item.id) === Number(payload.staffId) || item.name === payload.staff);
     if (!staff || !payload.date || !payload.salon) return;
-    const revenue = Math.max(0, Number(payload.revenue || 0));
-    const rate = payload.type === "kass"
-      ? Number(staff.kassCommission ?? 2)
-      : Number(staff.bonusCommission ?? parseFloat(staff.commission) ?? 0);
+    const revenue = payload.allowNegative ? Number(payload.revenue || 0) : Math.max(0, Number(payload.revenue || 0));
+    const appliedPolicy = performancePolicyForDate(payload.date, policyOverride);
+    const rate = payload.rate !== undefined
+      ? Number(payload.rate || 0)
+      : payload.type === "kass"
+        ? Number(appliedPolicy.cashier.useStaffRate ? (staff.kassCommission ?? appliedPolicy.cashier.rate) : appliedPolicy.cashier.rate)
+        : Number(appliedPolicy.service.useStaffRate ? (staff.bonusCommission ?? parseFloat(staff.commission) ?? appliedPolicy.service.rate) : appliedPolicy.service.rate);
     transactions.push({
       ...payload,
       staffId: staff.id,
@@ -7278,7 +7555,9 @@ function performanceTransactions() {
       homeSalon: staff.salon || "",
       revenue,
       rate,
-      commission: Math.round(revenue * rate / 100),
+      commission: payload.commission !== undefined ? Math.round(Number(payload.commission || 0)) : Math.round(revenue * rate / 100),
+      policyVersion: Number(appliedPolicy.version || 1),
+      policyEffectiveFrom: appliedPolicy.effectiveFrom || "0000-01-01",
       temporary: Boolean(payload.temporary || performanceAssignment(staff, payload.date, payload.salon))
     });
   };
@@ -7298,29 +7577,36 @@ function performanceTransactions() {
     if (payments.length) {
       payments.forEach(payment => {
         const method = payment.method || "card";
-        if (!kassEligiblePaymentMethods.has(method)) return;
+        const paymentDate = payment.date || String(payment.createdAt || "").slice(0, 10) || date;
+        const appliedPolicy = performancePolicyForDate(paymentDate, policyOverride);
+        if (!performancePaymentEligible(payment, appliedPolicy.cashier)) return;
         const recordedAmount = Number(payment.amount || 0);
         const paidAmount = payment.paidAmount !== undefined && payment.paidAmount !== null
           ? Number(payment.paidAmount || 0)
           : Math.max(0, recordedAmount - Number(payment.bonusAmount || 0));
         if (paidAmount <= 0) return;
-        const createdAt = String(payment.createdAt || "");
         addKassCommission({
-          date: payment.date || createdAt.slice(0, 10) || date,
+          id: `kass:${payment.id || `${item.id || title}:${paymentDate}:${method}`}`,
+          sourceId: payment.id || item.id || "",
+          date: paymentDate,
           salon,
           type: sourceType,
           title,
           customer,
           revenue: paidAmount,
-          paymentMethod: method
+          paymentMethod: method,
+          voucherRoleId: performanceVoucherRoleIdForPayment(payment)
         });
       });
       return;
     }
     const legacyMethod = item.paymentMethod || "card";
     const legacyPaidAmount = servicePaidAmount(item);
-    if (!kassEligiblePaymentMethods.has(legacyMethod) || legacyPaidAmount <= 0) return;
+    const appliedPolicy = performancePolicyForDate(date, policyOverride);
+    if (!performancePaymentEligible({ method: legacyMethod, referenceLabel: item.referenceLabel }, appliedPolicy.cashier) || legacyPaidAmount <= 0) return;
     addKassCommission({
+      id: `kass:legacy:${item.id || `${title}:${date}`}`,
+      sourceId: item.id || "",
       date,
       salon,
       type: sourceType,
@@ -7342,26 +7628,87 @@ function performanceTransactions() {
         return;
       }
       if (item.kind === "course") {
+        const appliedPolicy = performancePolicyForDate(date, policyOverride);
+        if (!appliedPolicy.service.serviceKinds.includes("course")) return;
         const visits = Array.isArray(item.visits) ? item.visits.filter(visit => !visit.deleted) : [];
         const visitTotal = Math.max(1, Number(item.visitsTotal || visits.length || 1));
-        const basePerVisit = Number(item.basePrice || item.price || item.total || 0) / visitTotal;
+        const originalBase = Number(item.basePrice || item.price || item.total || 0);
+        const paidBase = Math.min(originalBase, servicePaidAmount(item));
+        const basePerVisit = (appliedPolicy.service.basis === "paid" ? paidBase : originalBase) / visitTotal;
         visits.forEach((visit, index) => {
+          const visitDate = visit.date || date;
+          const visitPolicy = performancePolicyForDate(visitDate, policyOverride);
+          const vipFee = visitPolicy.service.vipFeeMode === "commission" ? Number(visit.vipRoomFee || 0) : 0;
+          const masterFee = visitPolicy.service.masterFeeMode === "commission" ? Number(visit.masterStaffFee || 0) : 0;
           const visitTransaction = {
+            id: `service:${item.id || title}:visit:${visit.id || index}`,
+            sourceId: visit.id || item.id || "",
             staff: visit.staff || item.staff,
-            date: visit.date || date,
+            date: visitDate,
             salon: visit.salon || salon,
             type: "course",
             title: `${title} · ${index + 1}-р оролт`,
             customer: customer.name,
-            revenue: basePerVisit + Number(visit.vipRoomFee || 0) + Number(visit.masterStaffFee || 0)
+            revenue: basePerVisit + vipFee + masterFee,
+            calculationBasis: visitPolicy.service.basis
           };
           add(visitTransaction);
+          if (visitPolicy.service.masterFeeMode === "direct" && Number(visit.masterStaffFee || 0) > 0) {
+            add({
+              id: `master:${item.id || title}:visit:${visit.id || index}`,
+              sourceId: visit.id || item.id || "",
+              staff: visit.staff || item.staff,
+              date: visitDate,
+              salon: visit.salon || salon,
+              type: "master",
+              sourceType: "course",
+              title: `${title} · Мастер нэмэгдэл`,
+              customer: customer.name,
+              revenue: Number(visit.masterStaffFee || 0),
+              rate: 100,
+              directPayment: true
+            });
+          }
         });
         return;
       }
       if (item.kind === "single" && item.staff) {
-        const singleTransaction = { staff: item.staff, date, salon, type: "single", title, customer: customer.name, revenue: serviceTotalAmount(item) };
+        const appliedPolicy = performancePolicyForDate(date, policyOverride);
+        if (!appliedPolicy.service.serviceKinds.includes("single")) return;
+        const originalBase = Number(item.basePrice || item.price || item.total || 0);
+        const paidBase = Math.min(originalBase, servicePaidAmount(item));
+        const baseAmount = appliedPolicy.service.basis === "paid" ? paidBase : originalBase;
+        const singleTransaction = {
+          id: `service:${item.id || `${customer.id}:${title}:${date}`}`,
+          sourceId: item.id || "",
+          staff: item.staff,
+          date,
+          salon,
+          type: "single",
+          title,
+          customer: customer.name,
+          revenue: baseAmount +
+            (appliedPolicy.service.vipFeeMode === "commission" ? Number(item.vipRoomFee || 0) : 0) +
+            (appliedPolicy.service.masterFeeMode === "commission" ? Number(item.masterStaffFee || 0) : 0),
+          calculationBasis: appliedPolicy.service.basis
+        };
         add(singleTransaction);
+        if (appliedPolicy.service.masterFeeMode === "direct" && Number(item.masterStaffFee || 0) > 0) {
+          add({
+            id: `master:${item.id || `${customer.id}:${title}:${date}`}`,
+            sourceId: item.id || "",
+            staff: item.staff,
+            date,
+            salon,
+            type: "master",
+            sourceType: "single",
+            title: `${title} · Мастер нэмэгдэл`,
+            customer: customer.name,
+            revenue: Number(item.masterStaffFee || 0),
+            rate: 100,
+            directPayment: true
+          });
+        }
       }
     });
   });
@@ -7369,17 +7716,71 @@ function performanceTransactions() {
   state.services.forEach((item, index) => {
     if (!item || item.deleted || !item.staff) return;
     const serviceTransaction = {
+      id: `service:legacy:${item.id || index}`,
+      sourceId: item.id || "",
       staff: item.staff,
       date: item.date || item.createdAt || todayText(),
       salon: item.salon || activeAccount.salon,
       type: item.kind === "course" ? "course" : "single",
       title: item.service || item.title || `Үйлчилгээ ${index + 1}`,
       customer: item.customer || "",
-      revenue: Number(item.total || item.price || 0)
+      revenue: Number(item.basePrice || item.price || item.total || 0)
     };
-    add(serviceTransaction);
+    const appliedPolicy = performancePolicyForDate(serviceTransaction.date, policyOverride);
+    if (appliedPolicy.service.serviceKinds.includes(serviceTransaction.type)) add(serviceTransaction);
+  });
+  (state.performanceAdjustments || []).forEach(adjustment => {
+    if (!adjustment || adjustment.deleted) return;
+    add({
+      id: adjustment.id || `adjustment:${adjustment.date}:${adjustment.staffId}`,
+      sourceId: adjustment.id || "",
+      staffId: adjustment.staffId,
+      staff: adjustment.staff,
+      date: adjustment.date,
+      salon: adjustment.salon,
+      type: "adjustment",
+      title: adjustment.reason || "Өмнөх сарын залруулга",
+      customer: adjustment.referenceMonth ? `${adjustment.referenceMonth} сарын залруулга` : "",
+      revenue: 0,
+      commission: Number(adjustment.amount || 0),
+      rate: 0,
+      adjustment: true
+    });
   });
   return transactions;
+}
+
+function performanceStatementScopeKey(month, salon) {
+  return `${month}|${salon}`;
+}
+
+function activePerformanceStatements() {
+  const latest = new Map();
+  (state.performanceStatements || []).forEach(statement => {
+    if (!["review", "locked"].includes(statement.status) || !statement.month || !statement.salon) return;
+    const key = performanceStatementScopeKey(statement.month, statement.salon);
+    const current = latest.get(key);
+    if (!current || String(statement.updatedAt || statement.createdAt || "").localeCompare(String(current.updatedAt || current.createdAt || "")) >= 0) {
+      latest.set(key, statement);
+    }
+  });
+  return latest;
+}
+
+function performanceTransactions({ ignoreStatements = false, policyOverride = null } = {}) {
+  const calculated = calculatePerformanceTransactions({ policyOverride });
+  if (ignoreStatements || policyOverride) return calculated;
+  const statements = activePerformanceStatements();
+  if (!statements.size) return calculated;
+  const live = calculated.filter(item => !statements.has(performanceStatementScopeKey(String(item.date || "").slice(0, 7), item.salon)));
+  statements.forEach(statement => {
+    (Array.isArray(statement.transactions) ? statement.transactions : []).forEach(item => live.push(structuredClone(item)));
+  });
+  return live;
+}
+
+function rawPerformanceTransactionDates() {
+  return calculatePerformanceTransactions().map(item => item.date).filter(Boolean).sort();
 }
 
 function performanceDataMonths() {
@@ -7400,6 +7801,350 @@ function performanceRangeForMonth(value) {
     from: `${value}-01`,
     to: localDateText(new Date(year, month, 0))
   };
+}
+
+function performanceStatementFor(month, salon) {
+  return (state.performanceStatements || [])
+    .filter(item => item.month === month && item.salon === salon)
+    .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null;
+}
+
+function performanceStatementSalons(month, selectedSalon = "all", transactions = null) {
+  if (selectedSalon !== "all") return selectedSalon ? [selectedSalon] : [];
+  const source = transactions || calculatePerformanceTransactions();
+  return [...new Set([
+    ...accountSalons().map(item => item.name),
+    ...source.filter(item => String(item.date || "").startsWith(`${month}-`)).map(item => item.salon)
+  ].filter(Boolean))];
+}
+
+function archivePerformanceStatement(statement, reason) {
+  if (!statement) return;
+  state.performanceStatementHistory.unshift({
+    ...structuredClone(statement),
+    archivedAt: new Date().toISOString(),
+    archivedBy: activeAccount.displayName || activeAccount.username || "Систем",
+    archiveReason: reason
+  });
+}
+
+function upsertPerformanceStatement({ month, salon, status, transactions, policy, reason = "" }) {
+  const existing = performanceStatementFor(month, salon);
+  if (existing) archivePerformanceStatement(existing, reason || "Шинэ хувилбараар сольсон");
+  const now = new Date().toISOString();
+  const actor = activeAccount.displayName || activeAccount.username || "Систем";
+  const statement = {
+    id: existing?.id || entityId("performance-statement"),
+    month,
+    salon,
+    status,
+    policyVersion: Number(policy?.version || currentPerformancePolicy().version || 1),
+    transactions: structuredClone(transactions || []),
+    totalRevenue: Math.round((transactions || []).reduce((sum, item) => sum + Number(item.revenue || 0), 0)),
+    totalCommission: Math.round((transactions || []).reduce((sum, item) => sum + Number(item.commission || 0), 0)),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    updatedBy: actor,
+    submittedAt: status === "review" ? now : existing?.submittedAt || "",
+    submittedBy: status === "review" ? actor : existing?.submittedBy || "",
+    lockedAt: status === "locked" ? now : "",
+    lockedBy: status === "locked" ? actor : ""
+  };
+  state.performanceStatements = (state.performanceStatements || []).filter(item => !(item.month === month && item.salon === salon));
+  state.performanceStatements.push(statement);
+  return statement;
+}
+
+function selectedPerformanceMonth() {
+  return document.getElementById("performanceMonth")?.value || "";
+}
+
+function selectedPerformanceSalon() {
+  return isSalonAccount() ? activeAccount.salon : (document.getElementById("performanceSalon")?.value || "all");
+}
+
+function performanceMonthStatus(month, salon) {
+  if (!month) return { status: "open", statements: [], salons: [] };
+  const salons = performanceStatementSalons(month, salon);
+  const statements = salons.map(name => performanceStatementFor(month, name)).filter(Boolean);
+  if (salons.length && statements.length === salons.length && statements.every(item => item.status === "locked")) {
+    return { status: "locked", statements, salons };
+  }
+  if (salons.length && statements.length === salons.length && statements.every(item => ["review", "locked"].includes(item.status))) {
+    return { status: "review", statements, salons };
+  }
+  return { status: "open", statements, salons };
+}
+
+function performanceMonthPreflight(month, selectedSalon) {
+  const range = performanceRangeForMonth(month);
+  const issues = [];
+  state.customers.forEach(customer => {
+    (customer.serviceHistory || []).forEach(item => {
+      if (!item || item.deleted) return;
+      const itemSalon = item.salon || customer.salon || "";
+      if (selectedSalon !== "all" && itemSalon !== selectedSalon) return;
+      const itemDate = String(item.date || item.createdAt || "").slice(0, 10);
+      if (itemDate < range.from || itemDate > range.to) return;
+      if (item.kind === "single" && !item.staff) issues.push(`${customer.name}: нэг удаагийн үйлчилгээнд ажилтан сонгоогүй`);
+      if (item.kind === "course") {
+        (item.visits || []).filter(visit => !visit.deleted).forEach((visit, index) => {
+          if (!visit.staff && !item.staff) issues.push(`${customer.name}: курсийн ${index + 1}-р оролтод ажилтан сонгоогүй`);
+        });
+      }
+      (item.payments || []).forEach(payment => {
+        const date = payment.date || String(payment.createdAt || "").slice(0, 10) || itemDate;
+        if (date < range.from || date > range.to) return;
+        const paymentSalon = itemSalon;
+        const policy = performancePolicyForDate(date);
+        if (performancePaymentEligible(payment, policy.cashier) && !state.kassSchedules.some(entry => entry.date === date && entry.salon === paymentSalon && entry.staff)) {
+          issues.push(`${date} ${paymentSalon}: кассын хуваарьгүй төлбөр`);
+        }
+        if (payment.method === "voucher" && !performanceVoucherRoleIdForPayment(payment)) {
+          issues.push(`${customer.name}: төрөл нь тодорхойгүй ваучер`);
+        }
+      });
+    });
+  });
+  return [...new Set(issues)];
+}
+
+function savePerformanceMonthStatus(status) {
+  const month = selectedPerformanceMonth();
+  const salon = selectedPerformanceSalon();
+  if (!month) return showToast("Сар сонгоно уу", "error");
+  if (status === "locked" && !isAdminAccount()) return showToast("Зөвхөн админ сарын тайлан түгжинэ", "error");
+  if (status === "locked" && month >= todayText().slice(0, 7) && !window.confirm("Энэ сар хараахан дуусаагүй байна. Одоо түгжвэл дараагийн гүйлгээ тайланд орохгүй. Үргэлжлүүлэх үү?")) return;
+  if (status === "review") {
+    const issues = performanceMonthPreflight(month, salon);
+    if (issues.length) {
+      const sample = issues.slice(0, 5).map(item => `• ${item}`).join("\n");
+      const more = issues.length > 5 ? `\n…мөн ${issues.length - 5} асуудал` : "";
+      if (!window.confirm(`Тайланд ${issues.length} анхаарах зүйл байна:\n${sample}${more}\n\nГэсэн ч хяналтад илгээх үү?`)) return;
+    }
+  }
+  const raw = calculatePerformanceTransactions();
+  const salons = performanceStatementSalons(month, salon, raw);
+  const range = performanceRangeForMonth(month);
+  salons.forEach(name => {
+    const existing = performanceStatementFor(month, name);
+    if (existing?.status === "locked") return;
+    const transactions = status === "locked" && existing?.status === "review"
+      ? existing.transactions
+      : raw.filter(item => item.salon === name && item.date >= range.from && item.date <= range.to);
+    upsertPerformanceStatement({
+      month,
+      salon: name,
+      status,
+      transactions,
+      policy: performancePolicyForDate(range.to),
+      reason: status === "locked" ? "Сарын тайлан баталж түгжсэн" : "Сарын тайлан хяналтад илгээсэн"
+    });
+  });
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: status === "locked" ? "performance_month_locked" : "performance_month_submitted",
+    createdAt: auditNowText(),
+    meta: `${activeAccount.displayName || "Систем"} • ${month} • ${salon === "all" ? "Бүх салбар" : salon}`
+  });
+  saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
+  renderPerformance();
+  showToast(status === "locked" ? "Сарын тайлан батлагдаж түгжигдлээ" : "Сарын тайлан хяналтад илгээгдлээ");
+}
+
+function reopenPerformanceMonth() {
+  if (!isAdminAccount()) return showToast("Зөвхөн админ тайлан дахин нээнэ", "error");
+  const month = selectedPerformanceMonth();
+  const salon = selectedPerformanceSalon();
+  const reason = window.prompt("Тайлан дахин нээх шалтгаанаа бичнэ үү");
+  if (!reason?.trim()) return;
+  const salons = performanceStatementSalons(month, salon);
+  salons.forEach(name => {
+    const existing = performanceStatementFor(month, name);
+    if (existing) archivePerformanceStatement(existing, `Дахин нээсэн: ${reason.trim()}`);
+    state.performanceStatements = state.performanceStatements.filter(item => !(item.month === month && item.salon === name));
+  });
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "performance_month_reopened",
+    createdAt: auditNowText(),
+    meta: `${activeAccount.displayName || "Админ"} • ${month} • ${salon} • ${reason.trim()}`
+  });
+  saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
+  renderPerformance();
+  showToast("Сарын тайлан дахин нээгдлээ");
+}
+
+function openPerformanceAdjustmentModal() {
+  if (!isAdminAccount()) return showToast("Зөвхөн админ гүйцэтгэлийн залруулга нэмнэ", "error");
+  const month = selectedPerformanceMonth() || todayText().slice(0, 7);
+  const selectedSalon = selectedPerformanceSalon();
+  const salons = accountSalons().map(item => item.name);
+  const defaultSalon = selectedSalon !== "all" ? selectedSalon : salons[0] || "";
+  openModal(
+    "Гүйцэтгэлийн залруулга",
+    "Түгжсэн тайланг хөдөлгөхгүйгээр нээлттэй сард нэмэх/хасах дүн бүртгэнэ",
+    `
+      <form id="performanceAdjustmentForm" class="clean-form performance-adjustment-form">
+        <label>Хамаарах өмнөх сар
+          <input class="input" id="performanceAdjustmentReference" type="month" value="${htmlSafe(month)}" required>
+        </label>
+        <label>Залруулга орох огноо
+          <input class="input" id="performanceAdjustmentDate" type="date" value="${htmlSafe(todayText())}" required>
+        </label>
+        <label>Салбар
+          <select class="input" id="performanceAdjustmentSalon">
+            ${salons.map(name => `<option ${name === defaultSalon ? "selected" : ""}>${htmlSafe(name)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Ажилтан
+          <select class="input" id="performanceAdjustmentStaff">
+            ${state.staff.filter(item => item.status !== "inactive").map(item => `<option value="${item.id}">${htmlSafe(item.name)} · ${htmlSafe(item.salon || "")}</option>`).join("")}
+          </select>
+        </label>
+        <label>Нэмэх/хасах дүн
+          <input class="input" id="performanceAdjustmentAmount" type="number" step="1" placeholder="Жишээ: 10000 эсвэл -10000" required>
+        </label>
+        <label>Шалтгаан
+          <input class="input" id="performanceAdjustmentReason" placeholder="Өмнөх сарын тооцооны залруулга" required>
+        </label>
+        <div class="form-actions">
+          <button class="secondary-btn" id="performanceAdjustmentCancel" type="button">Болих</button>
+          <button class="primary-btn" type="submit">Залруулга хадгалах</button>
+        </div>
+      </form>
+    `,
+    () => {
+      enhanceNativeSelects(["performanceAdjustmentSalon", "performanceAdjustmentStaff"]);
+      document.getElementById("performanceAdjustmentCancel")?.addEventListener("click", closeModal);
+      document.getElementById("performanceAdjustmentForm")?.addEventListener("submit", event => {
+        event.preventDefault();
+        const date = formValue("performanceAdjustmentDate");
+        const dateMonth = date.slice(0, 7);
+        const dateStatus = performanceMonthStatus(dateMonth, formValue("performanceAdjustmentSalon"));
+        if (dateStatus.status !== "open") return showToast("Залруулга орох сар нээлттэй байх ёстой", "error");
+        const staff = state.staff.find(item => Number(item.id) === Number(formValue("performanceAdjustmentStaff")));
+        const amount = Number(formValue("performanceAdjustmentAmount"));
+        const reason = formValue("performanceAdjustmentReason");
+        if (!staff || !date || !amount || !reason) return showToast("Залруулгын мэдээллийг бүрэн оруулна уу", "error");
+        const adjustment = {
+          id: entityId("performance-adjustment"),
+          referenceMonth: formValue("performanceAdjustmentReference"),
+          date,
+          salon: formValue("performanceAdjustmentSalon"),
+          staffId: staff.id,
+          staff: staff.name,
+          amount,
+          reason,
+          createdAt: new Date().toISOString(),
+          createdBy: activeAccount.displayName || activeAccount.username || "Админ"
+        };
+        state.performanceAdjustments.unshift(adjustment);
+        state.audit.unshift({
+          id: entityId("audit"),
+          title: "performance_adjustment_created",
+          createdAt: auditNowText(),
+          meta: `${adjustment.createdBy} • ${staff.name} • ${money(amount)} • ${reason}`
+        });
+        saveState(["performanceAdjustments", "audit"]);
+        closeModal();
+        renderPerformance();
+        showToast("Гүйцэтгэлийн залруулга хадгалагдлаа");
+      });
+    }
+  );
+}
+
+function renderPerformanceMonthWorkflow() {
+  const statusNode = document.getElementById("performanceCloseStatus");
+  const metaNode = document.getElementById("performanceCloseMeta");
+  const actionsNode = document.getElementById("performanceCloseActions");
+  if (!statusNode || !metaNode || !actionsNode) return;
+  const month = selectedPerformanceMonth();
+  const status = performanceMonthStatus(month, selectedPerformanceSalon());
+  const labels = { open: "Нээлттэй", review: "Хянаж байгаа", locked: "Баталж түгжсэн" };
+  statusNode.textContent = labels[status.status] || labels.open;
+  statusNode.dataset.status = status.status;
+  const last = status.statements.slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+  metaNode.textContent = status.status === "open"
+    ? "Гүйлгээ өөрчлөгдөх бүрд шинэчлэгдэнэ"
+    : `${last?.updatedBy || "Систем"} • ${String(last?.updatedAt || "").replace("T", " ").slice(0, 16)}`;
+  const adjustmentButton = isAdminAccount() ? `<button class="secondary-btn" type="button" data-performance-month-action="adjustment">Залруулга нэмэх</button>` : "";
+  actionsNode.innerHTML = status.status === "open"
+    ? `${adjustmentButton}<button class="secondary-btn" type="button" data-performance-month-action="review">Хяналтад илгээх</button>`
+    : status.status === "review"
+      ? `${adjustmentButton}${isAdminAccount() ? `<button class="primary-btn" type="button" data-performance-month-action="locked">Баталж түгжих</button>` : ""}${isAdminAccount() ? `<button class="secondary-btn" type="button" data-performance-month-action="reopen">Дахин нээх</button>` : ""}`
+      : `${adjustmentButton}${isAdminAccount() ? `<button class="secondary-btn" type="button" data-performance-month-action="reopen">Дахин нээх</button>` : ""}`;
+  actionsNode.querySelectorAll("[data-performance-month-action]").forEach(button => {
+    button.addEventListener("click", () => {
+      if (button.dataset.performanceMonthAction === "reopen") reopenPerformanceMonth();
+      else if (button.dataset.performanceMonthAction === "adjustment") openPerformanceAdjustmentModal();
+      else savePerformanceMonthStatus(button.dataset.performanceMonthAction);
+    });
+  });
+}
+
+function previewPerformanceRecalculation() {
+  if (!isAdminAccount()) return showToast("Зөвхөн админ өмнөх тайлан дахин тооцно", "error");
+  const from = formValue("performanceRecalculateFrom");
+  const to = formValue("performanceRecalculateTo");
+  if (!from || !to || to < from) return showToast("Дахин тооцох огнооны дарааллыг шалгана уу", "error");
+  const policy = currentPerformancePolicy();
+  const recalculated = calculatePerformanceTransactions({ policyOverride: policy })
+    .filter(item => item.date >= from && item.date <= to);
+  if (!recalculated.length) return showToast("Сонгосон хугацаанд дахин тооцох гүйлгээ алга", "warning");
+  const current = performanceTransactions().filter(item => item.date >= from && item.date <= to);
+  const groups = new Map();
+  recalculated.forEach(item => {
+    const key = performanceStatementScopeKey(item.date.slice(0, 7), item.salon);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  performanceRecalculatePreviewData = {
+    from,
+    to,
+    policy: structuredClone(policy),
+    groups: [...groups.entries()].map(([key, transactions]) => {
+      const [month, salon] = key.split("|");
+      return { month, salon, transactions };
+    })
+  };
+  const oldTotal = current.reduce((sum, item) => sum + Number(item.commission || 0), 0);
+  const newTotal = recalculated.reduce((sum, item) => sum + Number(item.commission || 0), 0);
+  const result = document.getElementById("performanceRecalculateResult");
+  if (result) result.innerHTML = `
+    <strong>${performanceRecalculatePreviewData.groups.length} сар-салбар • ${recalculated.length} гүйлгээ</strong>
+    <span>Одоогийн дүн ${money(oldTotal)} → Шинэ зөв дүн <b>${money(newTotal)}</b> • Зөрүү ${money(newTotal - oldTotal)}</span>
+  `;
+  const apply = document.getElementById("performanceRecalculateApply");
+  if (apply) apply.disabled = false;
+}
+
+function applyPerformanceRecalculation() {
+  if (!isAdminAccount() || !performanceRecalculatePreviewData) return;
+  const preview = performanceRecalculatePreviewData;
+  if (!window.confirm(`${preview.from}–${preview.to} хугацааны тайланг дахин тооцож түгжих үү?`)) return;
+  preview.groups.forEach(group => {
+    upsertPerformanceStatement({
+      ...group,
+      status: "locked",
+      policy: preview.policy,
+      reason: "Өмнөх тайланг шинэ бодлогоор нэг удаа дахин тооцсон"
+    });
+  });
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "performance_history_recalculated",
+    createdAt: auditNowText(),
+    meta: `${activeAccount.displayName || "Админ"} • ${preview.from}–${preview.to} • ${preview.groups.length} сар-салбар`
+  });
+  saveState(["performanceStatements", "performanceStatementHistory", "audit"]);
+  performanceRecalculatePreviewData = null;
+  const result = document.getElementById("performanceRecalculateResult");
+  if (result) result.innerHTML = `<strong>Дахин тооцоолж түгжлээ</strong><span>${preview.from}–${preview.to} хугацааны зөв дүн хадгалагдсан.</span>`;
+  const apply = document.getElementById("performanceRecalculateApply");
+  if (apply) apply.disabled = true;
+  showToast("Өмнөх тайлан зөв дүнгээр хадгалагдаж түгжигдлээ");
 }
 
 function buildPerformanceReport() {
@@ -7495,6 +8240,7 @@ function renderPerformance() {
   rows.querySelectorAll(".performance-detail-btn").forEach(button => {
     button.addEventListener("click", () => openStaffPerformanceDetail(Number(button.dataset.id)));
   });
+  renderPerformanceMonthWorkflow();
   enhanceNativeSelects(["performanceMonth", "performanceSalon"]);
 }
 
@@ -7503,6 +8249,8 @@ function htmlSafe(value = "") {
 }
 
 function performanceTransactionTypeLabel(item) {
+  if (item.type === "master") return "Мастер нэмэгдэл";
+  if (item.type === "adjustment") return "Залруулга";
   if (item.type === "kass" && item.sourceType === "course") return "Курсийн төлбөр";
   if (item.type === "kass" && item.sourceType === "single") return "Нэг удаагийн төлбөр";
   const displayType = item.type === "kass" ? (item.sourceType || "kass") : item.type;
@@ -10053,6 +10801,7 @@ function bindInlinePaymentForms(customer) {
         method: methodSelect?.value || "",
         methodLabel,
         referenceLabel,
+        voucherRoleId: voucherLog?.roleId || "",
         giftCardUsageId,
         voucherLogId: voucherLog?.id || "",
         createdById: activeAccount.id || 0,
@@ -11730,7 +12479,7 @@ function renderVouchers() {
     <div class="voucher-role-item">
       <div class="voucher-role-main">
         <strong>${role.name}</strong>
-        <span>${role.position || ""}</span>
+        <span>${role.position || ""}${role.cashierCommissionEligible ? ` · <b class="voucher-commission-eligible">Кассын %-д орно</b>` : " · Кассын %-д орохгүй"}</span>
       </div>
       <div class="table-actions">
         <button class="secondary-btn icon-action voucher-role-edit" type="button" data-id="${role.id}" aria-label="Засах">${editIcon()}</button>
@@ -11769,11 +12518,28 @@ function renderVouchers() {
       if (!await requireDeleteCode()) return;
       const id = Number(button.dataset.id);
       state.voucherRoles = state.voucherRoles.filter(item => Number(item.id) !== id);
+      const currentPolicy = currentPerformancePolicy();
+      if (currentPolicy.cashier.voucherRoleIds.map(String).includes(String(id))) {
+        const maxVersion = Math.max(Number(currentPolicy.version || 0), ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0)));
+        const nextPolicy = normalizedPerformancePolicy({
+          ...currentPolicy,
+          version: maxVersion + 1,
+          effectiveFrom: todayText(),
+          createdAt: new Date().toISOString(),
+          createdBy: activeAccount.displayName || activeAccount.username || "Админ",
+          cashier: {
+            ...currentPolicy.cashier,
+            voucherRoleIds: currentPolicy.cashier.voucherRoleIds.filter(roleId => String(roleId) !== String(id))
+          }
+        });
+        state.pricePolicy.performance = nextPolicy;
+        state.pricePolicy.performanceVersions.push(structuredClone(nextPolicy));
+      }
       if (Number(voucherRoleEditingId) === id) {
         voucherRoleEditingId = null;
         document.getElementById("voucherRoleForm")?.reset();
       }
-      saveState();
+      saveState(["voucherRoles", "pricePolicy"]);
       renderVouchers();
       renderInfoHeader(activeView);
       showToast("Ваучерийн эрх устлаа");
@@ -11786,6 +12552,7 @@ function renderVouchers() {
       voucherRoleEditingId = role.id;
       document.getElementById("voucherRoleName").value = role.name || "";
       document.getElementById("voucherRolePosition").value = role.position || "";
+      document.getElementById("voucherRoleCashierEligible").checked = Boolean(role.cashierCommissionEligible);
       renderVouchers();
       renderInfoHeader(activeView);
     });
@@ -12327,7 +13094,7 @@ function databaseCategoryStateKeys(category = "all") {
     bookings: ["bookings"],
     services: ["customers", "services", "catalog", "diagnosisTypes"],
     kass: ["customers", "kassSchedules", "voucherLogs", "giftCards", "voucherRoles"],
-    staff: ["staff", "assignments"],
+    staff: ["staff", "assignments", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
     settings: ["salons", "holidays", "scheduleSettings", "generalSettings", "homepageSettings", "pricePolicy", "discounts"]
   };
   return keys[category] || Object.keys(state).filter(key => !key.startsWith("paginationDemo"));
@@ -12821,6 +13588,12 @@ function auditActionText(title = "") {
     group_updated: "Группийн мэдээллийг зассан",
     catalog_created: "Бараа, үйлчилгээ нэмсэн",
     excel_exported: "Тайлан татсан",
+    performance_policy_created: "Гүйцэтгэлийн бодлого шинэчилсэн",
+    performance_month_submitted: "Сарын гүйцэтгэлийг хяналтад илгээсэн",
+    performance_month_locked: "Сарын гүйцэтгэлийг баталж түгжсэн",
+    performance_month_reopened: "Сарын гүйцэтгэлийн тайланг дахин нээсэн",
+    performance_history_recalculated: "Өмнөх гүйцэтгэлийг дахин тооцсон",
+    performance_adjustment_created: "Гүйцэтгэлийн залруулга нэмсэн",
     database_cleared: "Үйл ажиллагааны өгөгдөл цэвэрлэсэн",
     user_created: "Системийн хэрэглэгч нэмсэн",
     user_updated: "Системийн хэрэглэгчийн мэдээлэл зассан",
@@ -13911,16 +14684,42 @@ function bindEvents() {
     event.preventDefault();
     const name = formValue("voucherRoleName");
     const position = formValue("voucherRolePosition");
+    const cashierCommissionEligible = Boolean(document.getElementById("voucherRoleCashierEligible")?.checked);
     if (!name) return;
     const wasEditing = Boolean(voucherRoleEditingId);
+    let savedRole = null;
+    let eligibilityChanged = false;
     if (wasEditing) {
       const role = state.voucherRoles.find(item => Number(item.id) === Number(voucherRoleEditingId));
-      if (role) Object.assign(role, { name, position });
+      if (role) {
+        eligibilityChanged = Boolean(role.cashierCommissionEligible) !== cashierCommissionEligible;
+        Object.assign(role, { name, position, cashierCommissionEligible });
+        savedRole = role;
+      }
       voucherRoleEditingId = null;
     } else {
-      state.voucherRoles.unshift({ id: nextVoucherRoleId(), name, position });
+      savedRole = { id: nextVoucherRoleId(), name, position, cashierCommissionEligible };
+      state.voucherRoles.unshift(savedRole);
+      eligibilityChanged = cashierCommissionEligible;
     }
-    saveState();
+    if (savedRole && eligibilityChanged) {
+      const current = currentPerformancePolicy();
+      const ids = new Set(current.cashier.voucherRoleIds.map(String));
+      if (cashierCommissionEligible) ids.add(String(savedRole.id));
+      else ids.delete(String(savedRole.id));
+      const maxVersion = Math.max(Number(current.version || 0), ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0)));
+      const nextPolicy = normalizedPerformancePolicy({
+        ...current,
+        version: maxVersion + 1,
+        effectiveFrom: todayText(),
+        createdAt: new Date().toISOString(),
+        createdBy: activeAccount.displayName || activeAccount.username || "Админ",
+        cashier: { ...current.cashier, voucherRoleIds: [...ids] }
+      });
+      state.pricePolicy.performance = nextPolicy;
+      state.pricePolicy.performanceVersions.push(structuredClone(nextPolicy));
+    }
+    saveState(["voucherRoles", "pricePolicy"]);
     event.target.reset();
     renderVouchers();
     renderInfoHeader(activeView);
@@ -13977,6 +14776,9 @@ function bindEvents() {
     showToast(activeView === "giftCards" ? "Бэлгийн картын Excel бэлтгэгдлээ" : "Ваучерийн Excel бэлтгэгдлээ");
   });
   document.getElementById("pricePolicyForm")?.addEventListener("submit", savePricePolicy);
+  document.getElementById("performancePolicyForm")?.addEventListener("submit", savePerformancePolicyVersion);
+  document.getElementById("performanceRecalculatePreview")?.addEventListener("click", previewPerformanceRecalculation);
+  document.getElementById("performanceRecalculateApply")?.addEventListener("click", applyPerformanceRecalculation);
   document.getElementById("customerTypeForm")?.addEventListener("submit", saveCustomerType);
   document.getElementById("discountForm")?.addEventListener("submit", saveDiscount);
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);

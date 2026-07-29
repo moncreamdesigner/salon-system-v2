@@ -168,7 +168,7 @@ function known_salon_scope_keys(PDO $pdo): array
 
 function bump_scope_revisions(PDO $pdo, array $user, array $sectionKeys = [], ?string $salonOverride = null): int
 {
-    $sharedSections = ['customers', 'customerGroups', 'voucherRoles', 'voucherLogs', 'giftCards', 'salons', 'staff', 'assignments', 'holidays', 'homepageSettings', 'pricePolicy', 'discounts', 'customerTypes', 'customerTypeRules', '_serviceSettings'];
+    $sharedSections = ['customers', 'customerGroups', 'voucherRoles', 'voucherLogs', 'giftCards', 'salons', 'staff', 'assignments', 'holidays', 'homepageSettings', 'pricePolicy', 'discounts', 'customerTypes', 'customerTypeRules', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments', '_serviceSettings'];
     $touchAllSalons = ($user['role'] ?? '') !== 'salon' || count(array_intersect($sharedSections, $sectionKeys)) > 0;
     $keys = ['global'];
     if ($touchAllSalons) $keys = array_merge($keys, known_salon_scope_keys($pdo));
