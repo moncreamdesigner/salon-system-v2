@@ -1,5 +1,10 @@
 const PUBLIC_STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const PUBLIC_UI_STATE_KEY = "khalgai_public_ui_state_v1";
+const PUBLIC_VIEW_ROUTES = Object.freeze({
+  catalog: "/catalog",
+  booking: "/booking",
+  results: "/results"
+});
 const publicDefaultSettings = {
   catalog: {
     flipHtml5Code: window.KhalgaiFlipHtml5.DEFAULT_CODE,
@@ -145,8 +150,30 @@ async function loadPublicData() {
   publicSettings = mergePublicSettings(publicState.homepageSettings);
 }
 
-function setPublicView(name) {
+function publicViewFromLocation() {
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  return Object.prototype.hasOwnProperty.call(PUBLIC_VIEW_ROUTES, path) ? path : "";
+}
+
+function syncPublicViewRoute(viewName, historyMode = "push") {
+  if (historyMode === "none") return;
+  const nextUrl = new URL(window.location.href);
+  nextUrl.pathname = PUBLIC_VIEW_ROUTES[viewName] || PUBLIC_VIEW_ROUTES.catalog;
+  nextUrl.searchParams.delete("build");
+  nextUrl.hash = "";
+  const nextPath = `${nextUrl.pathname}${nextUrl.search}`;
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  const state = { ...(window.history.state || {}), publicView: viewName };
+  if (historyMode === "replace") {
+    window.history.replaceState(state, "", nextPath);
+  } else if (nextPath !== currentPath) {
+    window.history.pushState(state, "", nextPath);
+  }
+}
+
+function setPublicView(name, options = {}) {
   activePublicView = ["catalog", "booking", "results"].includes(name) ? name : "catalog";
+  syncPublicViewRoute(activePublicView, options.historyMode || "push");
   savePublicUiState();
   document.getElementById("publicApp")?.classList.toggle("catalog-mode", activePublicView === "catalog");
   document.querySelectorAll("[data-public-view]").forEach(view => view.classList.toggle("active", view.dataset.publicView === activePublicView));
@@ -154,7 +181,7 @@ function setPublicView(name) {
   if (activePublicView === "booking") renderSalonDirectory();
   if (activePublicView === "results") renderResults();
   void refreshActivePublicView(activePublicView);
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (options.scroll !== false) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 let publicRefreshInFlight = false;
@@ -704,12 +731,17 @@ function bindPublicEvents() {
     const slider = event.target.closest("[data-result-slider]");
     if (slider) finishResultSlideDrag(slider, Number(slider.dataset.dragStartX));
   });
+  window.addEventListener("popstate", () => {
+    const routeView = publicViewFromLocation();
+    if (routeView) setPublicView(routeView, { historyMode: "none", scroll: false });
+  });
 }
 
 async function initializePublicApp() {
   await loadPublicData();
   const restoredUi = readPublicUiState();
-  const restoredView = ["catalog", "booking", "results"].includes(restoredUi.view) ? restoredUi.view : "catalog";
+  const routeView = publicViewFromLocation();
+  const restoredView = routeView || (["catalog", "booking", "results"].includes(restoredUi.view) ? restoredUi.view : "catalog");
   selectedSalonId = restoredUi.salonId ?? null;
   selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(restoredUi.selectedDate || "")) ? restoredUi.selectedDate : "";
   selectedTime = /^\d{2}:\d{2}$/.test(String(restoredUi.selectedTime || "")) ? restoredUi.selectedTime : "";
@@ -724,7 +756,7 @@ async function initializePublicApp() {
   renderSalonDirectory();
   renderResults();
   bindPublicEvents();
-  setPublicView(restoredView);
+  setPublicView(restoredView, { historyMode: "replace", scroll: false });
   if (restoredView === "booking" && activeSalons().some(item => Number(item.id) === Number(selectedSalonId))) {
     if (bookingSubmissionSucceeded && lastSuccessfulBooking) renderBookingSuccessScreen(lastSuccessfulBooking);
     else renderSalonDetail(selectedSalonId, { preserveSelection: true, preserveScroll: true });

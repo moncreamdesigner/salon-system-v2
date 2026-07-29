@@ -26,5 +26,10 @@ RewriteRule .* - [E=Cache-Control:no-cache]
 RewriteCond %{THE_REQUEST} \s/+login/[?\s] [NC]
 RewriteRule ^login/$ /login [R=302,L]
 
+RewriteCond %{THE_REQUEST} \s/+((?:catalog|booking|results))/[?\s] [NC]
+RewriteRule ^(catalog|booking|results)/$ /$1 [R=302,L]
+
+RewriteRule ^(catalog|booking|results)$ booking.html [L]
+
 # Одоогийн салон удирдлагын систем.
 RewriteRule ^login$ index.html [L]

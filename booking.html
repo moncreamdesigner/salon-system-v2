@@ -6,22 +6,31 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202607291000">
+  <meta name="app-build" content="202607300200">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
-      const versionUrl = new URL("version.json", window.location.href);
+      const reloadKey = "khalgai_public_reload_build";
+      const cleanUrl = new URL(window.location.href);
+      if (cleanUrl.searchParams.has("build")) {
+        cleanUrl.searchParams.delete("build");
+        window.history.replaceState(window.history.state, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+      }
+      const versionUrl = new URL("/version.json", window.location.origin);
       const checkForUpdate = () => {
         versionUrl.searchParams.set("_", Date.now());
         return fetch(versionUrl, { cache: "no-store" })
         .then(response => response.ok ? response.json() : null)
         .then(result => {
           const latestBuild = String(result?.version || "");
-          if (!latestBuild || latestBuild === currentBuild) return;
-          const pageUrl = new URL(window.location.href);
-          if (pageUrl.searchParams.get("build") === latestBuild) return;
-          pageUrl.searchParams.set("build", latestBuild);
-          window.location.replace(pageUrl.toString());
+          if (!latestBuild) return;
+          if (latestBuild === currentBuild) {
+            sessionStorage.removeItem(reloadKey);
+            return;
+          }
+          if (sessionStorage.getItem(reloadKey) === latestBuild) return;
+          sessionStorage.setItem(reloadKey, latestBuild);
+          window.location.reload();
         })
           .catch(() => {});
       };
@@ -33,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Philosopher:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="public.css?v=202607291000">
+  <link rel="stylesheet" href="public.css?v=202607300200">
   <link rel="stylesheet" href="fliphtml5.css?v=202607210143">
 </head>
 <body>
@@ -66,6 +75,6 @@
     </nav>
   </main>
   <script src="fliphtml5.js?v=202607210143"></script>
-  <script src="public.js?v=202607291000"></script>
+  <script src="public.js?v=202607300200"></script>
 </body>
 </html>
