@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260729-05">
+  <link rel="stylesheet" href="styles.css?v=20260729-06">
 </head>
 <body>
   <div class="app-shell">
@@ -1134,57 +1134,76 @@
             <span class="performance-policy-version" id="performancePolicyVersion">Хувилбар 1</span>
           </div>
           <form id="performancePolicyForm" class="performance-policy-form">
-            <label>Хэрэгжих огноо
-              <input class="input" id="performancePolicyEffectiveFrom" type="date" required>
-            </label>
+            <div class="performance-policy-meta">
+              <label class="performance-effective-field">Хэрэгжих огноо
+                <input class="input" id="performancePolicyEffectiveFrom" type="date" required>
+              </label>
+              <p>Энэ өдрөөс хойших нээлттэй гүйцэтгэлийг шинэ хувиар тооцно.</p>
+            </div>
 
-            <fieldset class="performance-policy-card">
-              <legend>Массажистын урамшуулал</legend>
-              <label>Хувь
-                <input class="input" id="performanceServiceRate" type="number" min="0" max="100" step="0.01">
-              </label>
-              <label>Тооцох үнэ
-                <select class="input" id="performanceServiceBasis">
-                  <option value="base">Үндсэн үнэ (хямдрал, ваучер нөлөөлөхгүй)</option>
-                  <option value="paid">Бодитоор төлсөн үнэ</option>
-                </select>
-              </label>
-              <label>VIP нэмэгдэл
-                <select class="input" id="performanceVipFeeMode">
-                  <option value="exclude">Хувьд оруулахгүй</option>
-                  <option value="commission">Хувьд оруулна</option>
-                </select>
-              </label>
-              <label>Мастер нэмэгдэл
-                <select class="input" id="performanceMasterFeeMode">
-                  <option value="direct">Шууд массажистад олгоно</option>
-                  <option value="commission">Хувьд оруулна</option>
-                  <option value="exclude">Тооцохгүй</option>
-                </select>
-              </label>
-              <label class="performance-policy-toggle">
-                <input id="performanceUseStaffServiceRate" type="checkbox">
-                Ажилтанд тусгайлан тохируулсан хувийг ашиглах
-              </label>
-              <div class="performance-policy-options">
-                <span>Хамрагдах дэд ангилал</span>
-                <label><input class="performance-service-kind" type="checkbox" value="single"> Нэг удаа</label>
-                <label><input class="performance-service-kind" type="checkbox" value="course"> Курс эмчилгээ</label>
-              </div>
-            </fieldset>
+            <div class="performance-policy-grid">
+              <section class="performance-policy-card">
+                <div class="performance-policy-card-head">
+                  <span class="performance-policy-card-mark">Ү</span>
+                  <div>
+                    <h3>Үйлчилгээний урамшуулал</h3>
+                    <p>Массажистын гүйцэтгэлд тооцох үндсэн дүрэм</p>
+                  </div>
+                </div>
+                <div class="performance-policy-fields service-policy-fields">
+                  <label>Урамшууллын хувь
+                    <div class="performance-rate-input">
+                      <input class="input" id="performanceServiceRate" type="number" min="0" max="100" step="0.01">
+                      <span>%</span>
+                    </div>
+                  </label>
+                  <label>Тооцох үнэ
+                    <select class="input" id="performanceServiceBasis">
+                      <option value="base">Үндсэн үнэ (хямдрал, ваучер нөлөөлөхгүй)</option>
+                      <option value="paid">Бодитоор төлсөн үнэ</option>
+                    </select>
+                  </label>
+                  <label>VIP нэмэгдэл
+                    <select class="input" id="performanceVipFeeMode">
+                      <option value="exclude">Хувьд оруулахгүй</option>
+                      <option value="commission">Хувьд оруулна</option>
+                    </select>
+                  </label>
+                  <label>Мастер нэмэгдэл
+                    <select class="input" id="performanceMasterFeeMode">
+                      <option value="direct">Шууд массажистад олгоно</option>
+                      <option value="commission">Хувьд оруулна</option>
+                      <option value="exclude">Тооцохгүй</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="performance-policy-options">
+                  <span>Хамрагдах үйлчилгээ</span>
+                  <label><input class="performance-service-kind" type="checkbox" value="single"> Нэг удаа</label>
+                  <label><input class="performance-service-kind" type="checkbox" value="course"> Курс эмчилгээ</label>
+                </div>
+              </section>
 
-            <fieldset class="performance-policy-card">
-              <legend>Кассын урамшуулал</legend>
-              <label>Хувь
-                <input class="input" id="performanceCashierRate" type="number" min="0" max="100" step="0.01">
-              </label>
-              <label class="performance-policy-toggle">
-                <input id="performanceUseStaffCashierRate" type="checkbox">
-                Кассчинд тусгайлан тохируулсан хувийг ашиглах
-              </label>
-              <div class="performance-policy-options performance-payment-options" id="performancePaymentMethods"></div>
-              <div class="performance-policy-options performance-voucher-options" id="performanceVoucherRoles"></div>
-            </fieldset>
+              <section class="performance-policy-card">
+                <div class="performance-policy-card-head">
+                  <span class="performance-policy-card-mark">К</span>
+                  <div>
+                    <h3>Кассын урамшуулал</h3>
+                    <p>Салбарын кассын орлогод хамрагдах төлбөр</p>
+                  </div>
+                </div>
+                <div class="performance-policy-fields cashier-policy-fields">
+                  <label>Урамшууллын хувь
+                    <div class="performance-rate-input">
+                      <input class="input" id="performanceCashierRate" type="number" min="0" max="100" step="0.01">
+                      <span>%</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="performance-policy-options performance-payment-options" id="performancePaymentMethods"></div>
+                <div class="performance-policy-options performance-voucher-options" id="performanceVoucherRoles"></div>
+              </section>
+            </div>
 
             <div class="form-actions performance-policy-save">
               <button class="primary-btn" type="submit">Бодлогын шинэ хувилбар хадгалах</button>
@@ -1356,7 +1375,7 @@
   </div>
   <script src="fliphtml5.js?v=202607210130"></script>
   <script src="diagnostics.js?v=202607240130"></script>
-  <script src="app.js?v=20260729-05"></script>
+  <script src="app.js?v=20260729-06"></script>
 </body>
 </html>
 

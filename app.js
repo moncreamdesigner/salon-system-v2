@@ -2016,12 +2016,6 @@ function ensureHumanResourceShell() {
             <option>Касс</option>
           </select>
         </label>
-        <label>Үйлчилгээ %
-          <input id="hrStaffBonus" class="input" type="number" min="0" max="100" step="0.01" value="10" required>
-        </label>
-        <label>Касс %
-          <input id="hrStaffKass" class="input" type="number" min="0" max="100" step="0.01" value="2">
-        </label>
         <label class="hr-status-field">Статус
           <select id="hrStaffStatus" class="input">
             <option value="active">Идэвхтэй</option>
@@ -2043,8 +2037,6 @@ function ensureHumanResourceShell() {
               <th>Утас</th>
               <th>Салбар</th>
               <th>Албан тушаал</th>
-              <th>Үйлчилгээ %</th>
-              <th>Касс %</th>
               <th>Статус</th>
               <th>Үйлдэл</th>
             </tr>
@@ -2732,6 +2724,7 @@ function normalizedPerformancePolicy(source = {}) {
       ...structuredClone(defaults.service),
       ...(source?.service || {}),
       rate: Math.max(0, Number(source?.service?.rate ?? defaults.service.rate) || 0),
+      useStaffRate: false,
       serviceKinds: Array.isArray(source?.service?.serviceKinds)
         ? source.service.serviceKinds.filter(kind => ["single", "course"].includes(kind))
         : [...defaults.service.serviceKinds]
@@ -2740,6 +2733,7 @@ function normalizedPerformancePolicy(source = {}) {
       ...structuredClone(defaults.cashier),
       ...(source?.cashier || {}),
       rate: Math.max(0, Number(source?.cashier?.rate ?? defaults.cashier.rate) || 0),
+      useStaffRate: false,
       paymentMethods: Array.isArray(source?.cashier?.paymentMethods)
         ? source.cashier.paymentMethods.filter(method => PERFORMANCE_PAYMENT_METHODS.some(([key]) => key === method))
         : [...defaults.cashier.paymentMethods],
@@ -2762,7 +2756,7 @@ function legacyPerformancePolicy() {
     effectiveFrom: "0000-01-01",
     service: {
       rate: 10,
-      useStaffRate: true,
+      useStaffRate: false,
       basis: "base",
       serviceKinds: ["single", "course"],
       vipFeeMode: "commission",
@@ -2770,7 +2764,7 @@ function legacyPerformancePolicy() {
     },
     cashier: {
       rate: 2,
-      useStaffRate: true,
+      useStaffRate: false,
       paymentMethods: ["card", "qpay", "transfer", "cash", "loan_app"],
       voucherRoleIds: []
     }
@@ -2799,7 +2793,7 @@ function performancePolicyFromForm() {
     service: {
       ...current.service,
       rate: Number(formValue("performanceServiceRate")) || 0,
-      useStaffRate: Boolean(document.getElementById("performanceUseStaffServiceRate")?.checked),
+      useStaffRate: false,
       basis: formValue("performanceServiceBasis") || "base",
       vipFeeMode: formValue("performanceVipFeeMode") || "exclude",
       masterFeeMode: formValue("performanceMasterFeeMode") || "direct",
@@ -2808,7 +2802,7 @@ function performancePolicyFromForm() {
     cashier: {
       ...current.cashier,
       rate: Number(formValue("performanceCashierRate")) || 0,
-      useStaffRate: Boolean(document.getElementById("performanceUseStaffCashierRate")?.checked),
+      useStaffRate: false,
       paymentMethods: Array.from(document.querySelectorAll(".performance-payment-method:checked")).map(input => input.value),
       voucherRoleIds: Array.from(document.querySelectorAll(".performance-voucher-role:checked")).map(input => String(input.value))
     }
@@ -2877,12 +2871,8 @@ function renderPricePolicySettings() {
   if (vipMode) vipMode.value = performancePolicy.service.vipFeeMode;
   const masterMode = document.getElementById("performanceMasterFeeMode");
   if (masterMode) masterMode.value = performancePolicy.service.masterFeeMode;
-  const useStaffServiceRate = document.getElementById("performanceUseStaffServiceRate");
-  if (useStaffServiceRate) useStaffServiceRate.checked = Boolean(performancePolicy.service.useStaffRate);
   const cashierRate = document.getElementById("performanceCashierRate");
   if (cashierRate) cashierRate.value = performancePolicy.cashier.rate;
-  const useStaffCashierRate = document.getElementById("performanceUseStaffCashierRate");
-  if (useStaffCashierRate) useStaffCashierRate.checked = Boolean(performancePolicy.cashier.useStaffRate);
   document.querySelectorAll(".performance-service-kind").forEach(input => {
     input.checked = performancePolicy.service.serviceKinds.includes(input.value);
   });
@@ -4233,8 +4223,7 @@ function infoForView(name) {
       ["Нийт", staff.length],
       ["Идэвхтэй", staff.filter(item => item.status !== "inactive").length],
       ["Идэвхгүй", staff.filter(item => item.status === "inactive").length],
-      ["Түр томилгоо", state.assignments.length],
-      ["Дундаж хувь", `${Math.round(staff.reduce((sum, item) => sum + Number(item.bonusCommission ?? parseFloat(item.commission) ?? 0), 0) / Math.max(staff.length, 1))}%`]
+      ["Түр томилгоо", state.assignments.length]
     ]],
     audit: ["ҮЙЛДЛИЙН ТҮҮХ", [
       ["Нийт", state.audit.length],
@@ -7565,8 +7554,8 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
     const rate = payload.rate !== undefined
       ? Number(payload.rate || 0)
       : payload.type === "kass"
-        ? Number(appliedPolicy.cashier.useStaffRate ? (staff.kassCommission ?? appliedPolicy.cashier.rate) : appliedPolicy.cashier.rate)
-        : Number(appliedPolicy.service.useStaffRate ? (staff.bonusCommission ?? parseFloat(staff.commission) ?? appliedPolicy.service.rate) : appliedPolicy.service.rate);
+        ? Number(appliedPolicy.cashier.rate)
+        : Number(appliedPolicy.service.rate);
     transactions.push({
       ...payload,
       staffId: staff.id,
@@ -11985,13 +11974,9 @@ function renderCatalog() {
 function resetHumanResourceForm() {
   humanResourceEditingId = null;
   document.getElementById("hrStaffForm")?.reset();
-  const bonus = document.getElementById("hrStaffBonus");
-  const kass = document.getElementById("hrStaffKass");
   const status = document.getElementById("hrStaffStatus");
   const position = document.getElementById("hrStaffPosition");
   populateHumanResourceSalonSelect();
-  if (bonus) bonus.value = "10";
-  if (kass) kass.value = "2";
   if (status) status.value = "active";
   if (position) position.value = "Массажист";
   const title = document.getElementById("hrFormTitle");
@@ -12016,8 +12001,6 @@ function renderHumanResources() {
       <td>${staff.phone || ""}</td>
       <td>${staff.salon || ""}</td>
       <td>${staff.position || "Массажист"}</td>
-      <td>${formatPercent(staff.bonusCommission ?? parseFloat(staff.commission) ?? 10)}</td>
-      <td>${formatPercent(staff.kassCommission ?? 2)}</td>
       <td><span class="status-text ${staff.status === "inactive" ? "inactive" : ""}">${humanResourceStatusText(staff.status)}</span></td>
       <td>
         <div class="table-actions">
@@ -12243,10 +12226,7 @@ function saveHumanResourceStaff(event) {
     phone,
     salon: isSalonAccount() ? activeAccount.salon : (formValue("hrStaffSalon") || state.salons[0]?.name || ""),
     position: formValue("hrStaffPosition") || "Массажист",
-    bonusCommission: Number(formValue("hrStaffBonus")) || 0,
-    kassCommission: Number(formValue("hrStaffKass")) || 0,
     status: formValue("hrStaffStatus") || "active",
-    commission: `${Number(formValue("hrStaffBonus")) || 0}%`,
     vip: formValue("hrStaffPosition") === "Мастер массажист"
   };
   if (humanResourceEditingId) {
@@ -12276,8 +12256,6 @@ function editHumanResourceStaff(id) {
   document.getElementById("hrStaffPhone").value = staff.phone || "";
   populateHumanResourceSalonSelect(staff.salon || state.salons[0]?.name || "");
   document.getElementById("hrStaffPosition").value = normalizePositionName(staff.position || (staff.vip ? "Мастер массажист" : "Массажист"));
-  document.getElementById("hrStaffBonus").value = Number(staff.bonusCommission ?? parseFloat(staff.commission) ?? 10).toFixed(2);
-  document.getElementById("hrStaffKass").value = Number(staff.kassCommission ?? 2).toFixed(2);
   document.getElementById("hrStaffStatus").value = staff.status || "active";
   document.getElementById("hrFormTitle").textContent = "Ажилтан засах";
   document.getElementById("hrStaffSubmit").textContent = "Шинэчлэх";
