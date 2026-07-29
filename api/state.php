@@ -81,7 +81,7 @@ function journal_removed_customer_data(PDO $pdo, int $revision, array $user, arr
     $newCustomers = recovery_index(is_array($incoming['customers'] ?? null) ? $incoming['customers'] : []);
     foreach ($oldCustomers as $customerId => $oldCustomer) {
         if (!isset($newCustomers[$customerId])) {
-            record_recovery_item($pdo, $revision, $user, 'customer', $customerId, '', $oldCustomer);
+            record_recovery_item($pdo, $revision, $user, 'customer', (string)$customerId, '', $oldCustomer);
             $removedCount += 1;
             continue;
         }
@@ -91,7 +91,7 @@ function journal_removed_customer_data(PDO $pdo, int $revision, array $user, arr
         $newHistory = recovery_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : []);
         foreach ($oldHistory as $historyId => $oldService) {
             if (!isset($newHistory[$historyId])) {
-                record_recovery_item($pdo, $revision, $user, 'service', $historyId, $customerId, $oldService);
+                record_recovery_item($pdo, $revision, $user, 'service', (string)$historyId, (string)$customerId, $oldService);
                 $removedCount += 1;
                 continue;
             }
@@ -99,7 +99,15 @@ function journal_removed_customer_data(PDO $pdo, int $revision, array $user, arr
             $newPayments = recovery_index(is_array($newHistory[$historyId]['payments'] ?? null) ? $newHistory[$historyId]['payments'] : []);
             foreach ($oldPayments as $paymentId => $oldPayment) {
                 if (isset($newPayments[$paymentId])) continue;
-                record_recovery_item($pdo, $revision, $user, 'payment', $paymentId, $customerId . '/' . $historyId, $oldPayment);
+                record_recovery_item(
+                    $pdo,
+                    $revision,
+                    $user,
+                    'payment',
+                    (string)$paymentId,
+                    (string)$customerId . '/' . (string)$historyId,
+                    $oldPayment
+                );
                 $removedCount += 1;
             }
         }
@@ -108,7 +116,7 @@ function journal_removed_customer_data(PDO $pdo, int $revision, array $user, arr
     $newGroups = recovery_index(is_array($incoming['customerGroups'] ?? null) ? $incoming['customerGroups'] : []);
     foreach ($oldGroups as $groupId => $oldGroup) {
         if (isset($newGroups[$groupId])) continue;
-        record_recovery_item($pdo, $revision, $user, 'customerGroup', $groupId, '', $oldGroup);
+        record_recovery_item($pdo, $revision, $user, 'customerGroup', (string)$groupId, '', $oldGroup);
         $removedCount += 1;
     }
     return $removedCount;
