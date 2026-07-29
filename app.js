@@ -205,6 +205,12 @@ let currentTreatmentExpiryTimer = null;
 let customerDerivedDataVersion = 0;
 let customerActiveTreatmentCache = { key: "", items: [] };
 let groupPaymentLedgerCache = { key: "", totals: new Map() };
+let performanceDataVersion = 0;
+let performanceRawTransactionsCache = { version: -1, items: [] };
+let performanceTransactionsCache = { version: -1, items: [] };
+let performancePolicyDateCache = { version: -1, values: new Map() };
+let performanceMonthsCache = { version: -1, items: [] };
+let performanceReportCache = { version: -1, values: new Map() };
 const submittedListSearches = Object.create(null);
 
 state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : []).map((salon, index) => {
@@ -755,6 +761,15 @@ function invalidateCustomerDerivedData() {
   currentTreatmentExpiryTimer = null;
 }
 
+function invalidatePerformanceData() {
+  performanceDataVersion += 1;
+  performanceRawTransactionsCache = { version: -1, items: [] };
+  performanceTransactionsCache = { version: -1, items: [] };
+  performancePolicyDateCache = { version: -1, values: new Map() };
+  performanceMonthsCache = { version: -1, items: [] };
+  performanceReportCache = { version: -1, values: new Map() };
+}
+
 function persistedStateSnapshot() {
   if (persistedStateCache && persistedStateCacheVersion === localStateMutationVersion) return persistedStateCache;
   persistedStateCache = clearTransientState(state);
@@ -845,6 +860,7 @@ function saveState(sectionKeys = null) {
   localStateMutationVersion += 1;
   invalidatePersistedStateCache();
   invalidateCustomerDerivedData();
+  invalidatePerformanceData();
   const createdAt = auditNowText();
   for (const item of state.audit) {
     if (Object.prototype.hasOwnProperty.call(item, "createdAt")) break;
@@ -1259,6 +1275,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
   captureSyncedCustomerFingerprints(incoming, { replace: !partial });
   invalidatePersistedStateCache();
   invalidateCustomerDerivedData();
+  invalidatePerformanceData();
   const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
   const pendingCustomersApplied = applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
@@ -2970,6 +2987,13 @@ function legacyPerformancePolicy() {
 
 function performancePolicyForDate(date, overridePolicy = null) {
   if (overridePolicy) return normalizedPerformancePolicy(overridePolicy);
+  if (performancePolicyDateCache.version !== performanceDataVersion) {
+    performancePolicyDateCache = { version: performanceDataVersion, values: new Map() };
+  }
+  const cacheKey = String(date || todayText());
+  if (performancePolicyDateCache.values.has(cacheKey)) {
+    return performancePolicyDateCache.values.get(cacheKey);
+  }
   const current = currentPerformancePolicy();
   const versions = [...(pricePolicy().performanceVersions || []), current]
     .map(normalizedPerformancePolicy)
@@ -2979,7 +3003,9 @@ function performancePolicyForDate(date, overridePolicy = null) {
       const dateOrder = String(a.effectiveFrom).localeCompare(String(b.effectiveFrom));
       return dateOrder || Number(a.version || 0) - Number(b.version || 0);
     });
-  return versions[versions.length - 1] || legacyPerformancePolicy();
+  const selected = versions[versions.length - 1] || legacyPerformancePolicy();
+  performancePolicyDateCache.values.set(cacheKey, selected);
+  return selected;
 }
 
 function performancePolicyFromForm() {
@@ -7915,6 +7941,9 @@ function performancePaymentEligible(payment = {}, cashierPolicy = {}) {
 }
 
 function calculatePerformanceTransactions({ policyOverride = null } = {}) {
+  if (!policyOverride && performanceRawTransactionsCache.version === performanceDataVersion) {
+    return performanceRawTransactionsCache.items;
+  }
   const transactions = [];
   const add = payload => {
     const staff = state.staff.find(item => Number(item.id) === Number(payload.staffId) || item.name === payload.staff);
@@ -8125,6 +8154,9 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
       adjustment: true
     });
   });
+  if (!policyOverride) {
+    performanceRawTransactionsCache = { version: performanceDataVersion, items: transactions };
+  }
   return transactions;
 }
 
@@ -8146,14 +8178,21 @@ function activePerformanceStatements() {
 }
 
 function performanceTransactions({ ignoreStatements = false, policyOverride = null } = {}) {
+  if (!ignoreStatements && !policyOverride && performanceTransactionsCache.version === performanceDataVersion) {
+    return performanceTransactionsCache.items;
+  }
   const calculated = calculatePerformanceTransactions({ policyOverride });
   if (ignoreStatements || policyOverride) return calculated;
   const statements = activePerformanceStatements();
-  if (!statements.size) return calculated;
+  if (!statements.size) {
+    performanceTransactionsCache = { version: performanceDataVersion, items: calculated };
+    return calculated;
+  }
   const live = calculated.filter(item => !statements.has(performanceStatementScopeKey(String(item.date || "").slice(0, 7), item.salon)));
   statements.forEach(statement => {
     (Array.isArray(statement.transactions) ? statement.transactions : []).forEach(item => live.push(structuredClone(item)));
   });
+  performanceTransactionsCache = { version: performanceDataVersion, items: live };
   return live;
 }
 
@@ -8162,8 +8201,11 @@ function rawPerformanceTransactionDates() {
 }
 
 function performanceDataMonths() {
-  return [...new Set(performanceTransactions().map(item => String(item.date || "").slice(0, 7)).filter(value => /^\d{4}-\d{2}$/.test(value)))]
+  if (performanceMonthsCache.version === performanceDataVersion) return performanceMonthsCache.items;
+  const months = [...new Set(performanceTransactions().map(item => String(item.date || "").slice(0, 7)).filter(value => /^\d{4}-\d{2}$/.test(value)))]
     .sort((a, b) => b.localeCompare(a));
+  performanceMonthsCache = { version: performanceDataVersion, items: months };
+  return months;
 }
 
 function performanceMonthLabel(value) {
@@ -8543,6 +8585,13 @@ async function applyPerformanceRecalculation() {
 
 function buildPerformanceReport() {
   const { from, to, fromValue, toValue, salon } = performanceFilters();
+  if (performanceReportCache.version !== performanceDataVersion) {
+    performanceReportCache = { version: performanceDataVersion, values: new Map() };
+  }
+  const reportCacheKey = `${from}|${to}|${fromValue}|${toValue}|${salon}`;
+  if (performanceReportCache.values.has(reportCacheKey)) {
+    return performanceReportCache.values.get(reportCacheKey);
+  }
   const allTransactions = performanceTransactions();
   const allDates = allTransactions.map(item => item.date).filter(Boolean).sort();
   const transactions = allTransactions.filter(item =>
@@ -8589,7 +8638,7 @@ function buildPerformanceReport() {
         temporaryCount: staffTransactions.filter(item => item.temporary).length
       };
     });
-  return {
+  const report = {
     from: fromValue || allDates[0] || "-",
     to: toValue || allDates[allDates.length - 1] || "-",
     periodLabel: fromValue || toValue ? `${fromValue || allDates[0] || "-"} — ${toValue || allDates[allDates.length - 1] || "-"}` : "Бүх хугацаа",
@@ -8600,6 +8649,8 @@ function buildPerformanceReport() {
     revenue: rows.reduce((sum, row) => sum + row.revenue, 0),
     commission: rows.reduce((sum, row) => sum + row.commission, 0)
   };
+  performanceReportCache.values.set(reportCacheKey, report);
+  return report;
 }
 
 function renderPerformance() {
