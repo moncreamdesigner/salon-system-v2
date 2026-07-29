@@ -879,7 +879,7 @@ function saveState(sectionKeys = null) {
   queueServerStateSave();
 }
 
-function stripLegacyEmbeddedImages(targetState = {}) {
+function stripLegacyEmbeddedImages(targetState = {}, changedSections = null) {
   const arrayKeys = new Set(["gallery", "images", "generalPhotos", "scopePhotos"]);
   const valueKeys = new Set(["coverImage", "beforeImage", "afterImage"]);
   let removed = 0;
@@ -904,7 +904,11 @@ function stripLegacyEmbeddedImages(targetState = {}) {
       walk(item);
     });
   };
-  walk(targetState);
+  Object.entries(targetState || {}).forEach(([section, value]) => {
+    const before = removed;
+    walk(value);
+    if (removed > before && changedSections instanceof Set) changedSections.add(section);
+  });
   return removed;
 }
 
@@ -1279,6 +1283,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
   invalidatePersistedStateCache();
   invalidateCustomerDerivedData();
   invalidatePerformanceData();
+  const normalizedSections = new Set();
   const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
   const pendingCustomersApplied = applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
@@ -1286,7 +1291,19 @@ function applyServerData(data = {}, { partial = false } = {}) {
     state.selectedCustomerId = selectedCustomerId;
   }
   const customerNamesChanged = normalizeCustomerNamesWithoutSurname(state);
-  const embeddedImagesRemoved = stripLegacyEmbeddedImages(state);
+  stripLegacyEmbeddedImages(state, normalizedSections);
+  if (customerNamesChanged) normalizedSections.add("customers");
+  if (bonusTypeRulesChanged) {
+    ["customers", "customerTypes", "customerTypeRules", "customerBonusTypeRulesV4"].forEach(key => normalizedSections.add(key));
+  }
+  if (pendingCustomersApplied) {
+    if (pendingCustomerProfileUpdates.size) normalizedSections.add("customers");
+    if (pendingCustomerGroupUpdates.size) normalizedSections.add("customerGroups");
+    if (pendingCustomerAuditEntries.size) normalizedSections.add("audit");
+  }
+  if (pendingPaymentsApplied) {
+    ["customers", "customerGroups", "voucherLogs", "giftCards", "audit"].forEach(key => normalizedSections.add(key));
+  }
   if (IS_LOCAL_RUNTIME) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -1309,7 +1326,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return customerNamesChanged || embeddedImagesRemoved > 0 || pendingCustomersApplied || pendingPaymentsApplied || bonusTypeRulesChanged;
+  return normalizedSections.size ? Array.from(normalizedSections) : null;
 }
 
 function showServerSyncOverlay(message = "Мэдээллийг шинэчилж, таны үйлдлийг хадгалж байна…") {
@@ -1435,6 +1452,21 @@ async function saveServerStateNow() {
       if (!confirmedCustomerMessages.length) showToast("Өөрчлөлт амжилттай хадгалагдлаа");
     }
   } catch (error) {
+    if (error.status === 409 && error.payload?.protectedData) {
+      savingSections.forEach(key => {
+        if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+      });
+      showServerProtectionNotice(error.payload.message || "Хугацаа түгжигдсэн мэдээллийг өөрчлөх боломжгүй.");
+      return;
+    }
+    if (error.status === 401) {
+      savingSections.forEach(key => {
+        if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+      });
+      hideServerSyncOverlay();
+      showServerLogin("Нэвтрэх хугацаа дууссан байна. Дахин нэвтэрнэ үү.");
+      return;
+    }
     if (error.status === 409 && error.payload?.conflict) {
       try {
         showServerSyncOverlay();
@@ -1492,7 +1524,24 @@ async function saveServerStateNow() {
         console.error("Conflict refresh failed", refreshError);
       }
     }
-    console.error("Server save failed", error);
+    const retryable = error.status === undefined || error.payload?.retryable === true;
+    console.error("Server save failed", {
+      status: error.status || 0,
+      errorCode: error.payload?.errorCode || "NETWORK_ERROR",
+      incidentId: error.payload?.incidentId || "",
+      retryable,
+      error
+    });
+    if (!retryable) {
+      savingSections.forEach(key => {
+        if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+      });
+      hideServerSyncOverlay();
+      showServerProtectionNotice(
+        `${error.message || "Server хадгалалт амжилтгүй."}${error.payload?.incidentId ? ` Алдааны дугаар: ${error.payload.incidentId}` : ""}`
+      );
+      return;
+    }
     serverSavePending = true;
     nextSaveDelay = serverSaveRetryDelay;
     serverSaveRetryDelay = Math.min(30000, serverSaveRetryDelay * 2);
@@ -1617,14 +1666,12 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
     showToast("Одоогийн мэдээллийг server database-д хадгаллаа");
     return false;
   }
-  const customerNamesChanged = applyServerData(remote.data || {}, { partial: Boolean(remote.partial || query) });
+  const normalizedSections = applyServerData(remote.data || {}, { partial: Boolean(remote.partial || query) });
   if (!query) pendingServerSections.clear();
   if (!query) virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
   serverStorageReady = true;
-  if (customerNamesChanged) {
-    Object.keys(state).forEach(key => {
-      if (key !== "selectedCustomerId") pendingServerSections.set(key, localStateMutationVersion);
-    });
+  if (normalizedSections?.length) {
+    normalizedSections.forEach(key => pendingServerSections.set(key, localStateMutationVersion));
     await saveServerStateNow();
   }
   return true;

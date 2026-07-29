@@ -10999,8 +10999,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-size: 12px;
 }
 
-.performance-recalculate-panel,
-.performance-close-panel {
+.performance-recalculate-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -11042,39 +11041,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   min-height: 20px;
   padding-top: 12px;
   border-top: 1px solid #e2e7e1;
-}
-
-.performance-close-panel {
-  margin-bottom: 12px;
-  padding: 14px 18px;
-}
-
-.performance-close-panel > div:first-child {
-  display: grid;
-  gap: 3px;
-}
-
-.performance-close-label,
-.performance-close-panel small {
-  color: #858d87;
-  font-size: 12px;
-}
-
-#performanceCloseStatus[data-status="open"] {
-  color: #4ea84f;
-}
-
-#performanceCloseStatus[data-status="review"] {
-  color: #a06e00;
-}
-
-#performanceCloseStatus[data-status="locked"] {
-  color: #222;
-}
-
-.performance-close-actions {
-  display: flex;
-  gap: 8px;
 }
 
 .voucher-commission-check {
@@ -11136,7 +11102,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 @media (max-width: 700px) {
   .performance-policy-head,
-  .performance-close-panel,
   .performance-recalculate-panel {
     align-items: stretch;
     flex-direction: column;
@@ -11181,8 +11146,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     flex: 1 1 auto;
   }
 
-  .performance-recalculate-form,
-  .performance-close-actions {
+  .performance-recalculate-form {
     display: grid;
     grid-template-columns: 1fr;
   }

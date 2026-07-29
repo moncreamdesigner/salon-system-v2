@@ -498,5 +498,36 @@ try {
     json_response(['ok' => false, 'protectedData' => true, 'message' => $error->getMessage()], 409);
 } catch (Throwable $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    json_response(['ok' => false, 'message' => 'Server хадгалалт амжилтгүй.'], 500);
+    $incidentId = gmdate('YmdHis') . '-' . bin2hex(random_bytes(3));
+    $errorCode = 'STATE_SAVE_FAILED';
+    $retryable = false;
+    if ($error instanceof PDOException) {
+        $driverCode = (int)($error->errorInfo[1] ?? 0);
+        $errorCode = match ($driverCode) {
+            1205 => 'DB_LOCK_TIMEOUT',
+            1213 => 'DB_DEADLOCK',
+            1153, 2006 => 'DB_PAYLOAD_OR_CONNECTION',
+            default => 'DB_WRITE_FAILED',
+        };
+        $retryable = in_array($driverCode, [1205, 1213, 2006], true);
+    } elseif ($error instanceof TypeError) {
+        $errorCode = 'STATE_VALIDATION_TYPE_ERROR';
+    }
+    error_log(sprintf(
+        'Khalgai state save [%s] %s code=%s client=%s sections=%s at %s:%d',
+        $incidentId,
+        get_class($error) . ': ' . $error->getMessage(),
+        (string)$error->getCode(),
+        substr(trim((string)($payload['clientId'] ?? '')), 0, 80),
+        implode(',', array_keys(is_array($sections ?? null) ? $sections : [])),
+        $error->getFile(),
+        $error->getLine()
+    ));
+    json_response([
+        'ok' => false,
+        'message' => 'Server хадгалалт амжилтгүй.',
+        'errorCode' => $errorCode,
+        'incidentId' => $incidentId,
+        'retryable' => $retryable,
+    ], 500);
 }

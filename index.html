@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202607292401">
+  <meta name="app-build" content="202607300015">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607292401">
+  <link rel="stylesheet" href="styles.css?v=202607300015">
 </head>
 <body>
   <div class="app-shell">
@@ -507,14 +507,6 @@
               <button class="secondary-btn clear-icon-btn performance-clear-btn" id="performanceClear" type="button" aria-label="Шүүлтүүр цэвэрлэх">×</button>
             </form>
           </section>
-          <section class="panel performance-close-panel" id="performanceClosePanel">
-            <div>
-              <span class="performance-close-label">Сарын төлөв</span>
-              <strong id="performanceCloseStatus">Нээлттэй</strong>
-              <small id="performanceCloseMeta">Гүйлгээ өөрчлөгдөх бүрд шинэчлэгдэнэ</small>
-            </div>
-            <div class="performance-close-actions" id="performanceCloseActions"></div>
-          </section>
           <section class="panel performance-list-panel">
             <div class="table-wrap performance-table-wrap">
               <table class="performance-table">
@@ -827,11 +819,9 @@
             </label>
             <label>Өгөгдөл засах хугацаа
               <input class="input" id="dataEditDays" type="number" min="1">
-              <small>Үйлчилгээ, оношилгоо, төлбөр, касс болон томилгоонд нэгэн адил үйлчилнэ.</small>
             </label>
             <label>Сарын автомат snapshot
               <input class="input" id="performanceSnapshotDay" type="number" min="1" max="28">
-              <small>Сар бүрийн энэ өдөр өмнөх сарын гүйцэтгэлийг түгжинэ.</small>
             </label>
             <label>Оношилгооны зургийн хэмжээ
               <select class="input" id="diagnosisCaptureMode">
@@ -1410,7 +1400,7 @@
   </div>
   <script src="fliphtml5.js?v=202607210130"></script>
   <script src="diagnostics.js?v=202607240130"></script>
-  <script src="app.js?v=202607292401"></script>
+  <script src="app.js?v=202607300015"></script>
 </body>
 </html>
 
