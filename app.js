@@ -1456,7 +1456,8 @@ async function saveServerStateNow() {
       savingSections.forEach(key => {
         if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
       });
-      showServerProtectionNotice(error.payload.message || "Хугацаа түгжигдсэн мэдээллийг өөрчлөх боломжгүй.");
+      hideServerSyncOverlay();
+      showToast(error.payload.message || "Хугацаа түгжигдсэн мэдээллийг өөрчлөх боломжгүй.", "error");
       return;
     }
     if (error.status === 401) {
