@@ -10970,6 +10970,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-weight: 650;
 }
 
+.performance-policy-history-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .performance-policy-history-action .secondary-btn {
   min-width: 145px;
   white-space: nowrap;
@@ -11168,7 +11175,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 
   .performance-policy-history-action .secondary-btn {
-    width: 100%;
+    flex: 1 1 auto;
   }
 
   .performance-recalculate-form,

@@ -3020,11 +3020,12 @@ function setCurrentPerformancePolicyVersion(nextPolicy) {
   ];
 }
 
-function savePerformancePolicyVersion(event) {
+async function savePerformancePolicyVersion(event) {
   event.preventDefault();
   if (!isAdminAccount()) return showToast("Зөвхөн админ гүйцэтгэлийн бодлого өөрчилнө", "error");
   const next = performancePolicyFromForm();
   if (!next.service.serviceKinds.length) return showToast("Ядаж нэг үйлчилгээний дэд ангилал сонгоно уу", "error");
+  if (!await requireEditCode()) return;
   const maxVersion = Math.max(
     Number(currentPerformancePolicy().version || 0),
     ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0))
@@ -3058,7 +3059,7 @@ function performancePolicyVersionList() {
     current
   ]
     .map(normalizedPerformancePolicy)
-    .filter(item => item.configured);
+    .filter(item => item.configured && !item.archivedAt);
   const unique = new Map();
   versions.forEach(item => {
     const key = Number(item.version || 0);
@@ -3132,7 +3133,10 @@ function renderPerformancePolicyHistory() {
         <div class="performance-policy-history-action">
           ${isCurrent
             ? `<button class="secondary-btn" type="button" disabled>Идэвхтэй</button>`
-            : `<button class="secondary-btn" type="button" data-restore-performance-policy="${htmlSafe(policy.version)}">Энэ хувилбарыг сэргээх</button>`}
+            : `
+              <button class="secondary-btn" type="button" data-restore-performance-policy="${htmlSafe(policy.version)}">Энэ хувилбарыг сэргээх</button>
+              <button class="danger-btn icon-danger" type="button" data-archive-performance-policy="${htmlSafe(policy.version)}" aria-label="Хувилбар устгах" title="Түүхээс устгах">${trashIcon()}</button>
+            `}
         </div>
       </article>
     `;
@@ -3140,12 +3144,16 @@ function renderPerformancePolicyHistory() {
   container.querySelectorAll("[data-restore-performance-policy]").forEach(button => {
     button.addEventListener("click", () => restorePerformancePolicyVersion(Number(button.dataset.restorePerformancePolicy)));
   });
+  container.querySelectorAll("[data-archive-performance-policy]").forEach(button => {
+    button.addEventListener("click", () => archivePerformancePolicyVersion(Number(button.dataset.archivePerformancePolicy)));
+  });
 }
 
-function restorePerformancePolicyVersion(version) {
+async function restorePerformancePolicyVersion(version) {
   if (!isAdminAccount()) return showToast("Зөвхөн админ бодлогын хувилбар сэргээнэ", "error");
   const selected = performancePolicyVersionList().find(item => Number(item.version) === Number(version));
   if (!selected) return showToast("Сэргээх хувилбар олдсонгүй", "error");
+  if (!await requireEditCode()) return;
   if (!window.confirm(`Хувилбар ${selected.version}-ийн тохиргоог өнөөдрөөс хэрэгжих шинэ хувилбар болгон сэргээх үү?\n\nӨмнөх түгжсэн тайлан өөрчлөгдөхгүй.`)) return;
   const maxVersion = Math.max(
     Number(currentPerformancePolicy().version || 0),
@@ -3177,6 +3185,33 @@ function restorePerformancePolicyVersion(version) {
   renderPricePolicySettings();
   renderInfoHeader(activeView);
   showToast(`Хувилбар ${selected.version}-ийн тохиргоог Хувилбар ${next.version} болгон сэргээв`);
+}
+
+async function archivePerformancePolicyVersion(version) {
+  if (!isAdminAccount()) return showToast("Зөвхөн админ бодлогын хувилбар устгана", "error");
+  const current = currentPerformancePolicy();
+  if (Number(version) === Number(current.version)) return showToast("Одоогийн идэвхтэй хувилбарыг устгах боломжгүй", "error");
+  const policy = pricePolicy();
+  const selected = (policy.performanceVersions || []).find(item => Number(item.version) === Number(version) && !item.archivedAt);
+  if (!selected) return showToast("Устгах хувилбар олдсонгүй", "error");
+  if (!await requireDeleteCode()) return;
+  if (!window.confirm(`Хувилбар ${version}-ийг түүхээс устгах уу?\n\nХуучин тайлангийн тооцоог хамгаалахын тулд системд архивлагдсан хэвээр үлдэнэ.`)) return;
+  const actor = activeAccount.displayName || activeAccount.username || "Админ";
+  policy.performanceVersions = (policy.performanceVersions || []).map(item =>
+    Number(item.version) === Number(version)
+      ? { ...item, archivedAt: new Date().toISOString(), archivedBy: actor }
+      : item
+  );
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "performance_policy_archived",
+    createdAt: auditNowText(),
+    meta: `${actor} • Хувилбар ${version}`
+  });
+  saveState(["pricePolicy", "audit"]);
+  renderPricePolicySettings();
+  renderInfoHeader(activeView);
+  showToast(`Хувилбар ${version} түүхээс устгагдлаа`);
 }
 
 function previousMonthEndText() {
@@ -8478,9 +8513,10 @@ function previewPerformanceRecalculation() {
   if (apply) apply.disabled = false;
 }
 
-function applyPerformanceRecalculation() {
+async function applyPerformanceRecalculation() {
   if (!isAdminAccount() || !performanceRecalculatePreviewData) return;
   const preview = performanceRecalculatePreviewData;
+  if (!await requireEditCode()) return;
   if (!window.confirm(`${preview.from}–${preview.to} хугацааны тайланг дахин тооцож түгжих үү?`)) return;
   preview.groups.forEach(group => {
     upsertPerformanceStatement({
@@ -14121,6 +14157,7 @@ function auditActionText(title = "") {
     excel_exported: "Тайлан татсан",
     performance_policy_created: "Гүйцэтгэлийн бодлого шинэчилсэн",
     performance_policy_restored: "Гүйцэтгэлийн бодлого сэргээсэн",
+    performance_policy_archived: "Гүйцэтгэлийн бодлогын хувилбар устгасан",
     performance_month_submitted: "Сарын гүйцэтгэлийг хяналтад илгээсэн",
     performance_month_locked: "Сарын гүйцэтгэлийг баталж түгжсэн",
     performance_month_reopened: "Сарын гүйцэтгэлийн тайланг дахин нээсэн",
