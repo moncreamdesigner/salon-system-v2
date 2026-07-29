@@ -10734,24 +10734,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .performance-rate-input {
   position: relative;
-  width: 180px;
+  width: 150px;
   max-width: 100%;
 }
 
 .performance-rate-input .input {
   width: 100%;
-  padding-right: 54px;
-}
-
-.performance-rate-input > span {
-  position: absolute;
-  top: 50%;
-  right: 34px;
-  transform: translateY(-50%);
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-  pointer-events: none;
 }
 
 .performance-policy-options {
