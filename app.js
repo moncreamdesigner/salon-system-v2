@@ -3607,6 +3607,11 @@ function kassRevenueType(kind = "") {
   return "single";
 }
 
+function isActualKassRevenueRow(row = {}) {
+  const method = String(row.method || "").trim().toLowerCase().replace(/\s+/g, "_");
+  return !["bonus", "gift_card", "бонус", "бэлгийн_карт"].includes(method);
+}
+
 function kassRevenueSourceRows() {
   const rows = [];
   state.customers.forEach(customer => {
@@ -3689,18 +3694,19 @@ function renderKassRevenue() {
     .filter(row => !to || row.date <= to)
     .filter(row => !salon || row.salon === salon)
     .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
-  const total = filtered.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const actualRevenueRows = filtered.filter(isActualKassRevenueRow);
+  const total = actualRevenueRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const methodTotals = filtered.reduce((totals, row) => {
     totals[row.method] = Number(totals[row.method] || 0) + Number(row.amount || 0);
     return totals;
   }, {});
-  const typeTotals = filtered.reduce((totals, row) => {
+  const typeTotals = actualRevenueRows.reduce((totals, row) => {
     const type = kassRevenueType(row.kind);
     totals[type] = Number(totals[type] || 0) + Number(row.amount || 0);
     return totals;
   }, { single: 0, course: 0, kass: 0 });
   document.getElementById("kassRevenueTotal").textContent = money(total);
-  document.getElementById("kassRevenueCount").textContent = `${filtered.length} төлбөр`;
+  document.getElementById("kassRevenueCount").textContent = `${actualRevenueRows.length} бодит төлбөр`;
   document.getElementById("kassRevenueMethods").innerHTML = Object.entries(methodTotals).map(([method, amount]) => `
     <div class="kass-revenue-method"><span>${htmlSafe(paymentMethodOptionsLabel(method) || method)}</span><strong>${money(amount)}</strong></div>
   `).join("") || `<span class="muted">Төлбөрийн мэдээлэл алга</span>`;
@@ -4467,10 +4473,12 @@ function infoForView(name) {
     customers: name === "customers" ? ["ӨНӨӨДРИЙН ХЭРЭГЛЭГЧ", customerTodayHeaderStats()] : null,
     kass: ["ЭНЭ САРЫН КАСС", currentMonthKassStats.length ? currentMonthKassStats : [["Бүртгэл", "алга"]]],
     kassRevenue: name === "kassRevenue" ? (() => {
-      const rows = kassRevenueSourceRows().filter(row => !isSalonAccount() || row.salon === activeAccount.salon);
+      const rows = kassRevenueSourceRows()
+        .filter(row => !isSalonAccount() || row.salon === activeAccount.salon)
+        .filter(isActualKassRevenueRow);
       return ["КАСС ОРЛОГО", [
-        ["Нийт орлого", money(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0))],
-        ["Төлбөр", rows.length],
+        ["Бодит орлого", money(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0))],
+        ["Бодит төлбөр", rows.length],
         ["Салбар", isSalonAccount() ? activeAccount.salon : new Set(rows.map(row => row.salon)).size]
       ]];
     })() : null,
@@ -4768,7 +4776,7 @@ function dashboardServiceRows(month, salon = "") {
 function dashboardPaymentRows(month, salon = "") {
   const colors = ["#60bf63", "#87c77e", "#b7d9aa", "#dfe9d7", "#9bcf91", "#c9dfbd", "#76b96f"];
   const totals = new Map();
-  dashboardRowsForMonth(month, salon).forEach(row => {
+  dashboardRowsForMonth(month, salon).filter(isActualKassRevenueRow).forEach(row => {
     const name = paymentMethodOptionsLabel(row.method) || row.method || "Тодорхойгүй";
     totals.set(name, Number(totals.get(name) || 0) + Number(row.amount || 0));
   });
@@ -4785,7 +4793,7 @@ function dashboardPaymentRows(month, salon = "") {
 
 function dashboardTopServices(month, salon = "") {
   const grouped = new Map();
-  dashboardRowsForMonth(month, salon).forEach(row => {
+  dashboardRowsForMonth(month, salon).filter(isActualKassRevenueRow).forEach(row => {
     const name = row.service || "Үйлчилгээ";
     const current = grouped.get(name) || { name, count: 0, revenue: 0 };
     current.count += 1;
@@ -4818,7 +4826,7 @@ function dashboardSnapshot(month, salon = "") {
   const key = typeof month === "string" ? month : month?.key;
   const cacheKey = `${key}|${salon}`;
   if (dashboardDataCache?.snapshots?.has(cacheKey)) return dashboardDataCache.snapshots.get(cacheKey);
-  const paymentRows = dashboardRowsForMonth(key, salon);
+  const paymentRows = dashboardRowsForMonth(key, salon).filter(isActualKassRevenueRow);
   const serviceRows = dashboardServiceRows(key, salon);
   const bookings = state.bookings.filter(item =>
     monthText(item.date) === key &&
