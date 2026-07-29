@@ -3006,6 +3006,20 @@ function performancePolicyFromForm() {
   });
 }
 
+function setCurrentPerformancePolicyVersion(nextPolicy) {
+  const policy = pricePolicy();
+  const current = normalizedPerformancePolicy(policy.performance);
+  const versions = (policy.performanceVersions || []).map(item => structuredClone(item));
+  if (current.configured && !versions.some(item => Number(item.version) === Number(current.version))) {
+    versions.push(structuredClone(current));
+  }
+  policy.performance = structuredClone(nextPolicy);
+  policy.performanceVersions = [
+    ...versions.filter(item => Number(item.version) !== Number(nextPolicy.version)),
+    structuredClone(nextPolicy)
+  ];
+}
+
 function savePerformancePolicyVersion(event) {
   event.preventDefault();
   if (!isAdminAccount()) return showToast("Зөвхөн админ гүйцэтгэлийн бодлого өөрчилнө", "error");
@@ -3019,11 +3033,7 @@ function savePerformancePolicyVersion(event) {
   next.configured = true;
   next.createdAt = new Date().toISOString();
   next.createdBy = activeAccount.displayName || activeAccount.username || "Админ";
-  state.pricePolicy.performance = next;
-  state.pricePolicy.performanceVersions = [
-    ...(pricePolicy().performanceVersions || []),
-    structuredClone(next)
-  ];
+  setCurrentPerformancePolicyVersion(next);
   const eligibleVoucherIds = new Set(next.cashier.voucherRoleIds.map(String));
   state.voucherRoles.forEach(role => {
     role.cashierCommissionEligible = eligibleVoucherIds.has(String(role.id));
@@ -3039,6 +3049,134 @@ function savePerformancePolicyVersion(event) {
   renderPricePolicySettings();
   renderInfoHeader(activeView);
   showToast(`Гүйцэтгэлийн бодлогын ${next.version}-р хувилбар хадгалагдлаа`);
+}
+
+function performancePolicyVersionList() {
+  const current = currentPerformancePolicy();
+  const versions = [
+    ...(pricePolicy().performanceVersions || []),
+    current
+  ]
+    .map(normalizedPerformancePolicy)
+    .filter(item => item.configured);
+  const unique = new Map();
+  versions.forEach(item => {
+    const key = Number(item.version || 0);
+    const existing = unique.get(key);
+    if (!existing || String(item.createdAt || "").localeCompare(String(existing.createdAt || "")) >= 0) {
+      unique.set(key, item);
+    }
+  });
+  return [...unique.values()].sort((a, b) =>
+    Number(b.version || 0) - Number(a.version || 0) ||
+    String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+  );
+}
+
+function performancePolicyVersionSummary(policy) {
+  const paymentLabels = new Map(PERFORMANCE_PAYMENT_METHODS);
+  const payments = (policy.cashier.paymentMethods || [])
+    .map(method => paymentLabels.get(method) || method)
+    .join(", ") || "Сонгоогүй";
+  const voucherRoleIds = new Set((policy.cashier.voucherRoleIds || []).map(String));
+  const voucherRoles = state.voucherRoles
+    .filter(role => voucherRoleIds.has(String(role.id)))
+    .map(role => role.name)
+    .join(", ") || "Сонгоогүй";
+  const services = (policy.service.serviceKinds || [])
+    .map(kind => kind === "course" ? "Курс эмчилгээ" : "Нэг удаа")
+    .join(", ") || "Сонгоогүй";
+  return {
+    basis: policy.service.basis === "paid"
+      ? "Бодитоор төлсөн үнэ"
+      : "Үндсэн үнэ",
+    services,
+    payments,
+    voucherRoles
+  };
+}
+
+function renderPerformancePolicyHistory() {
+  const container = document.getElementById("performancePolicyHistory");
+  if (!container) return;
+  const current = currentPerformancePolicy();
+  const versions = performancePolicyVersionList();
+  if (!versions.length) {
+    container.innerHTML = `<div class="performance-policy-history-empty">Хадгалсан хувилбар алга</div>`;
+    return;
+  }
+  container.innerHTML = versions.map(policy => {
+    const summary = performancePolicyVersionSummary(policy);
+    const isCurrent = Number(policy.version) === Number(current.version);
+    const restoredText = policy.restoredFromVersion
+      ? `<span>Хувилбар ${htmlSafe(policy.restoredFromVersion)}-оос сэргээсэн</span>`
+      : "";
+    return `
+      <article class="performance-policy-history-item${isCurrent ? " is-current" : ""}">
+        <div class="performance-policy-history-title">
+          <div>
+            <strong>Хувилбар ${htmlSafe(policy.version)}</strong>
+            ${isCurrent ? `<span class="performance-policy-current-badge">Одоогийн</span>` : ""}
+          </div>
+          <small>${htmlSafe(policy.effectiveFrom)}-с хэрэгжинэ • ${htmlSafe(policy.createdBy || "Систем")}</small>
+          ${restoredText}
+        </div>
+        <div class="performance-policy-history-summary">
+          <span>Үйлчилгээ <strong>${htmlSafe(policy.service.rate)}%</strong> · ${htmlSafe(summary.basis)}</span>
+          <span>Хамрах төрөл <strong>${htmlSafe(summary.services)}</strong></span>
+          <span>Касс <strong>${htmlSafe(policy.cashier.rate)}%</strong> · ${htmlSafe(summary.payments)}</span>
+          ${(policy.cashier.paymentMethods || []).includes("voucher")
+            ? `<span>Ваучерийн эрх <strong>${htmlSafe(summary.voucherRoles)}</strong></span>`
+            : ""}
+        </div>
+        <div class="performance-policy-history-action">
+          ${isCurrent
+            ? `<button class="secondary-btn" type="button" disabled>Идэвхтэй</button>`
+            : `<button class="secondary-btn" type="button" data-restore-performance-policy="${htmlSafe(policy.version)}">Энэ хувилбарыг сэргээх</button>`}
+        </div>
+      </article>
+    `;
+  }).join("");
+  container.querySelectorAll("[data-restore-performance-policy]").forEach(button => {
+    button.addEventListener("click", () => restorePerformancePolicyVersion(Number(button.dataset.restorePerformancePolicy)));
+  });
+}
+
+function restorePerformancePolicyVersion(version) {
+  if (!isAdminAccount()) return showToast("Зөвхөн админ бодлогын хувилбар сэргээнэ", "error");
+  const selected = performancePolicyVersionList().find(item => Number(item.version) === Number(version));
+  if (!selected) return showToast("Сэргээх хувилбар олдсонгүй", "error");
+  if (!window.confirm(`Хувилбар ${selected.version}-ийн тохиргоог өнөөдрөөс хэрэгжих шинэ хувилбар болгон сэргээх үү?\n\nӨмнөх түгжсэн тайлан өөрчлөгдөхгүй.`)) return;
+  const maxVersion = Math.max(
+    Number(currentPerformancePolicy().version || 0),
+    ...(pricePolicy().performanceVersions || []).map(item => Number(item.version || 0))
+  );
+  const actor = activeAccount.displayName || activeAccount.username || "Админ";
+  const next = normalizedPerformancePolicy({
+    ...structuredClone(selected),
+    version: maxVersion + 1,
+    configured: true,
+    effectiveFrom: todayText(),
+    createdAt: new Date().toISOString(),
+    createdBy: actor,
+    restoredFromVersion: Number(selected.version)
+  });
+  setCurrentPerformancePolicyVersion(next);
+  const eligibleVoucherIds = new Set(next.cashier.voucherRoleIds.map(String));
+  state.voucherRoles.forEach(role => {
+    role.cashierCommissionEligible = eligibleVoucherIds.has(String(role.id));
+  });
+  state.audit.unshift({
+    id: entityId("audit"),
+    title: "performance_policy_restored",
+    createdAt: auditNowText(),
+    meta: `${actor} • Хувилбар ${selected.version} → Хувилбар ${next.version} • ${next.effectiveFrom}`
+  });
+  saveState(["pricePolicy", "voucherRoles", "audit"]);
+  performanceRecalculatePreviewData = null;
+  renderPricePolicySettings();
+  renderInfoHeader(activeView);
+  showToast(`Хувилбар ${selected.version}-ийн тохиргоог Хувилбар ${next.version} болгон сэргээв`);
 }
 
 function previousMonthEndText() {
@@ -3108,6 +3246,7 @@ function renderPricePolicySettings() {
   const recalculateApply = document.getElementById("performanceRecalculateApply");
   if (recalculateApply) recalculateApply.disabled = !performanceRecalculatePreviewData;
   enhanceNativeSelects(["customerTypeDynamic", "performanceServiceBasis", "performanceVipFeeMode", "performanceMasterFeeMode"]);
+  renderPerformancePolicyHistory();
   renderCustomerTypeManager();
 }
 
@@ -12754,8 +12893,7 @@ function renderVouchers() {
             voucherRoleIds: currentPolicy.cashier.voucherRoleIds.filter(roleId => String(roleId) !== String(id))
           }
         });
-        state.pricePolicy.performance = nextPolicy;
-        state.pricePolicy.performanceVersions.push(structuredClone(nextPolicy));
+        setCurrentPerformancePolicyVersion(nextPolicy);
       }
       if (Number(voucherRoleEditingId) === id) {
         voucherRoleEditingId = null;
@@ -13982,6 +14120,7 @@ function auditActionText(title = "") {
     catalog_created: "Бараа, үйлчилгээ нэмсэн",
     excel_exported: "Тайлан татсан",
     performance_policy_created: "Гүйцэтгэлийн бодлого шинэчилсэн",
+    performance_policy_restored: "Гүйцэтгэлийн бодлого сэргээсэн",
     performance_month_submitted: "Сарын гүйцэтгэлийг хяналтад илгээсэн",
     performance_month_locked: "Сарын гүйцэтгэлийг баталж түгжсэн",
     performance_month_reopened: "Сарын гүйцэтгэлийн тайланг дахин нээсэн",
@@ -15109,8 +15248,7 @@ function bindEvents() {
         createdBy: activeAccount.displayName || activeAccount.username || "Админ",
         cashier: { ...current.cashier, voucherRoleIds: [...ids] }
       });
-      state.pricePolicy.performance = nextPolicy;
-      state.pricePolicy.performanceVersions.push(structuredClone(nextPolicy));
+      setCurrentPerformancePolicyVersion(nextPolicy);
     }
     saveState(["voucherRoles", "pricePolicy"]);
     event.target.reset();
