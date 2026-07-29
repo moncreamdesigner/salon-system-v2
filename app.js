@@ -2076,7 +2076,7 @@ const titles = {
   kass: ["Касс хуваарь", "Өдрийн касс, ээлж, хаалтын хяналт"],
   kassRevenue: ["Касс орлого", "Салбарын орлого, төлбөрийн хэлбэр болон гүйлгээний жагсаалт"],
   services: ["Үйлчилгээ", "Үйлчилгээний бүртгэл, нэмэгдэл үнэ, төлбөрийн урсгал"],
-  payments: ["Касс орлого", "Төлбөр, bonus, voucher орлогын бүртгэл"],
+  payments: ["Касс орлого", "Төлбөр, Бонус, Ваучер орлогын бүртгэл"],
   performance: ["Гүйцэтгэл", "Ажилтны үйлчилгээ, салбар дамжсан ажил ба урамшууллын тооцоо"],
   reports: ["Тайлан", "Салбар, хэрэглэгч, ажилтны Excel тайлан"],
   bookings: ["Цаг захиалга", "Хэрэглэгчийн хүсэлт болон ресепшний хяналт"],
@@ -7525,12 +7525,12 @@ function renderCustomerSideProfile() {
       <div><span>Үлдэгдэл</span><strong>${customerBalance(customer) ? money(customerBalance(customer)) : "—"}</strong></div>
     </div>
     <section class="customer-side-section">
-      <h3>Групп bonus</h3>
+      <h3>Групп бонус</h3>
       ${group ? `
         <div class="group-summary compact">
           <div><span>Групп</span><strong>${group.name}</strong></div>
           <div><span>Хувь</span><strong>${bonusInfo.percent}%</strong></div>
-          <div><span>Bonus</span><strong>${money(bonusInfo.balance)}</strong></div>
+          <div><span>Бонус</span><strong>${money(bonusInfo.balance)}</strong></div>
         </div>
         <div class="group-members">
           ${groupMembers(group).map(member => `<span>${member.name}${Number(group.adminCustomerId) === Number(member.id) ? " • админ" : ""}</span>`).join("")}
@@ -8796,9 +8796,9 @@ function renderPaymentHistoryChips(item = {}) {
         const paidAmount = Number(payment.paidAmount ?? payment.amount ?? 0);
         const label = paidAmount <= 0 && Number(payment.bonusAmount || 0) > 0
           ? "Бонус"
-          : (payment.methodLabel || paymentMethodOptionsLabel(payment.method) || "Төлбөр");
+          : (paymentMethodOptionsLabel(payment.method || payment.methodLabel) || payment.methodLabel || "Төлбөр");
         const displayAmount = paidAmount || Number(payment.amount || payment.bonusAmount || 0);
-        const bonusText = payment.bonusAmount && paidAmount > 0 ? ` + бонус ${money(payment.bonusAmount)}` : "";
+        const bonusText = payment.bonusAmount && paidAmount > 0 ? ` + Бонус ${money(payment.bonusAmount)}` : "";
         const reference = payment.referenceLabel ? ` · ${payment.referenceLabel}` : "";
         return `<span class="payment-history-chip">${money(displayAmount)} ${label}${reference}${bonusText}${time ? ` · ${time}` : ""}</span>`;
       }).join("")}
@@ -8807,17 +8807,19 @@ function renderPaymentHistoryChips(item = {}) {
 }
 
 function paymentMethodOptionsLabel(value = "") {
+  const normalizedValue = String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
   const labels = {
     card: "Карт",
     qpay: "QPay",
     transfer: "Данс",
     cash: "Бэлэн",
     loan_app: "Зээлийн апп",
+    bonus: "Бонус",
     voucher: "Ваучер",
     gift_card: "Бэлгийн карт",
     salary: "Цалингаас суутгах"
   };
-  return labels[value] || "";
+  return labels[normalizedValue] || "";
 }
 
 function paymentMethodOptions(selected = "card") {
@@ -14348,7 +14350,7 @@ function openCustomerModal() {
             ${salonOptionsMarkup}
           </select>
         </label>`}
-        <label>Bonus хувь
+        <label>Бонус хувь
           <input id="modalCustomerBonus" class="input" value="${defaultBonus}" readonly>
         </label>
         <div class="form-actions">

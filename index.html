@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202607292330">
+  <meta name="app-build" content="202607292345">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607292330">
+  <link rel="stylesheet" href="styles.css?v=202607292345">
 </head>
 <body>
   <div class="app-shell">
@@ -439,7 +439,7 @@
       <section class="view" id="paymentsView">
         <section class="panel"><div class="panel-head"><div><h2>Касс орлого</h2><p>Үйлчилгээ, бүтээгдэхүүн, бонус, ваучер орлогын нэгтгэл</p></div><button class="secondary-btn">Excel</button></div><div class="table-wrap"><table><thead><tr><th>Цаг</th><th>Хэрэглэгч</th><th>Төрөл</th><th>Төлбөр</th><th>Нийт</th><th>Төлөв</th></tr></thead><tbody>
           <tr><td>10:20</td><td>Бат Хулан</td><td>Курс эмчилгээ</td><td>Карт</td><td>96,250₮</td><td><span class="badge green">Төлөгдсөн</span></td></tr>
-          <tr><td>11:05</td><td>Энх Номин</td><td>Оношилгоо</td><td>Bonus + Бэлэн</td><td>80,000₮</td><td><span class="badge green">Төлөгдсөн</span></td></tr>
+          <tr><td>11:05</td><td>Энх Номин</td><td>Оношилгоо</td><td>Бонус + Бэлэн</td><td>80,000₮</td><td><span class="badge green">Төлөгдсөн</span></td></tr>
           <tr><td>12:30</td><td>Болор</td><td>Бүтээгдэхүүн</td><td>Шилжүүлэг</td><td>65,000₮</td><td><span class="badge red">Дутуу</span></td></tr>
         </tbody></table></div></section>
       </section>
@@ -538,7 +538,7 @@
 
       <section class="view" id="reportsView">
         <div class="metric-grid"><article class="metric"><span class="metric-label">Сарын орлого</span><strong>128,400,000₮</strong><span class="metric-note">Бүх салбар нийлбэр</span></article><article class="metric"><span class="metric-label">Курс дуусаагүй</span><strong>126</strong><span class="metric-note">17 төлбөр дутуу</span></article><article class="metric"><span class="metric-label">Бонус үлдэгдэл</span><strong>18,900,000₮</strong><span class="metric-note">Идэвхтэй хэрэглэгчид</span></article><article class="metric"><span class="metric-label">QR хүлээгдэж буй</span><strong>9</strong><span class="metric-note">Баталгаажуулах шаардлагатай</span></article></div>
-        <section class="panel"><div class="panel-head"><div><h2>Тайлангийн төрлүүд</h2><p>Админ Excel татах үндсэн хэсэг</p></div></div><div class="stack-list"><div class="stack-item"><strong>Салбарын орлогын тайлан</strong><span>Өдөр, сар, салбар, төлбөрийн төрлөөр</span></div><div class="stack-item"><strong>Хэрэглэгчийн тайлан</strong><span>Курс, төлбөр дутуу, bonus, тусгай хэрэглэгч</span></div><div class="stack-item"><strong>Ажилтны тайлан</strong><span>Гүйцэтгэл, томилгоо, Вип нэмэлт төлбөр</span></div></div></section>
+        <section class="panel"><div class="panel-head"><div><h2>Тайлангийн төрлүүд</h2><p>Админ Excel татах үндсэн хэсэг</p></div></div><div class="stack-list"><div class="stack-item"><strong>Салбарын орлогын тайлан</strong><span>Өдөр, сар, салбар, төлбөрийн төрлөөр</span></div><div class="stack-item"><strong>Хэрэглэгчийн тайлан</strong><span>Курс, төлбөр дутуу, Бонус, тусгай хэрэглэгч</span></div><div class="stack-item"><strong>Ажилтны тайлан</strong><span>Гүйцэтгэл, томилгоо, Вип нэмэлт төлбөр</span></div></div></section>
       </section>
 
       <section class="view" id="loyaltyView">
@@ -1260,7 +1260,7 @@
 
         <section class="panel pricing-rule-panel">
           <div class="pricing-rule-row">
-            <strong>Bonus шатлал</strong>
+            <strong>Бонус шатлал</strong>
             <span id="bonusTierSummary"></span>
           </div>
           <p class="pricing-note">Тусгай хэрэглэгч бүртгэгдсэнээс хойш 2 жил 10%, дараа нь сүүлийн 2 жилийн хэрэглээний шатлалаар бодогдоно. Ажилтан тогтмол 10% байна.</p>
@@ -1270,7 +1270,7 @@
           <h2>Хэрэглэгчийн төрөл</h2>
           <form class="pricing-type-form" id="customerTypeForm">
             <input class="input" id="customerTypeName" placeholder="Жишээ: Вип хэрэглэгч">
-            <input class="input" id="customerTypeBonus" type="number" min="0" max="100" placeholder="Bonus %">
+            <input class="input" id="customerTypeBonus" type="number" min="0" max="100" placeholder="Бонус %">
             <select class="input" id="customerTypeDynamic">
               <option value="true">Дүрмээр бодогдоно</option>
               <option value="false">Байнгын</option>
@@ -1282,7 +1282,7 @@
               <thead>
                 <tr>
                   <th>Төрөл</th>
-                  <th>Эхлэх bonus</th>
+                  <th>Эхлэх бонус</th>
                   <th>Тохиргоо</th>
                   <th>Үйлдэл</th>
                 </tr>
@@ -1408,7 +1408,7 @@
   </div>
   <script src="fliphtml5.js?v=202607210130"></script>
   <script src="diagnostics.js?v=202607240130"></script>
-  <script src="app.js?v=202607292330"></script>
+  <script src="app.js?v=202607292345"></script>
 </body>
 </html>
 
