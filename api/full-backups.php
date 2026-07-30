@@ -10,7 +10,7 @@ if (!$isCli) {
 $pdo = db();
 $method = $isCli ? 'CRON' : ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
-const FULL_BACKUP_KEEP_COUNT = 2;
+const FULL_BACKUP_KEEP_COUNT = 5;
 const FULL_BACKUP_INTERVAL_DAYS = 30;
 
 function full_backup_paths(): array

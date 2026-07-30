@@ -92,5 +92,10 @@ assert.match(
   /\$zipOpen\s*=\s*false;[\s\S]*\$zipOpen\s*=\s*true;[\s\S]*\$zip->close\(\)[\s\S]*\$zipOpen\s*=\s*false;[\s\S]*if\s*\(!empty\(\$zipOpen\)/,
   "A completed full backup ZIP must not be closed a second time in cleanup"
 );
+assert.match(
+  fullBackups,
+  /const\s+FULL_BACKUP_KEEP_COUNT\s*=\s*5\s*;/,
+  "Full backup retention must preserve the latest five versions"
+);
 
 console.log("data-safety-release-a.test: OK");
