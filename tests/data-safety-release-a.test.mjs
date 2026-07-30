@@ -6,6 +6,7 @@ const publicApi = fs.readFileSync(new URL("../api/public.php", import.meta.url),
 const deleteUpload = fs.readFileSync(new URL("../api/delete-upload.php", import.meta.url), "utf8");
 const rollingBackups = fs.readFileSync(new URL("../api/rolling-backups.php", import.meta.url), "utf8");
 const fullBackups = fs.readFileSync(new URL("../api/full-backups.php", import.meta.url), "utf8");
+const index = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
 assert.doesNotMatch(
   publicApi,
@@ -96,6 +97,16 @@ assert.match(
   fullBackups,
   /const\s+FULL_BACKUP_KEEP_COUNT\s*=\s*5\s*;/,
   "Full backup retention must preserve the latest five versions"
+);
+assert.match(
+  app,
+  /result\.settings\?\.keepCount[\s\S]*databaseFullBackupPolicy[\s\S]*serverFullBackupSettings\.keepCount/,
+  "Full backup UI must render retention from the server setting"
+);
+assert.match(
+  index,
+  /id="databaseFullBackupPolicy">30 хоног тутам · сүүлийн 5 хувилбар[\s\S]*Бүрэн нөөц ZIP үүсгэх/,
+  "Full backup UI defaults and action label must match the active Mongolian policy"
 );
 
 console.log("data-safety-release-a.test: OK");

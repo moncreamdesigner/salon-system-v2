@@ -431,6 +431,7 @@ let serverRollingBackupHealth = null;
 let serverRecoveryEntries = [];
 let serverChangeEvents = [];
 let serverFullBackups = [];
+let serverFullBackupSettings = { intervalDays: 30, keepCount: 5 };
 let serverBackupIntervalHours = 6;
 let scheduledRollingBackupChecked = false;
 let scheduledFullBackupChecked = false;
@@ -14018,6 +14019,10 @@ async function loadFullBackups({ silent = false } = {}) {
   try {
     const result = await serverApi("full-backups.php");
     serverFullBackups = Array.isArray(result.backups) ? result.backups : [];
+    serverFullBackupSettings = {
+      intervalDays: Math.max(1, Number(result.settings?.intervalDays) || 30),
+      keepCount: Math.max(1, Number(result.settings?.keepCount) || 5)
+    };
     renderFullBackups();
     return serverFullBackups;
   } catch (error) {
@@ -14416,6 +14421,10 @@ function renderDatabaseBackups() {
 
 function renderFullBackups() {
   const list = document.getElementById("databaseFullBackupList");
+  const policy = document.getElementById("databaseFullBackupPolicy");
+  if (policy) {
+    policy.textContent = `${serverFullBackupSettings.intervalDays} хоног тутам · сүүлийн ${serverFullBackupSettings.keepCount} хувилбар`;
+  }
   if (!list) return;
   list.innerHTML = serverFullBackups.map(backup => `
     <div class="database-backup-item">
