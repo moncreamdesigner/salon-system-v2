@@ -54,13 +54,21 @@ function sanitize_public_booking(array $booking): ?array
 
 if ($method === 'GET') {
     $data = load_public_sections($pdo);
-    // Захиалгаас утасны дугаарыг маскалж буцаах (публикт бүгд харагдах хэрэггүй).
-    $bookings = array_map(function ($booking) {
-        $phone = (string)($booking['phone'] ?? '');
-        if (strlen($phone) === 8) $booking['phone'] = substr($phone, 0, 4) . '****';
-        return $booking;
-    }, is_array($data['bookings']) ? $data['bookings'] : []);
-    $data['bookings'] = $bookings;
+    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d');
+    // Public UI only needs future slot occupancy. Historical rows and phone
+    // numbers stay on the server and are never sent to anonymous browsers.
+    $data['bookings'] = array_values(array_map(
+        static fn(array $booking): array => [
+            'salon' => (string)($booking['salon'] ?? ''),
+            'date' => (string)($booking['date'] ?? ''),
+            'time' => (string)($booking['time'] ?? ''),
+            'status' => (string)($booking['status'] ?? ''),
+        ],
+        array_filter(
+            is_array($data['bookings']) ? $data['bookings'] : [],
+            static fn($booking): bool => is_array($booking) && (string)($booking['date'] ?? '') >= $today
+        )
+    ));
     json_response(['ok' => true, 'data' => $data]);
 }
 
@@ -136,8 +144,12 @@ try {
     foreach ($holidays as $holiday) {
         if (!is_array($holiday)) continue;
         if (($holiday['date'] ?? '') !== $booking['date']) continue;
-        $scope = $holiday['salons'] ?? [];
-        if (!is_array($scope) || in_array($booking['salon'], $scope, true) || in_array('*', $scope, true) || empty($scope)) {
+        $singleSalon = trim((string)($holiday['salon'] ?? ''));
+        $scope = $holiday['salons'] ?? null;
+        $closed = $singleSalon !== ''
+            ? ($singleSalon === $booking['salon'] || $singleSalon === '*')
+            : (is_array($scope) && (in_array($booking['salon'], $scope, true) || in_array('*', $scope, true)));
+        if ($closed) {
             $pdo->rollBack();
             json_response(['ok' => false, 'message' => 'Тухайн өдөр салбар амарна.'], 409);
         }
@@ -177,9 +189,6 @@ try {
     while (isset($existingIds[$booking['id']])) $booking['id']++;
 
     array_unshift($bookings, $booking);
-
-    // Хамгийн сүүлийн 5000 захиалгаар хязгаарлах (сан хамгаалалт).
-    if (count($bookings) > 5000) $bookings = array_slice($bookings, 0, 5000);
 
     $encoded = json_encode($bookings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($encoded === false) throw new RuntimeException('JSON хөрвүүлэлт амжилтгүй.');

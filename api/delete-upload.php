@@ -25,7 +25,11 @@ $storageRoot = $configuredStorage !== ''
     ? rtrim($configuredStorage, DIRECTORY_SEPARATOR)
     : dirname($publicRoot) . DIRECTORY_SEPARATOR . 'khalgai-media-storage';
 $privateRoot = $storageRoot . DIRECTORY_SEPARATOR . 'private';
-$deleted = 0;
+$trashRoot = $storageRoot . DIRECTORY_SEPARATOR . 'trash';
+if (!is_dir($trashRoot) && !@mkdir($trashRoot, 0750, true) && !is_dir($trashRoot)) {
+    json_response(['ok' => false, 'message' => 'Зургийн түр хадгалалтын хавтас үүсгэж чадсангүй.'], 500);
+}
+$trashed = 0;
 
 foreach (array_values(array_unique($urls)) as $url) {
     if (!is_string($url)) continue;
@@ -36,10 +40,12 @@ foreach (array_values(array_unique($urls)) as $url) {
     if ($filename === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $filename)) continue;
     $path = $privateRoot . DIRECTORY_SEPARATOR . $filename;
     if (!is_file($path)) continue;
-    if (!@unlink($path)) {
-        json_response(['ok' => false, 'message' => 'Оношилгооны зураг устгаж чадсангүй.'], 500);
+    $trashName = gmdate('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '_' . $filename;
+    $trashPath = $trashRoot . DIRECTORY_SEPARATOR . $trashName;
+    if (!@rename($path, $trashPath)) {
+        json_response(['ok' => false, 'message' => 'Оношилгооны зургийг түр хадгалалт руу шилжүүлж чадсангүй.'], 500);
     }
-    $deleted++;
+    $trashed++;
 }
 
-json_response(['ok' => true, 'deleted' => $deleted]);
+json_response(['ok' => true, 'trashed' => $trashed, 'retentionDays' => 30]);

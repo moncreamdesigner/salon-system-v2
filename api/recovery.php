@@ -35,7 +35,6 @@ if ($id > 0) {
     ]);
 }
 
-$pdo->exec("DELETE FROM app_recovery_journal WHERE created_at < UTC_TIMESTAMP() - INTERVAL 30 DAY");
 $rows = $pdo->query('SELECT id, revision, actor_username, actor_role, actor_salon, entity_type, entity_id, parent_id, payload, created_at, OCTET_LENGTH(payload) AS size_bytes FROM app_recovery_journal ORDER BY id DESC LIMIT 100')->fetchAll();
 $entries = [];
 foreach ($rows as $row) {

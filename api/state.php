@@ -138,6 +138,72 @@ function journal_removed_customer_data(PDO $pdo, int $revision, array $user, arr
     return $removedCount;
 }
 
+function customer_mutation_change_events(array $current, array $incoming, array $mutations): array
+{
+    $events = [];
+    foreach ([
+        ['mutationKey' => 'profiles', 'section' => 'customers', 'type' => 'customer'],
+        ['mutationKey' => 'groups', 'section' => 'customerGroups', 'type' => 'customerGroup'],
+    ] as $definition) {
+        $requested = is_array($mutations[$definition['mutationKey']] ?? null) ? $mutations[$definition['mutationKey']] : [];
+        if (!$requested) continue;
+        $beforeIndex = customer_mutation_index(is_array($current[$definition['section']] ?? null) ? $current[$definition['section']] : []);
+        $afterIndex = customer_mutation_index(is_array($incoming[$definition['section']] ?? null) ? $incoming[$definition['section']] : []);
+        foreach ($requested as $mutation) {
+            if (!is_array($mutation)) continue;
+            $entityId = trim((string)($mutation['id'] ?? ''));
+            if ($entityId === '') continue;
+            $before = $beforeIndex[$entityId]['value'] ?? null;
+            $after = $afterIndex[$entityId]['value'] ?? null;
+            if ($before === $after) continue;
+            $action = $before === null ? 'create' : ($after === null ? 'delete' : 'update');
+            if (
+                is_array($before)
+                && is_array($after)
+                && empty($before['deleted'])
+                && empty($before['deletedAt'])
+                && (!empty($after['deleted']) || !empty($after['deletedAt']))
+            ) {
+                $action = 'archive';
+            }
+            $events[] = [
+                'entityType' => $definition['type'],
+                'entityId' => $entityId,
+                'parentId' => '',
+                'action' => $action,
+                'before' => $before,
+                'after' => $after,
+            ];
+        }
+    }
+    return $events;
+}
+
+function record_change_events(PDO $pdo, string $operationId, int $revision, array $events): void
+{
+    if ($operationId === '' || !$events) return;
+    $statement = $pdo->prepare('INSERT INTO app_change_events (operation_id, revision, entity_type, entity_id, parent_id, action, before_payload, after_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    foreach ($events as $event) {
+        $before = array_key_exists('before', $event) && $event['before'] !== null
+            ? json_encode($event['before'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            : null;
+        $after = array_key_exists('after', $event) && $event['after'] !== null
+            ? json_encode($event['after'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            : null;
+        if ($before === false || $after === false) throw new RuntimeException('Өөрчлөлтийн түүхийг JSON болгоход алдаа гарлаа.');
+        $statement->execute([
+            $operationId,
+            $revision,
+            (string)($event['entityType'] ?? ''),
+            (string)($event['entityId'] ?? ''),
+            (string)($event['parentId'] ?? ''),
+            (string)($event['action'] ?? 'update'),
+            $before,
+            $after,
+        ]);
+    }
+}
+
 function merge_legacy_customer_data(array $current, array $incoming): array
 {
     if (is_array($incoming['customers'] ?? null)) {
@@ -439,6 +505,10 @@ $clientRevision = filter_var($payload['revision'] ?? null, FILTER_VALIDATE_INT);
 $partial = ($payload['partial'] ?? false) === true;
 $clientScopeRevision = filter_var($payload['scopeRevision'] ?? null, FILTER_VALIDATE_INT);
 $clientSectionRevisions = is_array($payload['sectionRevisions'] ?? null) ? $payload['sectionRevisions'] : null;
+$operationId = trim((string)($payload['operationId'] ?? ''));
+if ($operationId !== '' && preg_match('/^[A-Za-z0-9._:-]{12,190}$/', $operationId) !== 1) {
+    json_response(['ok' => false, 'message' => 'Үйлдлийн дугаар буруу байна.'], 422);
+}
 if (!is_array($sections) || array_is_list($sections)) {
     json_response(['ok' => false, 'message' => 'Өгөгдлийн бүтэц буруу байна.'], 422);
 }
@@ -461,6 +531,20 @@ try {
     $pdo->beginTransaction();
     $revisionStmt = $pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'revision' FOR UPDATE");
     $currentRevision = (int)$revisionStmt->fetchColumn();
+    if ($operationId !== '') {
+        $existingOperation = $pdo->prepare('SELECT actor_user_id, result_payload FROM app_operations WHERE operation_id = ? LIMIT 1');
+        $existingOperation->execute([$operationId]);
+        $operationRow = $existingOperation->fetch();
+        if ($operationRow) {
+            if ((int)($operationRow['actor_user_id'] ?? 0) !== (int)($user['id'] ?? 0)) {
+                $pdo->rollBack();
+                json_response(['ok' => false, 'message' => 'Үйлдлийн дугаар өөр хэрэглэгчид хамаарч байна.'], 409);
+            }
+            $storedResult = json_decode((string)$operationRow['result_payload'], true);
+            $pdo->rollBack();
+            json_response((is_array($storedResult) ? $storedResult : ['ok' => true]) + ['idempotentReplay' => true]);
+        }
+    }
     $currentScopeRevision = scope_revision($pdo, $user, true);
     $incomingKeys = array_keys($sections);
     $currentSectionRevisions = load_section_revisions($pdo, $incomingKeys, true);
@@ -534,6 +618,7 @@ try {
         && trim((string)($payload['removalReason'] ?? '')) !== '';
     if (!$allowProtectedOverride) assert_operational_lock($currentSections, $sections);
     $nextRevision = $currentRevision + 1;
+    $changeEvents = customer_mutation_change_events($currentSections, $sections, $customerMutations);
 
     $removedCount = journal_removed_customer_data($pdo, $nextRevision, $user, $currentSections, $sections);
     $allowBulkRemoval = ($user['role'] ?? '') === 'admin' && ($payload['allowBulkRemoval'] ?? false) === true;
@@ -568,17 +653,30 @@ try {
         json_encode(array_keys($sections), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         $removedCount,
     ]);
-    $pdo->exec("DELETE FROM app_recovery_journal WHERE created_at < UTC_TIMESTAMP() - INTERVAL 30 DAY");
-    $pdo->exec("DELETE FROM app_write_log WHERE created_at < UTC_TIMESTAMP() - INTERVAL 90 DAY");
-    $pdo->commit();
-    json_response([
+    record_change_events($pdo, $operationId, $nextRevision, $changeEvents);
+    $successResult = [
         'ok' => true,
         'revision' => $nextRevision,
         'scopeRevision' => $nextScopeRevision,
         'sectionRevisions' => array_fill_keys(array_keys($sections), $nextRevision),
         'savedSections' => array_keys($sections),
         'savedBy' => $user['username'] ?? 'admin',
-    ]);
+    ];
+    if ($operationId !== '') {
+        $operation = $pdo->prepare('INSERT INTO app_operations (operation_id, revision, actor_user_id, actor_username, actor_role, actor_salon, sections, result_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $operation->execute([
+            $operationId,
+            $nextRevision,
+            (int)($user['id'] ?? 0) ?: null,
+            (string)($user['username'] ?? ''),
+            (string)($user['role'] ?? ''),
+            (string)($user['salon'] ?? ''),
+            json_encode(array_keys($sections), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            json_encode($successResult, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+    }
+    $pdo->commit();
+    json_response($successResult);
 } catch (DomainException $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     json_response(['ok' => false, 'protectedData' => true, 'message' => $error->getMessage()], 409);

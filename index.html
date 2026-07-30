@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202607310121">
+  <meta name="app-build" content="202607310213">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202607310121">
+  <link rel="stylesheet" href="styles.css?v=202607310213">
 </head>
 <body>
   <div class="app-shell">
@@ -1102,6 +1102,19 @@
             <div class="database-backup-list" id="databaseRecoveryList"></div>
           </section>
 
+          <section class="database-card">
+            <div class="database-backup-toolbar">
+              <div class="database-card-head">
+                <strong>Өөрчлөлтийн түүх ба сонгон сэргээх</strong>
+                <span>Хэрэглэгчийн өмнөх болон шинэ мэдээллийг серверээс шалгаж, бусад өгөгдөлд хүрэлгүй сэргээнэ.</span>
+              </div>
+              <div class="database-backup-actions">
+                <span class="database-backup-policy">90 хоног · сүүлийн 200 өөрчлөлт</span>
+              </div>
+            </div>
+            <div class="database-backup-list" id="databaseChangeEventList"></div>
+          </section>
+
           <section class="database-card database-full-backup-card">
             <div class="database-backup-toolbar">
               <div class="database-card-head">
@@ -1400,7 +1413,7 @@
   </div>
   <script src="fliphtml5.js?v=202607210130"></script>
   <script src="diagnostics.js?v=202607240130"></script>
-  <script src="app.js?v=202607310121"></script>
+  <script src="app.js?v=202607310213"></script>
 </body>
 </html>
 

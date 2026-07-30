@@ -2,10 +2,13 @@
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 
-verify_same_origin();
-require_admin();
+$isCli = PHP_SAPI === 'cli';
+if (!$isCli) {
+    verify_same_origin();
+    require_admin();
+}
 $pdo = db();
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$method = $isCli ? 'CRON' : ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
 const FULL_BACKUP_KEEP_COUNT = 2;
 const FULL_BACKUP_INTERVAL_DAYS = 30;
@@ -91,13 +94,16 @@ function database_full_snapshot(PDO $pdo): array
         'users' => $pdo->query('SELECT id, username, display_name, password_hash, role, salon_name, is_active, last_login_at, created_at, updated_at FROM app_users ORDER BY id')->fetchAll(),
         'recoveryJournal' => $pdo->query('SELECT * FROM app_recovery_journal ORDER BY id')->fetchAll(),
         'writeLog' => $pdo->query('SELECT * FROM app_write_log ORDER BY id')->fetchAll(),
+        'operations' => $pdo->query('SELECT * FROM app_operations ORDER BY id')->fetchAll(),
+        'changeEvents' => $pdo->query('SELECT * FROM app_change_events ORDER BY id')->fetchAll(),
+        'bookingArchive' => $pdo->query('SELECT * FROM app_booking_archive ORDER BY id')->fetchAll(),
         'sections' => $sections,
     ];
 }
 
 function database_sql_dump(PDO $pdo): string
 {
-    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log'];
+    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log', 'app_operations', 'app_change_events', 'app_booking_archive'];
     $lines = [
         '-- Khalgai Salon System full backup',
         '-- Created: ' . date('c'),
@@ -282,6 +288,11 @@ function create_full_backup(PDO $pdo, string $reason, bool $scheduled = false): 
 
 try {
     $paths = full_backup_paths();
+    if ($method === 'CRON') {
+        $result = create_full_backup($pdo, 'Сарын автомат server full backup', true);
+        fwrite(STDOUT, json_encode(['ok' => true] + $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        exit(0);
+    }
     if ($method === 'GET') {
         $download = basename((string)($_GET['download'] ?? ''));
         if ($download !== '') {

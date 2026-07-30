@@ -1,0 +1,56 @@
+# Khalgai server backup cron
+
+Энэ тохиргоо admin browser нээлттэй эсэхээс үл хамааран backup болон maintenance ажиллуулна.
+
+## Hostinger дээр тохируулах
+
+Hostinger-ийн **Advanced → Cron Jobs** хэсэгт төслийн бодит absolute path-ыг ашиглан дараах хоёр ажил үүсгэнэ. Доорх `/home/ACCOUNT/domains/salon.khalgai.mn/public_html` хэсгийг Hostinger File Manager дээр харагдах бодит замаар солино.
+
+### 1. Rolling backup — 6 цаг тутам
+
+```sh
+php /home/ACCOUNT/domains/salon.khalgai.mn/public_html/api/rolling-backups.php
+```
+
+Schedule:
+
+```text
+0 */6 * * *
+```
+
+Энэ ажил:
+
+- сүүлийн 7 хоногийн 28 rolling backup-ыг хадгална;
+- backup бүрийн SHA-256 checksum-ыг үүсгэнэ;
+- 2 жилээс хуучин цагийн захиалгыг backup амжилттай болсны дараа archive руу шилжүүлнэ;
+- 30 хоног болсон зургийн trash болон хугацаа дууссан техникийн түүхийг цэвэрлэнэ;
+- `last_server_cron_at` heartbeat шинэчилнэ.
+
+### 2. Full backup — өдөр бүр шалгах
+
+```sh
+php /home/ACCOUNT/domains/salon.khalgai.mn/public_html/api/full-backups.php
+```
+
+Schedule:
+
+```text
+25 3 * * *
+```
+
+Cron өдөр бүр ажиллах боловч 30 хоног болоогүй бол шинэ full backup үүсгэхгүй. Ингэснээр сарын backup browser-оос хамаарахгүй.
+
+## Нэвтрүүлсний дараах шалгалт
+
+1. Hostinger cron-ыг `Run now` хийж exit code 0 эсэхийг шалгана.
+2. Admin → Database → Backup хэсэгт **Server backup хэвийн** болон хамгийн сүүлийн cron цаг гарсныг шалгана.
+3. Шинэ rolling backup-ыг татаж, metadata дахь checksum байгаа эсэхийг шалгана.
+4. Full backup жагсаалтад хамгийн сүүлийн автомат backup харагдаж байгаа эсэхийг шалгана.
+5. Backup хавтас web-ээр шууд нээгдэхгүй байгааг шалгана.
+
+## Анхаарах зүйл
+
+- Cron command-д нууц үг, database credential бичихгүй.
+- Browser URL-г cron-оор дуудахгүй; зөвхөн PHP CLI command ашиглана.
+- `khalgai-backups` болон `khalgai-media-storage` хавтас Git deploy-оор солигдох ёсгүй.
+- Server-ийн цагийн бүс өөр байсан ч бизнесийн огнооны логик `Asia/Ulaanbaatar`-ыг ашиглана.

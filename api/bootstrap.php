@@ -80,6 +80,15 @@ function ensure_schema(PDO $pdo): void
 {
     static $ready = false;
     if ($ready) return;
+    try {
+        $schemaVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'schema_version'")->fetchColumn();
+        if ($schemaVersion >= 5) {
+            $ready = true;
+            return;
+        }
+    } catch (Throwable $ignored) {
+        // First installation: app_meta does not exist yet.
+    }
     $pdo->exec("CREATE TABLE IF NOT EXISTS app_meta (
         meta_key VARCHAR(64) PRIMARY KEY,
         meta_value LONGTEXT NOT NULL,
@@ -137,6 +146,56 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_write_log_revision (revision),
         CHECK (JSON_VALID(sections))
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_operations (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        operation_id VARCHAR(190) NOT NULL UNIQUE,
+        revision BIGINT UNSIGNED NOT NULL,
+        actor_user_id BIGINT UNSIGNED NULL,
+        actor_username VARCHAR(64) NOT NULL DEFAULT '',
+        actor_role VARCHAR(20) NOT NULL DEFAULT '',
+        actor_salon VARCHAR(190) NOT NULL DEFAULT '',
+        sections LONGTEXT NOT NULL,
+        result_payload LONGTEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_operations_created (created_at),
+        INDEX idx_operations_revision (revision),
+        CHECK (JSON_VALID(sections)),
+        CHECK (JSON_VALID(result_payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_change_events (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        operation_id VARCHAR(190) NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        entity_type VARCHAR(40) NOT NULL,
+        entity_id VARCHAR(190) NOT NULL DEFAULT '',
+        parent_id VARCHAR(190) NOT NULL DEFAULT '',
+        action VARCHAR(30) NOT NULL DEFAULT 'update',
+        before_payload LONGTEXT NULL,
+        after_payload LONGTEXT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_change_events_operation (operation_id),
+        INDEX idx_change_events_entity (entity_type, entity_id),
+        INDEX idx_change_events_created (created_at),
+        CHECK (before_payload IS NULL OR JSON_VALID(before_payload)),
+        CHECK (after_payload IS NULL OR JSON_VALID(after_payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_booking_archive (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        archive_key CHAR(64) NOT NULL UNIQUE,
+        booking_id VARCHAR(190) NOT NULL DEFAULT '',
+        salon VARCHAR(190) NOT NULL DEFAULT '',
+        booking_date DATE NOT NULL,
+        booking_time VARCHAR(10) NOT NULL DEFAULT '',
+        phone VARCHAR(32) NOT NULL DEFAULT '',
+        status VARCHAR(30) NOT NULL DEFAULT '',
+        payload LONGTEXT NOT NULL,
+        archived_revision BIGINT UNSIGNED NOT NULL,
+        archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_booking_archive_date (booking_date),
+        INDEX idx_booking_archive_salon_date (salon, booking_date),
+        INDEX idx_booking_archive_phone (phone),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS app_users (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(64) NOT NULL UNIQUE,
@@ -165,6 +224,7 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec("UPDATE app_meta SET meta_value = '6' WHERE meta_key = 'backup_interval_hours'");
         $pdo->exec("UPDATE app_meta SET meta_value = '3' WHERE meta_key = 'backup_policy_version'");
     }
+    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '5') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
     $ready = true;
 }
 

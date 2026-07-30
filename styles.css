@@ -5632,6 +5632,44 @@ tr:last-child td {
   gap: 10px;
 }
 
+.database-backup-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.database-backup-health strong {
+  font-size: 14px;
+}
+
+.database-backup-health span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.database-backup-health.is-healthy {
+  border-color: rgba(100, 190, 96, 0.42);
+  background: rgba(100, 190, 96, 0.08);
+}
+
+.database-backup-health.is-healthy strong {
+  color: var(--green);
+}
+
+.database-backup-health.is-warning {
+  border-color: rgba(161, 98, 7, 0.28);
+  background: rgba(161, 98, 7, 0.06);
+}
+
+.database-backup-health.is-warning strong {
+  color: var(--warning);
+}
+
 .database-backup-policy {
   align-self: center;
   color: var(--muted);

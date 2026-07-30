@@ -7,6 +7,7 @@ const STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const DATABASE_BACKUP_KEY = "khalgai_salon_database_backups_v1";
 const PENDING_CUSTOMER_MUTATIONS_KEY = "khalgai_salon_pending_customer_mutations_v1";
 const PENDING_PAYMENT_MUTATIONS_KEY = "khalgai_salon_pending_payments_v1";
+const PENDING_SERVER_OPERATION_KEY = "khalgai_salon_pending_server_operation_v1";
 const ACTIVE_VIEW_SESSION_KEY = "khalgai_salon_active_view_v1";
 const ACTIVE_CUSTOMER_SESSION_KEY = "khalgai_salon_active_customer_v1";
 const SERVER_CLIENT_ID_KEY = "khalgai_salon_server_client_id_v1";
@@ -45,6 +46,7 @@ const pendingCustomerGroupUpdates = new Map();
 const pendingCustomerAuditEntries = new Map();
 const pendingCustomerSaveMessages = [];
 const pendingPaymentMutations = new Map();
+const pendingMediaTrashRequests = [];
 const lastSyncedCustomerFingerprints = new Map();
 const lastSyncedGroupFingerprints = new Map();
 const expandedDailyQueueCustomerIds = new Set();
@@ -63,6 +65,17 @@ let pendingServiceSettingsMutation = null;
 let serverSaveRetryDelay = 1000;
 let serverConflictResolutionActive = false;
 let sidebarManualCollapsed = null;
+let pendingServerOperationId = "";
+let pendingServerOperationBody = "";
+let pendingServerOperationVersion = 0;
+let serverRetryNoticeOperationId = "";
+try {
+  // Older builds persisted only an id without its exact request body. Reusing
+  // that id for a later action could acknowledge the wrong write.
+  localStorage.removeItem(PENDING_SERVER_OPERATION_KEY);
+} catch (error) {
+  // Ignore unavailable local storage.
+}
 
 const defaultState = {
   salons: [],
@@ -414,7 +427,9 @@ let voucherRoleEditingId = null;
 let systemUsers = [];
 let serverDatabaseBackups = [];
 let serverRollingBackups = [];
+let serverRollingBackupHealth = null;
 let serverRecoveryEntries = [];
+let serverChangeEvents = [];
 let serverFullBackups = [];
 let serverBackupIntervalHours = 6;
 let scheduledRollingBackupChecked = false;
@@ -936,7 +951,8 @@ function customerMutationsForSave(mutationVersion = localStateMutationVersion) {
 function serverStateRequestBody(
   revision,
   mutationVersion = localStateMutationVersion,
-  customerMutations = customerMutationsForSave(mutationVersion)
+  customerMutations = customerMutationsForSave(mutationVersion),
+  operationId = ""
 ) {
   const keys = pendingServerSections.size ? Array.from(pendingServerSections.keys()) : Object.keys(state).filter(key => key !== "selectedCustomerId");
   const data = {};
@@ -957,10 +973,67 @@ function serverStateRequestBody(
     scopeRevision: Number(serverScopeRevision) || 0,
     sectionRevisions,
     clientId: serverClientId,
+    operationId,
     partial: true,
     customerMutations,
     data
   });
+}
+
+function ensurePendingServerOperation(mutationVersion = localStateMutationVersion, customerMutations = customerMutationsForSave(mutationVersion)) {
+  if (pendingServerOperationId) return pendingServerOperationId;
+  pendingServerOperationId = `state:${serverClientId}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`;
+  pendingServerOperationVersion = mutationVersion;
+  pendingServerOperationBody = serverStateRequestBody(
+    serverStorageRevision,
+    mutationVersion,
+    customerMutations,
+    pendingServerOperationId
+  );
+  return pendingServerOperationId;
+}
+
+function clearPendingServerOperation(operationId = "") {
+  if (operationId && operationId !== pendingServerOperationId) return;
+  pendingServerOperationId = "";
+  pendingServerOperationBody = "";
+  pendingServerOperationVersion = 0;
+}
+
+function queueMediaTrashAfterSave(urls = [], mutationVersion = localStateMutationVersion + 1) {
+  const uniqueUrls = [...new Set((Array.isArray(urls) ? urls : []).filter(value =>
+    typeof value === "string" && value.includes("api/media.php")
+  ))];
+  if (!uniqueUrls.length || IS_LOCAL_RUNTIME) return;
+  pendingMediaTrashRequests.push({ urls: uniqueUrls, mutationVersion, attempts: 0 });
+}
+
+async function sendMediaToTrash(request) {
+  const response = await fetch("api/delete-upload.php", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "KhalgaiSalon"
+    },
+    body: JSON.stringify({ urls: request.urls })
+  });
+  const result = await response.json().catch(() => ({ ok: false }));
+  if (!response.ok || !result.ok) throw new Error(result.message || "Оношилгооны зургийг trash руу шилжүүлж чадсангүй");
+}
+
+async function flushMediaTrashRequestsThrough(mutationVersion) {
+  const eligible = pendingMediaTrashRequests.filter(item => Number(item.mutationVersion || 0) <= mutationVersion);
+  eligible.forEach(item => pendingMediaTrashRequests.splice(pendingMediaTrashRequests.indexOf(item), 1));
+  for (const request of eligible) {
+    try {
+      await sendMediaToTrash(request);
+    } catch (error) {
+      request.attempts = Number(request.attempts || 0) + 1;
+      if (request.attempts < 3) pendingMediaTrashRequests.push(request);
+      console.warn("Committed diagnosis media cleanup deferred", error);
+    }
+  }
 }
 
 function applyServerSectionRevisions(revisions = {}, { replace = false } = {}) {
@@ -1112,6 +1185,9 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
   for (let index = pendingCustomerSaveMessages.length - 1; index >= 0; index -= 1) {
     if (unsafeVersions.has(Number(pendingCustomerSaveMessages[index].mutationVersion || 0))) pendingCustomerSaveMessages.splice(index, 1);
   }
+  for (let index = pendingMediaTrashRequests.length - 1; index >= 0; index -= 1) {
+    if (unsafeVersions.has(Number(pendingMediaTrashRequests[index].mutationVersion || 0))) pendingMediaTrashRequests.splice(index, 1);
+  }
   persistPendingCustomerMutations();
   return unsafeVersions.size;
 }
@@ -1136,6 +1212,11 @@ function discardPendingMutationsThrough(mutationVersion = 0) {
   });
   if (pendingServiceSettingsMutation && Number(pendingServiceSettingsMutation.mutationVersion || 0) <= mutationVersion) {
     pendingServiceSettingsMutation = null;
+  }
+  for (let index = pendingMediaTrashRequests.length - 1; index >= 0; index -= 1) {
+    if (Number(pendingMediaTrashRequests[index].mutationVersion || 0) <= mutationVersion) {
+      pendingMediaTrashRequests.splice(index, 1);
+    }
   }
   persistPendingCustomerMutations();
   persistPendingPaymentMutations();
@@ -1348,26 +1429,19 @@ function applyServerData(data = {}, { partial = false } = {}) {
   invalidatePersistedStateCache();
   invalidateCustomerDerivedData();
   invalidatePerformanceData();
-  const normalizedSections = new Set();
-  const bonusTypeRulesChanged = ensureCustomerBonusTypeRules(state);
+  const pendingSections = new Set();
   const pendingCustomersApplied = applyPendingCustomerProfileUpdates(state);
   const pendingPaymentsApplied = applyPendingPaymentMutations(state);
   if (activeView === "profile" && selectedCustomerId && state.customers.some(customer => Number(customer.id) === selectedCustomerId && !customer.deleted)) {
     state.selectedCustomerId = selectedCustomerId;
   }
-  const customerNamesChanged = normalizeCustomerNamesWithoutSurname(state);
-  stripLegacyEmbeddedImages(state, normalizedSections);
-  if (customerNamesChanged) normalizedSections.add("customers");
-  if (bonusTypeRulesChanged) {
-    ["customers", "customerTypes", "customerTypeRules", "customerBonusTypeRulesV4"].forEach(key => normalizedSections.add(key));
-  }
   if (pendingCustomersApplied) {
-    if (pendingCustomerProfileUpdates.size) normalizedSections.add("customers");
-    if (pendingCustomerGroupUpdates.size) normalizedSections.add("customerGroups");
-    if (pendingCustomerAuditEntries.size) normalizedSections.add("audit");
+    if (pendingCustomerProfileUpdates.size) pendingSections.add("customers");
+    if (pendingCustomerGroupUpdates.size) pendingSections.add("customerGroups");
+    if (pendingCustomerAuditEntries.size) pendingSections.add("audit");
   }
   if (pendingPaymentsApplied) {
-    ["customers", "customerGroups", "voucherLogs", "giftCards", "audit"].forEach(key => normalizedSections.add(key));
+    ["customers", "customerGroups", "voucherLogs", "giftCards", "audit"].forEach(key => pendingSections.add(key));
   }
   if (IS_LOCAL_RUNTIME) {
     try {
@@ -1391,7 +1465,9 @@ function applyServerData(data = {}, { partial = false } = {}) {
       localStorage.removeItem(SERVICE_SETTINGS_KEY);
     }
   }
-  return normalizedSections.size ? Array.from(normalizedSections) : null;
+  // Loading a page must be read-only. Historical migrations and cleanup run
+  // once on the server, never from every staff browser.
+  return pendingSections.size ? Array.from(pendingSections) : null;
 }
 
 function showServerSyncOverlay(message = "Мэдээллийг шинэчилж, таны үйлдлийг хадгалж байна…") {
@@ -1453,16 +1529,23 @@ async function saveServerStateNow() {
     return;
   }
   serverSaveInFlight = true;
-  const savingMutationVersion = localStateMutationVersion;
+  const firstAttempt = !pendingServerOperationId;
+  const requestedMutationVersion = localStateMutationVersion;
+  const requestedCustomerMutations = customerMutationsForSave(requestedMutationVersion);
+  const savingOperationId = ensurePendingServerOperation(requestedMutationVersion, requestedCustomerMutations);
+  const savingMutationVersion = pendingServerOperationVersion;
   const savingSections = Array.from(pendingServerSections.entries())
     .filter(([, version]) => Number(version) <= savingMutationVersion)
     .map(([key]) => key);
-  const savingCustomerMutations = customerMutationsForSave(savingMutationVersion);
+  const savingCustomerMutations = firstAttempt
+    ? requestedCustomerMutations
+    : customerMutationsForSave(savingMutationVersion);
+  const savingRequestBody = pendingServerOperationBody;
   let nextSaveDelay = 100;
   try {
     const result = await serverApi("state.php", {
       method: "PUT",
-      body: serverStateRequestBody(serverStorageRevision, savingMutationVersion, savingCustomerMutations)
+      body: savingRequestBody
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
@@ -1525,6 +1608,9 @@ async function saveServerStateNow() {
     }
     persistPendingCustomerMutations();
     persistPendingPaymentMutations();
+    clearPendingServerOperation(savingOperationId);
+    void flushMediaTrashRequestsThrough(savingMutationVersion);
+    if (serverRetryNoticeOperationId === savingOperationId) serverRetryNoticeOperationId = "";
     if (confirmedCustomerMessages.length) showToast(confirmedCustomerMessages.at(-1));
     if (serverConflictResolutionActive) {
       serverConflictResolutionActive = false;
@@ -1540,6 +1626,7 @@ async function saveServerStateNow() {
       // mutation queued or displayed locally. Otherwise every later save
       // retries the same rejected operation and shows the lock warning again.
       discardPendingMutationsThrough(savingMutationVersion);
+      clearPendingServerOperation(savingOperationId);
       try {
         const remote = await serverApi("state.php");
         serverStorageRevision = Number(remote.revision || serverStorageRevision);
@@ -1560,6 +1647,7 @@ async function saveServerStateNow() {
         if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
       });
       hideServerSyncOverlay();
+      clearPendingServerOperation(savingOperationId);
       showServerLogin("Нэвтрэх хугацаа дууссан байна. Дахин нэвтэрнэ үү.");
       return;
     }
@@ -1578,6 +1666,8 @@ async function saveServerStateNow() {
           savingSections.forEach(key => {
             if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
           });
+          discardPendingMutationsThrough(savingMutationVersion);
+          clearPendingServerOperation(savingOperationId);
           showServerProtectionNotice(error.payload.message || "Олон мэдээлэл хасагдах өөрчлөлтийг хамгаалж зогсоолоо.");
           return;
         }
@@ -1585,6 +1675,7 @@ async function saveServerStateNow() {
           savingSections.forEach(key => {
             if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
           });
+          clearPendingServerOperation(savingOperationId);
           showServerProtectionNotice("Таны нээсэн хэрэглэгчийн мэдээллийг өөр ажилтан мөн шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
           return;
         }
@@ -1609,10 +1700,14 @@ async function saveServerStateNow() {
           pendingPaymentMutations.size > 0 ||
           Boolean(pendingServiceSettingsMutation);
         if (retryingLocalMutation) {
+          // A 409 transaction was not committed. Build a fresh request against
+          // the revision just loaded instead of retrying the rejected body.
+          clearPendingServerOperation(savingOperationId);
           serverConflictResolutionActive = true;
           serverSavePending = true;
           showServerSyncOverlay("Шинэ мэдээлэлтэй нэгтгээд таны үйлдлийг дуусгаж байна…");
         } else {
+          clearPendingServerOperation(savingOperationId);
           showServerProtectionNotice("Өөр хэрэглэгч мэдээлэл шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
         }
         return;
@@ -1633,6 +1728,8 @@ async function saveServerStateNow() {
         if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
       });
       hideServerSyncOverlay();
+      clearPendingServerOperation(savingOperationId);
+      if (serverRetryNoticeOperationId === savingOperationId) serverRetryNoticeOperationId = "";
       showServerProtectionNotice(
         `${error.message || "Server хадгалалт амжилтгүй."}${error.payload?.incidentId ? ` Алдааны дугаар: ${error.payload.incidentId}` : ""}`
       );
@@ -1643,7 +1740,8 @@ async function saveServerStateNow() {
     serverSaveRetryDelay = Math.min(30000, serverSaveRetryDelay * 2);
     if (serverConflictResolutionActive) {
       showServerSyncOverlay("Server холболт түр саатлаа. Таны үйлдлийг автоматаар дахин хадгалж байна…");
-    } else {
+    } else if (serverRetryNoticeOperationId !== savingOperationId) {
+      serverRetryNoticeOperationId = savingOperationId;
       showToast("Server хадгалалт түр амжилтгүй. Автоматаар дахин оролдож байна");
     }
   } finally {
@@ -1713,7 +1811,7 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         await synchronizeServerState();
         ensureAutomaticPerformanceSnapshot();
         await loadDatabaseBackups({ silent: true });
-        await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
+        await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true }), loadChangeEvents({ silent: true })]);
         void ensureScheduledRollingBackup();
         await loadFullBackups({ silent: true });
         void ensureScheduledFullBackup();
@@ -1790,7 +1888,7 @@ async function initializeServerStorage() {
     await synchronizeServerState();
     ensureAutomaticPerformanceSnapshot();
     await loadDatabaseBackups({ silent: true });
-    await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
+    await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true }), loadChangeEvents({ silent: true })]);
     void ensureScheduledRollingBackup();
     await loadFullBackups({ silent: true });
     void ensureScheduledFullBackup();
@@ -10751,12 +10849,6 @@ function renderProfile() {
     };
     Object.assign(customer, profileUpdate);
     setCustomerAgeFromInput(customer, formValue("profileInfoAge"));
-    profileUpdate.age = customer.age;
-    profileUpdate.birthYear = customer.birthYear;
-    pendingCustomerProfileUpdates.set(Number(customer.id), {
-      ...profileUpdate,
-      mutationVersion: localStateMutationVersion + 1
-    });
     customer.profileInfoEditing = false;
     const adminGroup = state.customerGroups.find(group => Number(group.adminCustomerId) === Number(customer.id));
     const message = adminGroup && String(adminGroup.name || "") !== String(customer.phone || "")
@@ -10782,7 +10874,18 @@ async function deleteProfileCustomer(customerId) {
   customer.deleted = true;
   customer.profileInfoEditing = false;
   state.selectedCustomerId = null;
-  state.audit.unshift({ title: "customer_deleted", meta: `${auditActorUsername()} • ${customer.name} • ${customer.phone || ""}` });
+  const auditEntry = {
+    id: entityId("audit"),
+    title: "customer_deleted",
+    createdAt: auditNowText(),
+    meta: `${auditActorUsername()} • ${customer.name} • ${customer.phone || ""}`
+  };
+  state.audit.unshift(auditEntry);
+  registerPendingCustomerMutation({
+    customerIds: [customer.id],
+    auditEntries: [auditEntry],
+    message: "Хэрэглэгч архивлагдлаа"
+  });
   saveState(["customers", "customerGroups", "audit"]);
   try {
     sessionStorage.removeItem(ACTIVE_CUSTOMER_SESSION_KEY);
@@ -11564,32 +11667,14 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     return;
   }
   if (!await requireDeleteCode()) return;
-  if (historyItem.kind === "diagnosis") {
-    const diagnosisImages = [
-      ...(historyItem.generalPhotos || []),
-      ...(historyItem.scopePhotos || []),
-      ...(historyItem.diagnosis?.generalPhotos || []),
-      ...(historyItem.diagnosis?.scopePhotos || [])
-    ].filter(value => typeof value === "string" && value.includes("api/media.php"));
-    if (diagnosisImages.length) {
-      try {
-        const response = await fetch("api/delete-upload.php", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Requested-With": "KhalgaiSalon"
-          },
-          body: JSON.stringify({ urls: [...new Set(diagnosisImages)] })
-        });
-        const result = await response.json().catch(() => ({ ok: false }));
-        if (!response.ok || !result.ok) throw new Error(result.message || "Оношилгооны зураг устсангүй");
-      } catch (error) {
-        showToast(error.message || "Оношилгооны зураг устсангүй");
-        return;
-      }
-    }
-  }
+  const diagnosisImages = historyItem.kind === "diagnosis"
+    ? [
+        ...(historyItem.generalPhotos || []),
+        ...(historyItem.scopePhotos || []),
+        ...(historyItem.diagnosis?.generalPhotos || []),
+        ...(historyItem.diagnosis?.scopePhotos || [])
+      ].filter(value => typeof value === "string" && value.includes("api/media.php"))
+    : [];
   const group = customerGroup(customer);
   const queueDate = customer.dailyQueueDate || todayText();
   const queueSalon = dailyQueueSalon(customer) || historyItem.salon || "";
@@ -11643,6 +11728,7 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     createdAt: auditNowText(),
     meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • гүйцэтгэлээс давхар хасна`
   });
+  queueMediaTrashAfterSave(diagnosisImages);
   saveAndRefreshCustomerProfile("Үйлчилгээ устлаа");
 }
 
@@ -13144,7 +13230,6 @@ function renderVouchers() {
   const logRows = document.getElementById("voucherLogRows");
   const pagination = document.getElementById("voucherPagination");
   if (!roleRows || !logRows) return;
-  if (ensureVoucherLogRoleIds()) saveState();
   const roleSubmit = document.getElementById("voucherRoleSubmit");
   if (roleSubmit) roleSubmit.textContent = voucherRoleEditingId ? "Шинэчлэх" : "Нэмэх";
   const roleFilterSelect = document.getElementById("voucherRoleFilter");
@@ -13847,12 +13932,14 @@ async function loadDatabaseBackups({ silent = false } = {}) {
 async function loadRollingBackups({ silent = false } = {}) {
   if (!serverStorageReady || !isAdminAccount()) {
     serverRollingBackups = [];
+    serverRollingBackupHealth = null;
     renderRollingBackups();
     return [];
   }
   try {
     const result = await serverApi("rolling-backups.php");
     serverRollingBackups = Array.isArray(result.backups) ? result.backups : [];
+    serverRollingBackupHealth = result.health && typeof result.health === "object" ? result.health : null;
     serverBackupIntervalHours = Number(result.settings?.intervalHours ?? serverBackupIntervalHours ?? 6);
     renderRollingBackups();
     return serverRollingBackups;
@@ -13875,6 +13962,23 @@ async function loadRecoveryJournal({ silent = false } = {}) {
     return serverRecoveryEntries;
   } catch (error) {
     if (!silent) showToast(error?.message || "Recovery журнал ачаалсангүй");
+    return [];
+  }
+}
+
+async function loadChangeEvents({ silent = false } = {}) {
+  if (!serverStorageReady || !isAdminAccount()) {
+    serverChangeEvents = [];
+    renderChangeEvents();
+    return [];
+  }
+  try {
+    const result = await serverApi("changes.php");
+    serverChangeEvents = Array.isArray(result.events) ? result.events : [];
+    renderChangeEvents();
+    return serverChangeEvents;
+  } catch (error) {
+    if (!silent) showToast(error?.message || "Өөрчлөлтийн түүх ачаалсангүй");
     return [];
   }
 }
@@ -14044,7 +14148,7 @@ function setDatabaseTab(name = "import") {
   document.getElementById("databaseScopeBar")?.classList.toggle("hidden", activeDatabaseTab === "cleanup");
   if (activeDatabaseTab === "backup") {
     renderDatabaseBackups();
-    void Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true })]);
+    void Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true }), loadChangeEvents({ silent: true })]);
   }
 }
 
@@ -14073,7 +14177,14 @@ function formatBackupCreatedAt(value = "") {
 function renderRollingBackups() {
   const list = document.getElementById("databaseRollingBackupList");
   if (!list) return;
-  list.innerHTML = serverRollingBackups.map(backup => `
+  const healthHtml = serverRollingBackupHealth?.serverCronHealthy
+    ? `<div class="database-backup-health is-healthy"><strong>Server backup хэвийн</strong><span>Сүүлийн cron: ${htmlSafe(formatBackupCreatedAt(serverRollingBackupHealth.lastServerCronAt))}</span></div>`
+    : `<div class="database-backup-health is-warning"><strong>Server cron баталгаажаагүй</strong><span>Backup admin browser-оос хамаарахгүй ажиллаж байгаа эсэхийг шалгана уу.</span></div>`;
+  const bookingCapacityLevel = String(serverRollingBackupHealth?.bookingCapacityLevel || "healthy");
+  const bookingHealthHtml = bookingCapacityLevel === "healthy"
+    ? ""
+    : `<div class="database-backup-health is-warning"><strong>Захиалгын сангийн багтаамжийг анхаарна уу</strong><span>${formatNumber(serverRollingBackupHealth?.bookingCount || 0)} захиалга · ${formatBackupSize(serverRollingBackupHealth?.bookingSizeBytes || 0)}. Мэдээлэл устахгүй, архивын шилжилтийг төлөвлөнө.</span></div>`;
+  const backupHtml = serverRollingBackups.map(backup => `
     <div class="database-backup-item">
       <div>
         <strong>${htmlSafe(formatBackupCreatedAt(backup.createdAt))}</strong>
@@ -14085,6 +14196,7 @@ function renderRollingBackups() {
       </div>
     </div>
   `).join("") || `<div class="empty-state">Rolling backup хараахан үүсээгүй байна</div>`;
+  list.innerHTML = healthHtml + bookingHealthHtml + backupHtml;
 
   list.querySelectorAll(".database-rolling-download").forEach(button => {
     button.addEventListener("click", () => {
@@ -14124,7 +14236,8 @@ function recoveryEntityLabel(type = "") {
     customer: "Хэрэглэгч",
     customerGroup: "Групп",
     service: "Үйлчилгээ",
-    payment: "Төлбөр"
+    payment: "Төлбөр",
+    booking: "Цаг захиалга"
   })[type] || type || "Мэдээлэл";
 }
 
@@ -14157,6 +14270,67 @@ function renderRecoveryJournal() {
         showToast(error?.message || "Recovery мэдээлэл татаж чадсангүй");
       } finally {
         button.disabled = false;
+      }
+    });
+  });
+}
+
+function changeActionLabel(action = "") {
+  return ({
+    create: "Үүсгэсэн",
+    update: "Шинэчилсэн",
+    status: "Төлөв өөрчилсөн",
+    delete: "Устгасан",
+    archive: "Архивласан",
+    restore: "Сэргээсэн"
+  })[action] || "Өөрчилсөн";
+}
+
+function renderChangeEvents() {
+  const list = document.getElementById("databaseChangeEventList");
+  if (!list) return;
+  list.innerHTML = serverChangeEvents.map(event => `
+    <div class="database-backup-item">
+      <div>
+        <strong>${htmlSafe(formatBackupCreatedAt(event.createdAt))} • ${htmlSafe(recoveryEntityLabel(event.entityType))}${event.displayName ? ` • ${htmlSafe(event.displayName)}` : ""}</strong>
+        <span>${htmlSafe(changeActionLabel(event.action))}${event.phone ? ` • ${htmlSafe(event.phone)}` : ""}${event.salon ? ` • ${htmlSafe(event.salon)}` : ""} • revision ${Number(event.revision || 0)}</span>
+      </div>
+      <div class="table-actions">
+        <button class="secondary-btn database-change-download" type="button" data-id="${Number(event.id || 0)}">Харьцуулж татах</button>
+        ${event.canRestore ? `<button class="secondary-btn database-change-restore" type="button" data-id="${Number(event.id || 0)}">Өмнөхийг сэргээх</button>` : ""}
+      </div>
+    </div>
+  `).join("") || `<div class="empty-state">Шинэ operation түүх хараахан үүсээгүй байна</div>`;
+
+  list.querySelectorAll(".database-change-download").forEach(button => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const result = await serverApi(`changes.php?id=${Number(button.dataset.id || 0)}`);
+        downloadDatabaseJson(`khalgai-change-${button.dataset.id}.json`, result.event || {});
+      } catch (error) {
+        showToast(error?.message || "Өөрчлөлтийн мэдээлэл татаж чадсангүй");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+  list.querySelectorAll(".database-change-restore").forEach(button => {
+    button.addEventListener("click", async () => {
+      const code = await requireEditCodeValue();
+      if (!code) return;
+      if (!window.confirm("Зөвхөн энэ мэдээллийг өмнөх төлөвт сэргээх үү? Дараа нь хийсэн өөрчлөлт байвал сервер автоматаар зогсооно.")) return;
+      button.disabled = true;
+      try {
+        await serverApi("changes.php", {
+          method: "POST",
+          body: JSON.stringify({ eventId: Number(button.dataset.id || 0), code })
+        });
+        localStorage.removeItem(STORAGE_KEY);
+        window.location.reload();
+      } catch (error) {
+        button.disabled = false;
+        showToast(error?.message || "Мэдээллийг сонгон сэргээж чадсангүй", "error");
       }
     });
   });
@@ -14777,21 +14951,71 @@ function openCatalogModal() {
   );
 }
 
-function updateBookingStatus(id, status) {
+function bookingOperationId() {
+  return `booking:${serverClientId}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`;
+}
+
+async function submitBookingOperation(action, payload = {}) {
+  const requestBody = JSON.stringify({ action, operationId: bookingOperationId(), ...payload });
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const result = await serverApi("bookings.php", { method: "POST", body: requestBody });
+      serverStorageRevision = Number(result.revision || serverStorageRevision);
+      serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
+      applyServerSectionRevisions(result.sectionRevisions || {});
+      pendingServerSections.delete("bookings");
+      virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+      const changedBookings = Array.isArray(result.bookings) ? result.bookings : [];
+      if (result.action === "create") {
+        changedBookings.slice().reverse().forEach(booking => {
+          if (!state.bookings.some(item => String(item.id) === String(booking.id))) state.bookings.unshift(booking);
+        });
+      } else if (result.action === "delete") {
+        state.bookings = state.bookings.filter(item => String(item.id) !== String(result.deletedId));
+      } else {
+        changedBookings.forEach(booking => {
+          const index = state.bookings.findIndex(item => String(item.id) === String(booking.id));
+          if (index >= 0) state.bookings[index] = booking;
+          else state.bookings.unshift(booking);
+        });
+      }
+      if (result.auditEntry && !state.audit.some(item => String(item.id || "") === String(result.auditEntry.id || ""))) {
+        state.audit.unshift(result.auditEntry);
+      }
+      invalidatePersistedStateCache();
+      invalidatePerformanceData();
+      return result;
+    } catch (error) {
+      lastError = error;
+      const retryable = error.status === undefined || error.payload?.retryable === true;
+      if (!retryable || attempt === 2) break;
+      await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  if (lastError?.status === 409 && lastError.payload?.conflict) {
+    await refreshServerStateForView("bookings");
+  }
+  throw lastError || new Error("Захиалгыг хадгалж чадсангүй.");
+}
+
+async function updateBookingStatus(id, status) {
   const booking = state.bookings.find(item => Number(item.id) === Number(id));
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг өөрчлөх эрхгүй");
-  booking.status = status;
-  state.audit.unshift({ title: "booking_status_updated", meta: `${auditActorUsername()} • ${booking.phone} • ${bookingStatusText(status)}` });
-  saveState();
-  renderBookings();
-  renderAudit();
-  renderInfoHeader(activeView);
-  showToast(status === "confirmed" ? "Цаг амжилттай баталгаажлаа" : "Цаг амжилттай цуцлагдлаа");
+  try {
+    await submitBookingOperation("status", { id: booking.id, status, expected: structuredClone(booking) });
+    renderBookings();
+    renderAudit();
+    renderInfoHeader(activeView);
+    showToast(status === "confirmed" ? "Цаг амжилттай баталгаажлаа" : "Цаг амжилттай цуцлагдлаа");
+  } catch (error) {
+    showToast(error.message || "Цагийн төлөв хадгалагдсангүй", "error");
+  }
 }
 
 let actionCodeDialogOpen = false;
 
-function requestActionCode(action = "edit") {
+function requestActionCode(action = "edit", returnCode = false) {
   if (actionCodeDialogOpen) return Promise.resolve(false);
   const overlay = document.getElementById("actionCodeOverlay");
   const form = document.getElementById("actionCodeForm");
@@ -14826,7 +15050,7 @@ function requestActionCode(action = "edit") {
     form.onsubmit = event => {
       event.preventDefault();
       if (input.value.trim() === String(generalSettings().deleteCode || DELETE_CODE)) {
-        finish(true);
+        finish(returnCode ? input.value.trim() : true);
         return;
       }
       input.value = "";
@@ -14847,19 +15071,24 @@ function requireEditCode() {
   return requestActionCode("edit");
 }
 
+function requireEditCodeValue() {
+  return requestActionCode("edit", true);
+}
+
 async function deleteBooking(id) {
   const booking = state.bookings.find(item => Number(item.id) === Number(id));
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг устгах эрхгүй");
-  if (!await requireDeleteCode()) return;
-  state.bookings = state.bookings.filter(item => Number(item.id) !== Number(id));
-  if (booking) {
-    state.audit.unshift({ title: "booking_deleted", meta: `${auditActorUsername()} • ${booking.phone} • ${booking.date} ${booking.time}` });
+  const code = await requestActionCode("delete", true);
+  if (!code) return;
+  try {
+    await submitBookingOperation("delete", { id: booking.id, code, expected: structuredClone(booking) });
+    renderBookings();
+    renderAudit();
+    renderInfoHeader(activeView);
+    showToast("Цаг амжилттай устгагдлаа");
+  } catch (error) {
+    showToast(error.message || "Цаг устгагдсангүй", "error");
   }
-  saveState();
-  renderBookings();
-  renderAudit();
-  renderInfoHeader(activeView);
-  showToast("Цаг амжилттай устгагдлаа");
 }
 
 function setupCustomSelect() {
@@ -15369,8 +15598,9 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
     renderBookings();
     openBookingModal();
   });
-  document.getElementById("bookingForm").addEventListener("submit", event => {
+  document.getElementById("bookingForm").addEventListener("submit", async event => {
     event.preventDefault();
+    const submitButton = event.currentTarget.querySelector("button[type='submit']");
     const phone = document.getElementById("bookingPhone").value.trim();
     if (!/^\d{8}$/.test(phone)) {
       showToast("Утасны 8 оронтой дугаар оруулна уу");
@@ -15417,16 +15647,22 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
       showToast("Суудлын багтаамжаас хэтэрсэн байна");
       return;
     }
-    if (editing) {
-      const firstSlot = slotValues[0];
-      editing.salon = firstSlot.salon;
-      editing.date = firstSlot.date;
-      editing.time = firstSlot.time;
-      editing.phone = phone;
-      state.audit.unshift({ title: "booking_updated", meta: `${auditActorUsername()} • ${phone} • ${editing.date} ${editing.time} • ${bookingStatusText(editing.status)}` });
-    } else {
-      slotValues.slice().reverse().forEach((item, index) => {
-        state.bookings.unshift({
+    submitButton.disabled = true;
+    try {
+      if (editing) {
+        const firstSlot = slotValues[0];
+        await submitBookingOperation("update", {
+          id: editing.id,
+          expected: structuredClone(editing),
+          booking: {
+            salon: firstSlot.salon,
+            date: firstSlot.date,
+            time: firstSlot.time,
+            phone
+          }
+        });
+      } else {
+        const bookings = slotValues.map((item, index) => ({
           id: Date.now() + index,
           salon: item.salon,
           date: item.date,
@@ -15434,17 +15670,20 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
           phone,
           source: "admin",
           status: "confirmed"
-        });
-      });
-      state.audit.unshift({ title: "booking_created", meta: `${auditActorUsername()} • ${phone} • ${slotValues.length} слот` });
+        }));
+        await submitBookingOperation("create", { bookings });
+      }
+      bookingInlineEditingId = null;
+      openBookingModal();
+      renderBookings();
+      renderAudit();
+      renderInfoHeader(activeView);
+      showToast(editing ? "Цагийн мэдээлэл амжилттай засагдлаа" : "Цаг амжилттай бүртгэгдлээ");
+    } catch (error) {
+      showToast(error.message || "Цаг хадгалагдсангүй", "error");
+    } finally {
+      if (submitButton.isConnected) submitButton.disabled = false;
     }
-    saveState();
-    bookingInlineEditingId = null;
-    openBookingModal();
-    renderBookings();
-    renderAudit();
-    renderInfoHeader(activeView);
-    showToast(editing ? "Цагийн мэдээлэл амжилттай засагдлаа" : "Цаг амжилттай бүртгэгдлээ");
   });
   if (!editing) slot.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
