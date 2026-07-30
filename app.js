@@ -922,11 +922,30 @@ function serverStateData() {
   };
 }
 
-function serverStateRequestBody(revision) {
+function customerMutationsForSave(mutationVersion = localStateMutationVersion) {
+  return {
+    profiles: Array.from(pendingCustomerProfileUpdates.values())
+      .filter(item => Number(item.mutationVersion || 0) <= mutationVersion)
+      .map(item => structuredClone(item)),
+    groups: Array.from(pendingCustomerGroupUpdates.values())
+      .filter(item => Number(item.mutationVersion || 0) <= mutationVersion)
+      .map(item => structuredClone(item))
+  };
+}
+
+function serverStateRequestBody(
+  revision,
+  mutationVersion = localStateMutationVersion,
+  customerMutations = customerMutationsForSave(mutationVersion)
+) {
   const keys = pendingServerSections.size ? Array.from(pendingServerSections.keys()) : Object.keys(state).filter(key => key !== "selectedCustomerId");
   const data = {};
   const sectionRevisions = {};
+  const hasCustomerMutations = customerMutations.profiles.length > 0;
+  const hasGroupMutations = customerMutations.groups.length > 0;
   keys.forEach(key => {
+    if (key === "customers" && hasCustomerMutations) return;
+    if (key === "customerGroups" && hasGroupMutations) return;
     if (Object.prototype.hasOwnProperty.call(state, key)) data[key] = state[key];
     sectionRevisions[key] = Number(serverSectionRevisions.get(key) || 0);
   });
@@ -939,6 +958,7 @@ function serverStateRequestBody(revision) {
     sectionRevisions,
     clientId: serverClientId,
     partial: true,
+    customerMutations,
     data
   });
 }
@@ -1047,9 +1067,12 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
     if (Number(update.mutationVersion || 0) > savingMutationVersion) return;
     const remoteCustomer = remoteCustomers.get(Number(customerId));
     const baseFingerprint = update.baseFingerprint ?? null;
-    const safe = baseFingerprint === null
+    const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, ...profile } = update;
+    const alreadyApplied = Boolean(remoteCustomer) &&
+      syncedEntityFingerprint(remoteCustomer) === syncedEntityFingerprint(profile);
+    const safe = alreadyApplied || (baseFingerprint === null
       ? !remoteCustomer
-      : Boolean(remoteCustomer) && syncedEntityFingerprint(remoteCustomer) === baseFingerprint;
+      : Boolean(remoteCustomer) && syncedEntityFingerprint(remoteCustomer) === baseFingerprint);
     if (safe) return;
     unsafeVersions.add(Number(update.mutationVersion || 0));
     pendingCustomerProfileUpdates.delete(customerId);
@@ -1058,9 +1081,12 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
     if (Number(update.mutationVersion || 0) > savingMutationVersion) return;
     const remoteGroup = remoteGroups.get(Number(groupId));
     const baseFingerprint = update.baseFingerprint ?? null;
-    const safe = baseFingerprint === null
+    const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, ...profile } = update;
+    const alreadyApplied = Boolean(remoteGroup) &&
+      syncedEntityFingerprint(remoteGroup) === syncedEntityFingerprint(profile);
+    const safe = alreadyApplied || (baseFingerprint === null
       ? !remoteGroup
-      : Boolean(remoteGroup) && syncedEntityFingerprint(remoteGroup) === baseFingerprint;
+      : Boolean(remoteGroup) && syncedEntityFingerprint(remoteGroup) === baseFingerprint);
     if (safe) return;
     unsafeVersions.add(Number(update.mutationVersion || 0));
     pendingCustomerGroupUpdates.delete(groupId);
@@ -1392,11 +1418,12 @@ async function saveServerStateNow() {
   const savingSections = Array.from(pendingServerSections.entries())
     .filter(([, version]) => Number(version) <= savingMutationVersion)
     .map(([key]) => key);
+  const savingCustomerMutations = customerMutationsForSave(savingMutationVersion);
   let nextSaveDelay = 100;
   try {
     const result = await serverApi("state.php", {
       method: "PUT",
-      body: serverStateRequestBody(serverStorageRevision)
+      body: serverStateRequestBody(serverStorageRevision, savingMutationVersion, savingCustomerMutations)
     });
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
@@ -1413,19 +1440,33 @@ async function saveServerStateNow() {
       .map(item => item.message)
       .filter(Boolean);
     serverSaveRetryDelay = 1000;
+    const savedCustomerProfiles = new Map(savingCustomerMutations.profiles.map(update => {
+      const { mutationVersion, baseFingerprint, ...profile } = update;
+      return [Number(profile.id), profile];
+    }));
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
         const customer = state.customers.find(item => Number(item.id) === Number(customerId));
         if (customer) lastSyncedCustomerFingerprints.set(Number(customerId), syncedEntityFingerprint(customer));
         pendingCustomerProfileUpdates.delete(customerId);
+        return;
       }
+      const savedProfile = savedCustomerProfiles.get(Number(customerId));
+      if (savedProfile) update.baseFingerprint = syncedEntityFingerprint(savedProfile);
     });
+    const savedCustomerGroups = new Map(savingCustomerMutations.groups.map(update => {
+      const { mutationVersion, baseFingerprint, ...profile } = update;
+      return [Number(profile.id), profile];
+    }));
     pendingCustomerGroupUpdates.forEach((update, groupId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
         const group = state.customerGroups.find(item => Number(item.id) === Number(groupId));
         if (group) lastSyncedGroupFingerprints.set(Number(groupId), syncedEntityFingerprint(group));
         pendingCustomerGroupUpdates.delete(groupId);
+        return;
       }
+      const savedGroup = savedCustomerGroups.get(Number(groupId));
+      if (savedGroup) update.baseFingerprint = syncedEntityFingerprint(savedGroup);
     });
     pendingCustomerAuditEntries.forEach((update, entryId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerAuditEntries.delete(entryId);

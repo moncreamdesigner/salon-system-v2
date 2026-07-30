@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/customer-mutations.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -398,6 +399,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'PUT') {
 
 $payload = request_payload();
 $sections = $payload['data'] ?? null;
+$customerMutations = is_array($payload['customerMutations'] ?? null)
+    ? $payload['customerMutations']
+    : [];
 $clientRevision = filter_var($payload['revision'] ?? null, FILTER_VALIDATE_INT);
 $partial = ($payload['partial'] ?? false) === true;
 $clientScopeRevision = filter_var($payload['scopeRevision'] ?? null, FILTER_VALIDATE_INT);
@@ -408,6 +412,16 @@ if (!is_array($sections) || array_is_list($sections)) {
 $encoded = json_encode($sections, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 if ($encoded === false || strlen($encoded) > 50 * 1024 * 1024) {
     json_response(['ok' => false, 'message' => 'Өгөгдлийн хэмжээ хэтэрсэн байна.'], 413);
+}
+$encodedCustomerMutations = json_encode($customerMutations, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$customerMutationCount = count(is_array($customerMutations['profiles'] ?? null) ? $customerMutations['profiles'] : [])
+    + count(is_array($customerMutations['groups'] ?? null) ? $customerMutations['groups'] : []);
+if (
+    $encodedCustomerMutations === false
+    || strlen($encodedCustomerMutations) > 10 * 1024 * 1024
+    || $customerMutationCount > 500
+) {
+    json_response(['ok' => false, 'message' => 'Хэрэглэгчийн өөрчлөлтийн хэмжээ хэтэрсэн байна.'], 413);
 }
 
 try {
@@ -443,7 +457,33 @@ try {
             'message' => 'Мэдээлэл өөр хэрэглэгчийн үйлдлээр шинэчлэгдсэн байна. Хуудсыг шинэчлээд дахин оролдоно уу.'
         ], 409);
     }
-    $currentSections = load_all_sections($pdo, $partial ? array_keys($sections) : []);
+    $mutationKeys = [];
+    if (is_array($customerMutations['profiles'] ?? null) && count($customerMutations['profiles'])) $mutationKeys[] = 'customers';
+    if (is_array($customerMutations['groups'] ?? null) && count($customerMutations['groups'])) $mutationKeys[] = 'customerGroups';
+    $loadKeys = $partial ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys))) : [];
+    $currentSections = load_all_sections($pdo, $loadKeys);
+    if ($mutationKeys) {
+        [$mutatedCustomerSections, $customerMutationConflicts] = apply_customer_entity_mutations(
+            $currentSections,
+            $customerMutations
+        );
+        if ($customerMutationConflicts) {
+            $pdo->rollBack();
+            json_response([
+                'ok' => false,
+                'conflict' => true,
+                'customerConflict' => true,
+                'currentRevision' => $currentRevision,
+                'currentScopeRevision' => $currentScopeRevision,
+                'sectionRevisions' => load_section_revisions($pdo, $mutationKeys),
+                'conflictingEntities' => $customerMutationConflicts,
+                'message' => 'Тухайн хэрэглэгчийн мэдээллийг өөр төхөөрөмж дээр шинэчилсэн байна. Хамгийн сүүлийн мэдээллийг ачаалж, үйлдлээ дахин шалгана уу.'
+            ], 409);
+        }
+        foreach ($mutationKeys as $key) {
+            $sections[$key] = $mutatedCustomerSections[$key] ?? [];
+        }
+    }
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
     if ($clientSectionRevisions === null) {
