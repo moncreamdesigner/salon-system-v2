@@ -207,9 +207,11 @@ function create_full_backup(PDO $pdo, string $reason, bool $scheduled = false): 
         $finalPath = $paths['backupRoot'] . DIRECTORY_SEPARATOR . $filename;
         $tempPath = $finalPath . '.part';
         $zip = new ZipArchive();
+        $zipOpen = false;
         if ($zip->open($tempPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
             throw new RuntimeException('Full backup ZIP үүсгэж чадсангүй.');
         }
+        $zipOpen = true;
 
         $pdo->beginTransaction();
         try {
@@ -260,6 +262,7 @@ function create_full_backup(PDO $pdo, string $reason, bool $scheduled = false): 
         $zip->addFromString('manifest.json', json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
         $zip->addFromString('RESTORE.txt', "1. public_html хавтсыг сайтын public_html руу сэргээнэ.\n2. khalgai-media-storage хавтсыг public_html-ийн дээд түвшинд сэргээнэ.\n3. database/database.sql файлыг тухайн database руу импортлоно.\n4. manifest.json дахь mediaChecksums-аар зураг бүрэн эсэхийг шалгана.\n");
         if (!$zip->close()) throw new RuntimeException('Full backup ZIP хааж чадсангүй.');
+        $zipOpen = false;
         if (!@rename($tempPath, $finalPath)) throw new RuntimeException('Full backup файлыг хадгалж чадсангүй.');
 
         $metadata = [
@@ -279,7 +282,9 @@ function create_full_backup(PDO $pdo, string $reason, bool $scheduled = false): 
         return ['skipped' => false, 'backup' => $metadata];
     } finally {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        if (isset($zip) && $zip instanceof ZipArchive) @$zip->close();
+        if (!empty($zipOpen) && isset($zip) && $zip instanceof ZipArchive) {
+            @$zip->close();
+        }
         flock($lock, LOCK_UN);
         fclose($lock);
         if (isset($tempPath) && is_file($tempPath)) @unlink($tempPath);

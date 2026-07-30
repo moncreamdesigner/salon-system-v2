@@ -87,5 +87,10 @@ assert.match(
   /PHP_SAPI\s*===\s*'cli'[\s\S]*create_full_backup\(\$pdo,\s*'Сарын автомат server full backup',\s*true\)/,
   "Monthly full backups must run without an admin browser"
 );
+assert.match(
+  fullBackups,
+  /\$zipOpen\s*=\s*false;[\s\S]*\$zipOpen\s*=\s*true;[\s\S]*\$zip->close\(\)[\s\S]*\$zipOpen\s*=\s*false;[\s\S]*if\s*\(!empty\(\$zipOpen\)/,
+  "A completed full backup ZIP must not be closed a second time in cleanup"
+);
 
 console.log("data-safety-release-a.test: OK");
