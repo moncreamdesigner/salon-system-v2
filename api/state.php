@@ -40,19 +40,34 @@ function load_section_revisions(PDO $pdo, array $keys = [], bool $lock = false):
     return $revisions;
 }
 
-function recovery_entity_key(array $item, int $index): string
+function recovery_entity_key(array $item, int $index, string $kind = 'generic'): string
 {
     foreach (['id', 'paymentId', 'code', 'cardNumber'] as $key) {
         if (isset($item[$key]) && trim((string)$item[$key]) !== '') return (string)$item[$key];
     }
-    return 'index:' . $index . ':' . hash('sha256', json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+    if (isset($item['number']) && trim((string)$item['number']) !== '') {
+        return 'legacy:' . $kind . ':number:' . trim((string)$item['number']);
+    }
+    $identity = [];
+    foreach (['date', 'createdAt', 'registeredAt', 'kind', 'service', 'title', 'salon', 'amount', 'paidAmount', 'paymentMethod', 'method'] as $key) {
+        if (isset($item[$key]) && trim((string)$item[$key]) !== '') $identity[$key] = $item[$key];
+    }
+    if ($identity) {
+        return 'legacy:' . $kind . ':' . hash('sha256', json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+    }
+    return 'index:' . $kind . ':' . $index;
 }
 
-function recovery_index(array $rows): array
+function recovery_index(array $rows, string $kind = 'generic'): array
 {
     $indexed = [];
+    $occurrences = [];
     foreach ($rows as $index => $row) {
-        if (is_array($row)) $indexed[recovery_entity_key($row, (int)$index)] = $row;
+        if (!is_array($row)) continue;
+        $baseKey = recovery_entity_key($row, (int)$index, $kind);
+        $occurrences[$baseKey] = ($occurrences[$baseKey] ?? 0) + 1;
+        $key = $occurrences[$baseKey] > 1 ? $baseKey . ':duplicate:' . $occurrences[$baseKey] : $baseKey;
+        $indexed[$key] = $row;
     }
     return $indexed;
 }
@@ -88,16 +103,16 @@ function journal_removed_customer_data(PDO $pdo, int $revision, array $user, arr
         }
         $newCustomer = $newCustomers[$customerId];
         if ($oldCustomer === $newCustomer) continue;
-        $oldHistory = recovery_index(is_array($oldCustomer['serviceHistory'] ?? null) ? $oldCustomer['serviceHistory'] : []);
-        $newHistory = recovery_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : []);
+        $oldHistory = recovery_index(is_array($oldCustomer['serviceHistory'] ?? null) ? $oldCustomer['serviceHistory'] : [], 'service');
+        $newHistory = recovery_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : [], 'service');
         foreach ($oldHistory as $historyId => $oldService) {
             if (!isset($newHistory[$historyId])) {
                 record_recovery_item($pdo, $revision, $user, 'service', (string)$historyId, (string)$customerId, $oldService);
                 $removedCount += 1;
                 continue;
             }
-            $oldPayments = recovery_index(is_array($oldService['payments'] ?? null) ? $oldService['payments'] : []);
-            $newPayments = recovery_index(is_array($newHistory[$historyId]['payments'] ?? null) ? $newHistory[$historyId]['payments'] : []);
+            $oldPayments = recovery_index(is_array($oldService['payments'] ?? null) ? $oldService['payments'] : [], 'payment');
+            $newPayments = recovery_index(is_array($newHistory[$historyId]['payments'] ?? null) ? $newHistory[$historyId]['payments'] : [], 'payment');
             foreach ($oldPayments as $paymentId => $oldPayment) {
                 if (isset($newPayments[$paymentId])) continue;
                 record_recovery_item(
@@ -134,16 +149,16 @@ function merge_legacy_customer_data(array $current, array $incoming): array
                 continue;
             }
             $newCustomer = $newCustomers[$customerId];
-            $oldHistory = recovery_index(is_array($oldCustomer['serviceHistory'] ?? null) ? $oldCustomer['serviceHistory'] : []);
-            $newHistory = recovery_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : []);
+            $oldHistory = recovery_index(is_array($oldCustomer['serviceHistory'] ?? null) ? $oldCustomer['serviceHistory'] : [], 'service');
+            $newHistory = recovery_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : [], 'service');
             foreach ($newHistory as $historyId => $newService) {
                 if (!isset($oldHistory[$historyId])) {
                     $oldHistory[$historyId] = $newService;
                     continue;
                 }
                 $oldService = $oldHistory[$historyId];
-                $oldPayments = recovery_index(is_array($oldService['payments'] ?? null) ? $oldService['payments'] : []);
-                $newPayments = recovery_index(is_array($newService['payments'] ?? null) ? $newService['payments'] : []);
+                $oldPayments = recovery_index(is_array($oldService['payments'] ?? null) ? $oldService['payments'] : [], 'payment');
+                $newPayments = recovery_index(is_array($newService['payments'] ?? null) ? $newService['payments'] : [], 'payment');
                 foreach ($newPayments as $paymentId => $newPayment) {
                     if (!isset($oldPayments[$paymentId])) $oldPayments[$paymentId] = $newPayment;
                 }
@@ -234,22 +249,22 @@ function operational_date(array $item, array $keys): string
     return '';
 }
 
-function operational_item_index(array $rows): array
+function operational_item_index(array $rows, string $kind = 'generic'): array
 {
-    $indexed = [];
-    foreach ($rows as $index => $row) {
-        if (!is_array($row)) continue;
-        $indexed[recovery_entity_key($row, (int)$index)] = $row;
-    }
-    return $indexed;
+    return recovery_index($rows, $kind);
 }
 
-function operational_cutoff(array $current, array $incoming): string
+function operational_edit_days(array $current, array $incoming): int
 {
     $settings = is_array($incoming['generalSettings'] ?? null)
         ? $incoming['generalSettings']
         : (is_array($current['generalSettings'] ?? null) ? $current['generalSettings'] : []);
-    $days = max(1, (int)($settings['dataEditDays'] ?? $settings['serviceEditDays'] ?? $settings['kassEditDays'] ?? 3));
+    return max(1, (int)($settings['dataEditDays'] ?? $settings['serviceEditDays'] ?? $settings['kassEditDays'] ?? 3));
+}
+
+function operational_cutoff(array $current, array $incoming): string
+{
+    $days = operational_edit_days($current, $incoming);
     $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
     return $today->modify('-' . $days . ' days')->format('Y-m-d');
 }
@@ -286,7 +301,7 @@ function assert_dated_section_unlocked(array $current, array $incoming, string $
 
 function service_core_for_lock(array $service): array
 {
-    $derived = ['payments', 'visits', 'diagnosisHistory', 'balance', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'signatureOpen'];
+    $derived = ['payments', 'visits', 'diagnosisHistory', 'balance', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'diagnosisAddOpen', 'diagnosisDetailId', 'signatureOpen'];
     if (($service['kind'] ?? '') === 'course') {
         $derived = array_merge($derived, ['staff', 'price']);
     }
@@ -294,6 +309,14 @@ function service_core_for_lock(array $service): array
         unset($service[$key]);
     }
     return $service;
+}
+
+function operational_nested_row_for_lock(array $row): array
+{
+    foreach (['signatureOpen', 'diagnosisOpen', 'diagnosisExpanded', 'paymentFormOpen', 'expandedVisit'] as $key) {
+        unset($row[$key]);
+    }
+    return $row;
 }
 
 function assert_customer_operations_unlocked(array $current, array $incoming, string $cutoff): void
@@ -324,8 +347,8 @@ function assert_customer_operations_unlocked(array $current, array $incoming, st
             }
             continue;
         }
-        $oldHistory = operational_item_index(is_array($oldCustomers[$customerId]['serviceHistory'] ?? null) ? $oldCustomers[$customerId]['serviceHistory'] : []);
-        $newHistory = operational_item_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : []);
+        $oldHistory = operational_item_index(is_array($oldCustomers[$customerId]['serviceHistory'] ?? null) ? $oldCustomers[$customerId]['serviceHistory'] : [], 'service');
+        $newHistory = operational_item_index(is_array($newCustomer['serviceHistory'] ?? null) ? $newCustomer['serviceHistory'] : [], 'service');
         foreach ($newHistory as $serviceId => $newService) {
             $serviceDate = operational_date($newService, ['date', 'createdAt', 'registeredAt']);
             if (!isset($oldHistory[$serviceId])) {
@@ -344,14 +367,18 @@ function assert_customer_operations_unlocked(array $current, array $incoming, st
                 ['key' => 'visits', 'dates' => ['date', 'createdAt', 'registeredAt']],
                 ['key' => 'diagnosisHistory', 'dates' => ['date', 'createdAt']]
             ] as $nested) {
-                $oldRows = operational_item_index(is_array($oldService[$nested['key']] ?? null) ? $oldService[$nested['key']] : []);
-                $newRows = operational_item_index(is_array($newService[$nested['key']] ?? null) ? $newService[$nested['key']] : []);
+                $oldRows = operational_item_index(is_array($oldService[$nested['key']] ?? null) ? $oldService[$nested['key']] : [], $nested['key']);
+                $newRows = operational_item_index(is_array($newService[$nested['key']] ?? null) ? $newService[$nested['key']] : [], $nested['key']);
                 foreach ($newRows as $rowId => $newRow) {
                     $rowDate = operational_date($newRow, $nested['dates']);
                     if (!isset($oldRows[$rowId]) && operational_date_is_locked($rowDate, $cutoff)) {
                         throw new DomainException('3 хоногоос өмнөх төлбөр эсвэл курсийн оролтыг нөхөж бүртгэх боломжгүй.');
                     }
-                    if (isset($oldRows[$rowId]) && $oldRows[$rowId] !== $newRow && operational_date_is_locked(operational_date($oldRows[$rowId], $nested['dates']), $cutoff)) {
+                    if (
+                        isset($oldRows[$rowId])
+                        && operational_nested_row_for_lock($oldRows[$rowId]) !== operational_nested_row_for_lock($newRow)
+                        && operational_date_is_locked(operational_date($oldRows[$rowId], $nested['dates']), $cutoff)
+                    ) {
                         throw new DomainException('3 хоногоос өмнөх төлбөр эсвэл курсийн оролтыг засах боломжгүй.');
                     }
                 }
@@ -372,10 +399,16 @@ function assert_customer_operations_unlocked(array $current, array $incoming, st
 
 function assert_operational_lock(array $current, array $incoming): void
 {
+    $days = operational_edit_days($current, $incoming);
     $cutoff = operational_cutoff($current, $incoming);
-    assert_dated_section_unlocked($current, $incoming, 'kassSchedules', ['date', 'createdAt'], $cutoff);
-    assert_dated_section_unlocked($current, $incoming, 'assignments', ['startDate', 'date'], $cutoff);
-    assert_customer_operations_unlocked($current, $incoming, $cutoff);
+    try {
+        assert_dated_section_unlocked($current, $incoming, 'kassSchedules', ['date', 'createdAt'], $cutoff);
+        assert_dated_section_unlocked($current, $incoming, 'assignments', ['startDate', 'date'], $cutoff);
+        assert_customer_operations_unlocked($current, $incoming, $cutoff);
+    } catch (DomainException $error) {
+        $message = preg_replace('/^3 хоногоос/u', $days . ' хоногоос', $error->getMessage());
+        throw new DomainException(is_string($message) ? $message : $error->getMessage());
+    }
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
@@ -460,7 +493,12 @@ try {
     $mutationKeys = [];
     if (is_array($customerMutations['profiles'] ?? null) && count($customerMutations['profiles'])) $mutationKeys[] = 'customers';
     if (is_array($customerMutations['groups'] ?? null) && count($customerMutations['groups'])) $mutationKeys[] = 'customerGroups';
-    $loadKeys = $partial ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys))) : [];
+    // Operational locking is controlled by generalSettings even when a partial
+    // entity mutation only sends customers/audit. Always load the setting as a
+    // read dependency so the server and browser enforce the same day limit.
+    $loadKeys = $partial
+        ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings'])))
+        : [];
     $currentSections = load_all_sections($pdo, $loadKeys);
     if ($mutationKeys) {
         [$mutatedCustomerSections, $customerMutationConflicts] = apply_customer_entity_mutations(

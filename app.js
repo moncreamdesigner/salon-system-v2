@@ -1116,6 +1116,31 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
   return unsafeVersions.size;
 }
 
+function discardPendingMutationsThrough(mutationVersion = 0) {
+  pendingCustomerProfileUpdates.forEach((update, customerId) => {
+    if (Number(update.mutationVersion || 0) <= mutationVersion) pendingCustomerProfileUpdates.delete(customerId);
+  });
+  pendingCustomerGroupUpdates.forEach((update, groupId) => {
+    if (Number(update.mutationVersion || 0) <= mutationVersion) pendingCustomerGroupUpdates.delete(groupId);
+  });
+  pendingCustomerAuditEntries.forEach((update, entryId) => {
+    if (Number(update.mutationVersion || 0) <= mutationVersion) pendingCustomerAuditEntries.delete(entryId);
+  });
+  for (let index = pendingCustomerSaveMessages.length - 1; index >= 0; index -= 1) {
+    if (Number(pendingCustomerSaveMessages[index].mutationVersion || 0) <= mutationVersion) {
+      pendingCustomerSaveMessages.splice(index, 1);
+    }
+  }
+  pendingPaymentMutations.forEach((mutation, mutationId) => {
+    if (Number(mutation.mutationVersion || 0) <= mutationVersion) pendingPaymentMutations.delete(mutationId);
+  });
+  if (pendingServiceSettingsMutation && Number(pendingServiceSettingsMutation.mutationVersion || 0) <= mutationVersion) {
+    pendingServiceSettingsMutation = null;
+  }
+  persistPendingCustomerMutations();
+  persistPendingPaymentMutations();
+}
+
 function registerPendingCustomerMutation({
   customerIds = [],
   groupIds = [],
@@ -1511,6 +1536,21 @@ async function saveServerStateNow() {
       savingSections.forEach(key => {
         if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
       });
+      // The server rejected this transaction, so do not leave its customer
+      // mutation queued or displayed locally. Otherwise every later save
+      // retries the same rejected operation and shows the lock warning again.
+      discardPendingMutationsThrough(savingMutationVersion);
+      try {
+        const remote = await serverApi("state.php");
+        serverStorageRevision = Number(remote.revision || serverStorageRevision);
+        serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
+        applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
+        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+        applyServerData(remote.data || {});
+        renderActiveView(activeView, { force: true });
+      } catch (reloadError) {
+        console.warn("Protected state reload failed", reloadError);
+      }
       hideServerSyncOverlay();
       showToast(error.payload.message || "Хугацаа түгжигдсэн мэдээллийг өөрчлөх боломжгүй.", "error");
       return;
