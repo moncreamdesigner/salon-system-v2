@@ -1042,6 +1042,20 @@ function syncedEntityFingerprint(value) {
   }
 }
 
+function syncedCustomerFingerprint(customer) {
+  if (!customer) return syncedEntityFingerprint(customer);
+  const snapshot = structuredClone(customer);
+  clearCustomerUiState(snapshot);
+  return syncedEntityFingerprint(snapshot);
+}
+
+function syncedCustomerGroupFingerprint(group) {
+  if (!group) return syncedEntityFingerprint(group);
+  const snapshot = structuredClone(group);
+  cleanCustomerGroupUiState(snapshot);
+  return syncedEntityFingerprint(snapshot);
+}
+
 function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) {
   if (replace) {
     lastSyncedCustomerFingerprints.clear();
@@ -1049,12 +1063,12 @@ function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) 
   }
   if (Array.isArray(data.customers)) {
     data.customers.forEach(customer => {
-      if (customer?.id) lastSyncedCustomerFingerprints.set(Number(customer.id), syncedEntityFingerprint(customer));
+      if (customer?.id) lastSyncedCustomerFingerprints.set(Number(customer.id), syncedCustomerFingerprint(customer));
     });
   }
   if (Array.isArray(data.customerGroups)) {
     data.customerGroups.forEach(group => {
-      if (group?.id) lastSyncedGroupFingerprints.set(Number(group.id), syncedEntityFingerprint(group));
+      if (group?.id) lastSyncedGroupFingerprints.set(Number(group.id), syncedCustomerGroupFingerprint(group));
     });
   }
 }
@@ -1447,12 +1461,12 @@ async function saveServerStateNow() {
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
         const customer = state.customers.find(item => Number(item.id) === Number(customerId));
-        if (customer) lastSyncedCustomerFingerprints.set(Number(customerId), syncedEntityFingerprint(customer));
+        if (customer) lastSyncedCustomerFingerprints.set(Number(customerId), syncedCustomerFingerprint(customer));
         pendingCustomerProfileUpdates.delete(customerId);
         return;
       }
       const savedProfile = savedCustomerProfiles.get(Number(customerId));
-      if (savedProfile) update.baseFingerprint = syncedEntityFingerprint(savedProfile);
+      if (savedProfile) update.baseFingerprint = syncedCustomerFingerprint(savedProfile);
     });
     const savedCustomerGroups = new Map(savingCustomerMutations.groups.map(update => {
       const { mutationVersion, baseFingerprint, ...profile } = update;
@@ -1461,12 +1475,12 @@ async function saveServerStateNow() {
     pendingCustomerGroupUpdates.forEach((update, groupId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
         const group = state.customerGroups.find(item => Number(item.id) === Number(groupId));
-        if (group) lastSyncedGroupFingerprints.set(Number(groupId), syncedEntityFingerprint(group));
+        if (group) lastSyncedGroupFingerprints.set(Number(groupId), syncedCustomerGroupFingerprint(group));
         pendingCustomerGroupUpdates.delete(groupId);
         return;
       }
       const savedGroup = savedCustomerGroups.get(Number(groupId));
-      if (savedGroup) update.baseFingerprint = syncedEntityFingerprint(savedGroup);
+      if (savedGroup) update.baseFingerprint = syncedCustomerGroupFingerprint(savedGroup);
     });
     pendingCustomerAuditEntries.forEach((update, entryId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerAuditEntries.delete(entryId);
