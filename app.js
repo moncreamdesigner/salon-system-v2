@@ -7642,8 +7642,11 @@ function renderCustomers() {
     >
       <b class="active-treatment-sequence">${sequence || "—"}</b>
       <span class="active-treatment-copy">
-        <strong>${htmlSafe(customer.name)}</strong>
-        <span>${htmlSafe(treatment.service)} • ${htmlSafe(treatment.progress)}</span>
+        <span class="active-treatment-name-row">
+          <strong>${htmlSafe(customer.name)}</strong>
+          <small>${htmlSafe(customer.phone || "Утасгүй")}</small>
+        </span>
+        <span class="active-treatment-service">${htmlSafe(treatment.service)} • ${htmlSafe(treatment.progress)}</span>
         <em class="active-treatment-meta">
           ${showTreatmentSalon ? `<span class="active-treatment-salon">${htmlSafe(treatment.salon || "Салбаргүй")}</span><i>•</i>` : ""}
           <span class="active-treatment-stage ${treatment.stage === "Үйлчилгээ эхэлсэн" ? "started" : ""}">${htmlSafe(treatment.stage)}</span>
@@ -9777,7 +9780,13 @@ function renderProfileGroupPanel(customer, group, bonusInfo) {
       ${hasNameWarning ? `<div class="profile-warning-text">Групп нэр admin хэрэглэгчийн утастай ижил байх ёстой.</div>` : ""}
       <div class="profile-member-list">
         ${orderedGroupMembers(group).map(member => `
-          <span><strong>${member.name}</strong><em>${Number(group.adminCustomerId) === Number(member.id) ? "Админ · " : ""}${member.phone || ""}</em><button class="danger-btn icon-clear group-member-remove" type="button" data-member-id="${member.id}" aria-label="Группээс гаргах">×</button></span>
+          <span>
+            <button class="profile-group-member-open" type="button" data-member-id="${member.id}" aria-label="${htmlSafe(member.name)} хэрэглэгчийн дэлгэрэнгүйг нээх">
+                  <strong>${htmlSafe(member.name)}</strong>
+                  <em>${Number(group.adminCustomerId) === Number(member.id) ? "Админ · " : ""}${htmlSafe(member.phone || "")}</em>
+            </button>
+            <button class="danger-btn icon-clear group-member-remove" type="button" data-member-id="${member.id}" aria-label="Группээс гаргах">×</button>
+          </span>
         `).join("")}
       </div>
       <div class="profile-side-actions">
@@ -10699,6 +10708,23 @@ function renderProfile() {
   });
   document.querySelectorAll(".group-member-remove").forEach(button => {
     button.addEventListener("click", () => leaveCustomerGroup(Number(button.dataset.memberId)));
+  });
+  document.querySelectorAll(".profile-group-member-open").forEach(button => {
+    button.addEventListener("click", () => {
+      const memberId = Number(button.dataset.memberId);
+      const member = state.customers.find(item =>
+        Number(item.id) === memberId &&
+        !item.deleted &&
+        !item.deletedAt
+      );
+      if (!member) {
+        showToast("Группийн хэрэглэгч олдсонгүй", "error");
+        return;
+      }
+      clearCustomerUiState(member);
+      state.selectedCustomerId = memberId;
+      setView("profile");
+    });
   });
   bindProfileGroupInlineSearch(customer);
   bindCourseVisitInlineForms(customer);

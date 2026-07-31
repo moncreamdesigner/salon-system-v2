@@ -721,7 +721,7 @@ body.sidebar-collapsed .sidebar-logout {
   padding-block: 9px;
 }
 
-.active-treatment-card.is-collapsed .active-treatment-copy > span,
+.active-treatment-card.is-collapsed .active-treatment-service,
 .active-treatment-card.is-collapsed .active-treatment-meta {
   display: none;
 }
@@ -742,6 +742,26 @@ body.sidebar-collapsed .sidebar-logout {
   min-width: 0;
   display: grid;
   gap: 5px;
+}
+
+.active-treatment-name-row {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.active-treatment-name-row strong {
+  min-width: 0;
+}
+
+.active-treatment-name-row small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .active-treatment-card strong,
@@ -7315,14 +7335,36 @@ td.empty-state {
 
 .profile-member-list span {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.profile-member-list strong {
+.profile-group-member-open {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 7px 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-group-member-open:hover,
+.profile-group-member-open:focus-visible {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  outline: none;
+}
+
+.profile-group-member-open strong {
   color: var(--text);
   font-size: 13px;
   overflow: hidden;
@@ -7330,7 +7372,7 @@ td.empty-state {
   white-space: nowrap;
 }
 
-.profile-member-list em {
+.profile-group-member-open em {
   min-width: 116px;
   color: var(--muted);
   font-style: normal;
