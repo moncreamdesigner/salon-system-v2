@@ -2948,7 +2948,8 @@ function giftCardStatusText(card) {
 }
 
 function giftCardCanEdit(card) {
-  return giftCardStatus(card) === "fresh";
+  const usage = Array.isArray(card?.usage) ? card.usage : [];
+  return usage.length === 0 && Number(card?.remainingAmount || 0) === Number(card?.amount || 0);
 }
 
 function populateHumanResourceSalonSelect(selected = "") {
@@ -4550,6 +4551,21 @@ function todayText() {
   return `${year}-${month}-${day}`;
 }
 
+function dateAfterCalendarMonths(dateText, months = 6) {
+  const match = String(dateText || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const [, yearText, monthTextValue, dayText] = match;
+  const year = Number(yearText);
+  const monthIndex = Number(monthTextValue) - 1;
+  const day = Number(dayText);
+  const targetFirstDay = new Date(year, monthIndex + Number(months || 0), 1);
+  const targetYear = targetFirstDay.getFullYear();
+  const targetMonthIndex = targetFirstDay.getMonth();
+  const targetLastDay = new Date(targetYear, targetMonthIndex + 1, 0).getDate();
+  const targetDay = Math.min(day, targetLastDay);
+  return `${targetYear}-${String(targetMonthIndex + 1).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+}
+
 function dateTimeText(dateText = todayText()) {
   const date = new Date();
   const hours = String(date.getHours()).padStart(2, "0");
@@ -5969,7 +5985,7 @@ function resetIncomingViewState(name) {
     resetValues({ giftCardNumberFilter: "", giftCardStatusFilter: "all", giftCardFromFilter: "", giftCardToFilter: "" });
     clearSubmittedListSearch(["giftCardNumberFilter", "giftCardStatusFilter", "giftCardFromFilter", "giftCardToFilter"]);
     giftCardPage = 1;
-    giftCardEditingId = null;
+    resetGiftCardForm();
   }
   if (name === "groups") {
     resetValues({ groupDirectorySearch: "", groupDirectoryStatusFilter: "all" });
@@ -13360,6 +13376,8 @@ function renderVouchers() {
 function resetGiftCardForm() {
   giftCardEditingId = null;
   document.getElementById("giftCardForm")?.reset();
+  const expiryInput = document.getElementById("giftCardExpiry");
+  if (expiryInput) expiryInput.value = dateAfterCalendarMonths(todayText(), 6);
   const submit = document.getElementById("giftCardSubmit");
   if (submit) submit.textContent = "Нэмэх";
 }
@@ -13447,14 +13465,14 @@ function saveGiftCard(event) {
     .map(item => item.trim())
     .filter(Boolean);
   const amount = Number(formValue("giftCardAmount"));
-  const expiryDate = document.getElementById("giftCardExpiry").value || "";
+  const expiryDate = document.getElementById("giftCardExpiry").value || dateAfterCalendarMonths(todayText(), 6);
   if (!numbers.length || amount <= 0) return;
 
   if (giftCardEditingId) {
     const card = state.giftCards.find(item => Number(item.id) === Number(giftCardEditingId));
     const nextNumber = numbers[0];
     if (!card || !giftCardCanEdit(card)) {
-      showToast("Зөвхөн ашиглаагүй картыг засна");
+      showToast("Зөвхөн ашиглаагүй картыг засна", "error");
       return;
     }
     const duplicate = state.giftCards.some(item => item.cardNumber === nextNumber && Number(item.id) !== Number(card.id));
