@@ -475,7 +475,7 @@ let serviceEditingRef = null;
 let customerPage = 1;
 let holidayEditingId = null;
 let customerTypeEditingName = null;
-let kassEditingId = null;
+let kassInlineEditingId = null;
 let kassPage = 1;
 let kassRevenuePage = 1;
 let activePerformanceTab = "revenue";
@@ -3852,7 +3852,6 @@ function populateKassSelects() {
 }
 
 function resetKassForm() {
-  kassEditingId = null;
   const form = document.getElementById("kassScheduleForm");
   if (!form) return;
   form.reset();
@@ -4018,6 +4017,43 @@ function renderKassRevenue() {
   }
 }
 
+function kassInlineStaffOptions(salonName, selectedStaff = "") {
+  const staffList = accountStaff({ activeOnly: true }).filter(item => item.salon === salonName);
+  return staffList.map(item => `
+    <option value="${htmlSafe(item.name)}" ${item.name === selectedStaff ? "selected" : ""}>${htmlSafe(item.name)}</option>
+  `).join("");
+}
+
+function kassInlineEditMarkup(item) {
+  const salons = accountSalons();
+  const selectedSalon = isSalonAccount() ? activeAccount.salon : item.salon;
+  return `
+    <tr class="kass-inline-edit-row">
+      <td colspan="4">
+        <form class="kass-inline-edit-form" data-id="${item.id}">
+          <label>Огноо
+            <input class="input kass-inline-date" type="date" value="${htmlSafe(item.date)}" required>
+          </label>
+          <label>Салбар
+            <select class="input kass-inline-salon" id="kassInlineSalon-${item.id}" ${isSalonAccount() ? "disabled" : ""}>
+              ${salons.map(salon => `<option value="${htmlSafe(salon.name)}" ${salon.name === selectedSalon ? "selected" : ""}>${htmlSafe(salon.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label>Ажилтан
+            <select class="input kass-inline-staff" id="kassInlineStaff-${item.id}" required>
+              ${kassInlineStaffOptions(selectedSalon, item.staff)}
+            </select>
+          </label>
+          <div class="kass-inline-actions">
+            <button class="secondary-btn icon-action kass-inline-cancel" type="button" aria-label="Болих">×</button>
+            <button class="primary-btn" type="submit">Хадгалах</button>
+          </div>
+        </form>
+      </td>
+    </tr>
+  `;
+}
+
 function renderKassSchedule() {
   if (!document.getElementById("kassView")?.isConnected) return;
   populateKassSelects();
@@ -4040,8 +4076,9 @@ function renderKassSchedule() {
   if (rows) {
     rows.innerHTML = filtered.map(item => {
       const editable = canEditKassSchedule(item);
+      const editing = Number(kassInlineEditingId) === Number(item.id);
       return `
-        <tr class="${editable ? "" : "locked-row"}">
+        <tr class="${editable ? "" : "locked-row"}${editing ? " kass-row-editing" : ""}">
           <td>${dateWithWeekday(item.date)}${item.date === todayText() ? ` <span class="status-text">өнөөдөр</span>` : ""}</td>
           <td>${item.staff}</td>
           <td>${item.salon}</td>
@@ -4052,23 +4089,38 @@ function renderKassSchedule() {
             </div>
           </td>
         </tr>
+        ${editing ? kassInlineEditMarkup(item) : ""}
       `;
     }).join("") || `<tr><td colspan="4" class="empty-state">${hasDateSearch ? "Сонгосон хугацаанд кассын хуваарь алга" : "Энэ сард кассын хуваарь бүртгэгдээгүй"}</td></tr>`;
     rows.querySelectorAll(".kass-edit").forEach(button => button.addEventListener("click", () => editKassSchedule(Number(button.dataset.id))));
     rows.querySelectorAll(".kass-delete").forEach(button => button.addEventListener("click", () => deleteKassSchedule(Number(button.dataset.id))));
+    rows.querySelectorAll(".kass-inline-cancel").forEach(button => button.addEventListener("click", () => {
+      kassInlineEditingId = null;
+      renderKassSchedule();
+    }));
+    rows.querySelectorAll(".kass-inline-edit-form").forEach(form => {
+      const id = Number(form.dataset.id);
+      const salon = form.querySelector(".kass-inline-salon");
+      const staff = form.querySelector(".kass-inline-staff");
+      salon?.addEventListener("change", () => {
+        staff.innerHTML = kassInlineStaffOptions(salon.value);
+        enhanceNativeSelect(staff);
+      });
+      form.addEventListener("submit", event => saveInlineKassSchedule(event, id));
+      enhanceNativeSelects([`kassInlineSalon-${id}`, `kassInlineStaff-${id}`]);
+    });
   }
   if (pagination) pagination.innerHTML = "";
 }
 
 function saveKassSchedule(event) {
   event.preventDefault();
-  const wasEditing = Boolean(kassEditingId);
   const startDate = formValue("kassStartDate");
   const endDate = formValue("kassEndDate") || startDate;
   let salon = formValue("kassSalon");
   const staff = formValue("kassStaff");
   if (!startDate || !endDate || !salon || !staff) return;
-  if (!requireOperationalDateEditable(startDate, wasEditing ? "засах" : "нөхөж бүртгэх")) return;
+  if (!requireOperationalDateEditable(startDate, "нөхөж бүртгэх")) return;
   if (isSalonAccount() && salon !== activeAccount.salon) {
     showToast("Өөр салбарын хуваарь нэмэх боломжгүй");
     return;
@@ -4082,42 +4134,26 @@ function saveKassSchedule(event) {
     showToast("Дуусах өдөр эхлэх өдрөөс өмнө байна");
     return;
   }
-  if (kassEditingId) {
-    const item = state.kassSchedules.find(row => Number(row.id) === Number(kassEditingId));
-    if (!item || !canEditKassSchedule(item)) {
-      showToast("Засах хугацаа дууссан байна");
-      return;
-    }
-    const conflict = kassScheduleConflict(startDate, salon, staff, kassEditingId);
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const conflict = kassScheduleConflict(value, salon, staff);
     if (conflict) {
       showToast(kassConflictMessage(conflict, salon, staff));
       return;
     }
-    item.date = startDate;
-    item.salon = salon;
-    item.staff = staff;
-  } else {
-    const start = new Date(`${startDate}T00:00:00`);
-    const end = new Date(`${endDate}T00:00:00`);
-    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-      const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const conflict = kassScheduleConflict(value, salon, staff);
-      if (conflict) {
-        showToast(kassConflictMessage(conflict, salon, staff));
-        return;
-      }
-    }
-    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-      const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      state.kassSchedules.unshift({ id: nextId(state.kassSchedules), date: value, salon, staff, createdAt: todayText() });
-    }
+  }
+  for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    state.kassSchedules.unshift({ id: nextId(state.kassSchedules), date: value, salon, staff, createdAt: todayText() });
   }
   state.audit.unshift({ title: "kass_schedule_saved", meta: `${auditActorUsername()} • ${staff} • ${salon} • ${startDate}` });
   saveState();
   resetKassForm();
   renderKassSchedule();
   renderInfoHeader(activeView);
-  showToast(wasEditing ? "Касс хуваарь шинэчлэгдлээ" : "Касс хуваарь нэмэгдлээ");
+  showToast("Касс хуваарь нэмэгдлээ");
 }
 
 function editKassSchedule(id) {
@@ -4126,15 +4162,42 @@ function editKassSchedule(id) {
     showToast("Засах хугацаа дууссан байна");
     return;
   }
-  kassEditingId = id;
-  document.getElementById("kassStartDate").value = item.date;
-  document.getElementById("kassEndDate").value = item.date;
-  document.getElementById("kassSalon").value = item.salon;
-  populateKassSelects();
-  document.getElementById("kassSalon").value = item.salon;
-  document.getElementById("kassStaff").value = item.staff;
-  document.getElementById("kassSubmit").textContent = "Хадгалах";
-  enhanceNativeSelects(["kassSalon", "kassStaff"]);
+  kassInlineEditingId = id;
+  renderKassSchedule();
+}
+
+function saveInlineKassSchedule(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const item = state.kassSchedules.find(row => Number(row.id) === Number(id));
+  if (!item || !canEditKassSchedule(item)) {
+    showToast("Засах хугацаа дууссан байна", "error");
+    return;
+  }
+  const date = form.querySelector(".kass-inline-date")?.value || "";
+  const salon = isSalonAccount() ? activeAccount.salon : (form.querySelector(".kass-inline-salon")?.value || "");
+  const staff = form.querySelector(".kass-inline-staff")?.value || "";
+  if (!date || !salon || !staff) return;
+  if (!requireOperationalDateEditable(date, "засах")) return;
+  const allowedStaff = accountStaff({ activeOnly: true }).filter(staffItem => staffItem.salon === salon);
+  if (!allowedStaff.some(staffItem => staffItem.name === staff)) {
+    showToast("Идэвхтэй ажилтан сонгоно уу", "error");
+    return;
+  }
+  const conflict = kassScheduleConflict(date, salon, staff, id);
+  if (conflict) {
+    showToast(kassConflictMessage(conflict, salon, staff), "error");
+    return;
+  }
+  item.date = date;
+  item.salon = salon;
+  item.staff = staff;
+  state.audit.unshift({ title: "kass_schedule_saved", meta: `${auditActorUsername()} • ${staff} • ${salon} • ${date}` });
+  kassInlineEditingId = null;
+  saveState();
+  renderKassSchedule();
+  renderInfoHeader(activeView);
+  showToast("Касс хуваарь шинэчлэгдлээ");
 }
 
 async function deleteKassSchedule(id) {
@@ -5974,7 +6037,7 @@ function resetIncomingViewState(name) {
     resetValues({ kassFromFilter: "", kassToFilter: "", kassSalonFilter: "all", kassStaffFilter: "all" });
     clearSubmittedListSearch(["kassFromFilter", "kassToFilter", "kassSalonFilter", "kassStaffFilter"]);
     kassPage = 1;
-    kassEditingId = null;
+    kassInlineEditingId = null;
   }
   if (name === "vouchers") {
     resetValues({ voucherFromFilter: "", voucherToFilter: "", voucherCustomerFilter: "", voucherPhoneFilter: "", voucherRoleFilter: "all" });

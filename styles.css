@@ -8904,6 +8904,54 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   justify-content: flex-end;
 }
 
+.kass-table tr.kass-row-editing td {
+  border-top: 1px solid var(--accent);
+  border-bottom: 0;
+  background: var(--surface);
+}
+
+.kass-table tr.kass-row-editing td:first-child {
+  border-left: 1px solid var(--accent);
+  border-radius: 10px 0 0;
+}
+
+.kass-table tr.kass-row-editing td:last-child {
+  border-right: 1px solid var(--accent);
+  border-radius: 0 10px 0 0;
+}
+
+.kass-table .kass-inline-edit-row td {
+  width: auto !important;
+  padding: 0 !important;
+  border-bottom: 0;
+  background: var(--surface);
+  overflow: visible;
+  white-space: normal;
+  text-align: left;
+}
+
+.kass-inline-edit-form {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.8fr) minmax(220px, 1fr) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--surface);
+}
+
+.kass-inline-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.kass-inline-actions .primary-btn {
+  min-width: 110px;
+}
+
 .locked-row {
   color: var(--muted);
 }
@@ -9515,6 +9563,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .kass-filter-row .input,
   .kass-filter-row #kassStaffFilter {
     flex: 1 1 100%;
+  }
+
+  .kass-inline-edit-form {
+    grid-template-columns: 1fr;
   }
 
   .holiday-form-grid {
