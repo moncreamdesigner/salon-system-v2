@@ -13514,9 +13514,10 @@ function saveGiftCard(event) {
   renderInfoHeader(activeView);
 }
 
-function editGiftCard(id) {
+async function editGiftCard(id) {
   const card = state.giftCards.find(item => Number(item.id) === Number(id));
   if (!card || !giftCardCanEdit(card)) return;
+  if (!await requireEditCode()) return;
   giftCardEditingId = id;
   document.getElementById("giftCardNumbers").value = card.cardNumber;
   document.getElementById("giftCardAmount").value = card.amount;

@@ -21,3 +21,8 @@ test("expired gift cards remain editable only while completely unused", () => {
   assert.match(appSource, /Number\(card\?\.remainingAmount \|\| 0\) === Number\(card\?\.amount \|\| 0\)/);
   assert.doesNotMatch(appSource, /function giftCardCanEdit\(card\) \{\s+return giftCardStatus\(card\) === "fresh";/);
 });
+
+test("gift card edit and delete actions require their security codes", () => {
+  assert.match(appSource, /async function editGiftCard\(id\)[\s\S]+?if \(!await requireEditCode\(\)\) return;/);
+  assert.match(appSource, /async function deleteGiftCard\(id\)[\s\S]+?if \(!await requireDeleteCode\(\)\) return;/);
+});
