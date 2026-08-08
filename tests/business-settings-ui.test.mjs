@@ -11,6 +11,8 @@ test("voucher reward checkbox uses the short label and aligned layout", () => {
   assert.doesNotMatch(htmlSource, /Кассын урамшуулалд тооцно/);
   assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?flex-direction: column;[\s\S]+?align-items: flex-start;/);
   assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?width: max-content;[\s\S]+?border: 0;[\s\S]+?background: transparent;/);
+  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?align-self: start;/);
+  assert.doesNotMatch(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?align-self: end;/);
   assert.match(styleSource, /\.voucher-role-form\s*\{[\s\S]+?max-content minmax\(108px, 1fr\)/);
 });
 

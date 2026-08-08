@@ -11181,7 +11181,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   align-items: flex-start;
   justify-content: flex-start;
   gap: 8px !important;
-  align-self: end;
+  align-self: start;
   justify-self: start;
   width: max-content;
   min-height: 40px;
