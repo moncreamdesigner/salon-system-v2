@@ -46,6 +46,8 @@ const pendingCustomerGroupUpdates = new Map();
 const pendingCustomerAuditEntries = new Map();
 const pendingCustomerSaveMessages = [];
 const pendingKassScheduleMutations = [];
+const pendingHolidayMutations = [];
+const pendingGiftCardMutations = [];
 const pendingPaymentMutations = new Map();
 const pendingMediaTrashRequests = [];
 const lastSyncedCustomerFingerprints = new Map();
@@ -1204,6 +1206,142 @@ function markPendingKassScheduleSections() {
   if (pendingKassScheduleMutations.some(item => item.auditEntry)) pendingServerSections.set("audit", version);
 }
 
+function syncedHolidayFingerprint(item) {
+  return syncedEntityFingerprint(item ? {
+    id: item.id,
+    salon: item.salon || "",
+    date: item.date || "",
+    name: item.name || "",
+    note: item.note || ""
+  } : null);
+}
+
+function registerPendingHolidayMutation({ type, item = null, before = null, auditEntry = null } = {}) {
+  if (IS_LOCAL_RUNTIME || !type) return;
+  pendingHolidayMutations.push({
+    type,
+    key: holidayRecordKey(item || before || {}),
+    item: item ? structuredClone(item) : null,
+    baseFingerprint: before ? syncedHolidayFingerprint(before) : null,
+    auditEntry: auditEntry ? structuredClone(auditEntry) : null,
+    mutationVersion: localStateMutationVersion + 1
+  });
+}
+
+function replayPendingHolidayMutations(savingMutationVersion = 0) {
+  const rows = Array.isArray(state.holidays) ? state.holidays : [];
+  let unsafeCount = 0;
+  pendingHolidayMutations.forEach(mutation => {
+    if (Number(mutation.mutationVersion || 0) > savingMutationVersion) return;
+    const currentIndex = rows.findIndex(item => holidayRecordKey(item) === mutation.key);
+    const remoteItem = currentIndex >= 0 ? rows[currentIndex] : null;
+    const alreadyApplied = mutation.type === "delete"
+      ? !remoteItem
+      : Boolean(remoteItem) && syncedHolidayFingerprint(remoteItem) === syncedHolidayFingerprint(mutation.item);
+    const safe = alreadyApplied || (mutation.type === "create"
+      ? !remoteItem
+      : Boolean(remoteItem) && syncedHolidayFingerprint(remoteItem) === mutation.baseFingerprint);
+    if (!safe) {
+      mutation.unsafe = true;
+      unsafeCount += 1;
+      return;
+    }
+    if (mutation.type === "delete") {
+      if (currentIndex >= 0) rows.splice(currentIndex, 1);
+    } else if (currentIndex >= 0) {
+      rows[currentIndex] = structuredClone(mutation.item);
+    } else {
+      rows.unshift(structuredClone(mutation.item));
+    }
+    if (mutation.auditEntry && !state.audit.some(entry => String(entry.id || "") === String(mutation.auditEntry.id || ""))) {
+      state.audit.unshift(structuredClone(mutation.auditEntry));
+    }
+  });
+  state.holidays = rows;
+  return unsafeCount;
+}
+
+function clearPendingHolidayMutationsThrough(mutationVersion = 0, { unsafeOnly = false } = {}) {
+  for (let index = pendingHolidayMutations.length - 1; index >= 0; index -= 1) {
+    const mutation = pendingHolidayMutations[index];
+    if (Number(mutation.mutationVersion || 0) > mutationVersion) continue;
+    if (unsafeOnly && !mutation.unsafe) continue;
+    pendingHolidayMutations.splice(index, 1);
+  }
+}
+
+function markPendingHolidaySections() {
+  const versions = pendingHolidayMutations.map(item => Number(item.mutationVersion || 0));
+  if (!versions.length) return;
+  const version = Math.max(localStateMutationVersion, ...versions);
+  pendingServerSections.set("holidays", version);
+  if (pendingHolidayMutations.some(item => item.auditEntry)) pendingServerSections.set("audit", version);
+}
+
+function syncedGiftCardFingerprint(item) {
+  return syncedEntityFingerprint(item || null);
+}
+
+function registerPendingGiftCardMutation({ type, item = null, before = null } = {}) {
+  if (IS_LOCAL_RUNTIME || !type) return;
+  pendingGiftCardMutations.push({
+    type,
+    id: item?.id ?? before?.id,
+    item: item ? structuredClone(item) : null,
+    baseFingerprint: before ? syncedGiftCardFingerprint(before) : null,
+    mutationVersion: localStateMutationVersion + 1
+  });
+}
+
+function replayPendingGiftCardMutations(savingMutationVersion = 0) {
+  const rows = Array.isArray(state.giftCards) ? state.giftCards : [];
+  let unsafeCount = 0;
+  pendingGiftCardMutations.forEach(mutation => {
+    if (Number(mutation.mutationVersion || 0) > savingMutationVersion) return;
+    const currentIndex = rows.findIndex(item => String(item.id) === String(mutation.id));
+    const remoteItem = currentIndex >= 0 ? rows[currentIndex] : null;
+    const duplicateNumber = mutation.type === "create" && rows.some(item =>
+      String(item.cardNumber || "") === String(mutation.item?.cardNumber || "")
+      && String(item.id) !== String(mutation.id)
+    );
+    const alreadyApplied = mutation.type === "delete"
+      ? !remoteItem
+      : Boolean(remoteItem) && syncedGiftCardFingerprint(remoteItem) === syncedGiftCardFingerprint(mutation.item);
+    const safe = alreadyApplied || (mutation.type === "create"
+      ? !remoteItem && !duplicateNumber
+      : Boolean(remoteItem) && syncedGiftCardFingerprint(remoteItem) === mutation.baseFingerprint);
+    if (!safe) {
+      mutation.unsafe = true;
+      unsafeCount += 1;
+      return;
+    }
+    if (mutation.type === "delete") {
+      if (currentIndex >= 0) rows.splice(currentIndex, 1);
+    } else if (currentIndex >= 0) {
+      rows[currentIndex] = structuredClone(mutation.item);
+    } else {
+      rows.unshift(structuredClone(mutation.item));
+    }
+  });
+  state.giftCards = rows;
+  return unsafeCount;
+}
+
+function clearPendingGiftCardMutationsThrough(mutationVersion = 0, { unsafeOnly = false } = {}) {
+  for (let index = pendingGiftCardMutations.length - 1; index >= 0; index -= 1) {
+    const mutation = pendingGiftCardMutations[index];
+    if (Number(mutation.mutationVersion || 0) > mutationVersion) continue;
+    if (unsafeOnly && !mutation.unsafe) continue;
+    pendingGiftCardMutations.splice(index, 1);
+  }
+}
+
+function markPendingGiftCardSections() {
+  const versions = pendingGiftCardMutations.map(item => Number(item.mutationVersion || 0));
+  if (!versions.length) return;
+  pendingServerSections.set("giftCards", Math.max(localStateMutationVersion, ...versions));
+}
+
 function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) {
   if (replace) {
     lastSyncedCustomerFingerprints.clear();
@@ -1289,6 +1427,8 @@ function discardPendingMutationsThrough(mutationVersion = 0) {
     pendingServiceSettingsMutation = null;
   }
   clearPendingKassScheduleMutationsThrough(mutationVersion);
+  clearPendingHolidayMutationsThrough(mutationVersion);
+  clearPendingGiftCardMutationsThrough(mutationVersion);
   for (let index = pendingMediaTrashRequests.length - 1; index >= 0; index -= 1) {
     if (Number(pendingMediaTrashRequests[index].mutationVersion || 0) <= mutationVersion) {
       pendingMediaTrashRequests.splice(index, 1);
@@ -1678,6 +1818,8 @@ async function saveServerStateNow() {
       if (Number(mutation.mutationVersion || 0) <= savingMutationVersion) pendingPaymentMutations.delete(mutationId);
     });
     clearPendingKassScheduleMutationsThrough(savingMutationVersion);
+    clearPendingHolidayMutationsThrough(savingMutationVersion);
+    clearPendingGiftCardMutationsThrough(savingMutationVersion);
     if (pendingServiceSettingsMutation && Number(pendingServiceSettingsMutation.mutationVersion || 0) <= savingMutationVersion) {
       const successMessage = pendingServiceSettingsMutation.message;
       pendingServiceSettingsMutation = null;
@@ -1750,14 +1892,22 @@ async function saveServerStateNow() {
           return;
         }
         const unsafeKassReplayCount = replayPendingKassScheduleMutations(remote.data || {}, savingMutationVersion);
+        const unsafeHolidayReplayCount = replayPendingHolidayMutations(savingMutationVersion);
+        const unsafeGiftCardReplayCount = replayPendingGiftCardMutations(savingMutationVersion);
         renderActiveView(activeView, { force: true });
-        if (unsafeReplayCount > 0 || unsafeKassReplayCount > 0) {
+        if (unsafeReplayCount > 0 || unsafeKassReplayCount > 0 || unsafeHolidayReplayCount > 0 || unsafeGiftCardReplayCount > 0) {
           savingSections.forEach(key => {
             if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
           });
           clearPendingServerOperation(savingOperationId);
           clearPendingKassScheduleMutationsThrough(savingMutationVersion, { unsafeOnly: true });
-          showServerProtectionNotice(unsafeKassReplayCount > 0
+          clearPendingHolidayMutationsThrough(savingMutationVersion, { unsafeOnly: true });
+          clearPendingGiftCardMutationsThrough(savingMutationVersion, { unsafeOnly: true });
+          showServerProtectionNotice(unsafeGiftCardReplayCount > 0
+            ? "Энэ бэлгийн картыг өөр ажилтан мөн өөрчилсөн тул таны үйлдлийг автоматаар нэгтгэсэнгүй."
+            : unsafeHolidayReplayCount > 0
+            ? "Энэ амралтын өдрийг өөр ажилтан мөн өөрчилсөн тул таны үйлдлийг автоматаар нэгтгэсэнгүй."
+            : unsafeKassReplayCount > 0
             ? "Энэ кассын хуваарийг өөр ажилтан мөн өөрчилсөн тул таны үйлдлийг автоматаар нэгтгэсэнгүй."
             : "Таны нээсэн хэрэглэгчийн мэдээллийг өөр ажилтан мөн шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
           return;
@@ -1778,12 +1928,16 @@ async function saveServerStateNow() {
         }
         markPendingCustomerSections();
         markPendingKassScheduleSections();
+        markPendingHolidaySections();
+        markPendingGiftCardSections();
         const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 ||
           pendingCustomerGroupUpdates.size > 0 ||
           pendingCustomerAuditEntries.size > 0 ||
           pendingPaymentMutations.size > 0 ||
           Boolean(pendingServiceSettingsMutation) ||
-          pendingKassScheduleMutations.length > 0;
+          pendingKassScheduleMutations.length > 0 ||
+          pendingHolidayMutations.length > 0 ||
+          pendingGiftCardMutations.length > 0;
         if (retryingLocalMutation) {
           // A 409 transaction was not committed. Build a fresh request against
           // the revision just loaded instead of retrying the rejected body.
@@ -1858,7 +2012,9 @@ window.khalgaiHasPendingSave = () => Boolean(
   pendingCustomerAuditEntries.size ||
   pendingPaymentMutations.size ||
   pendingServiceSettingsMutation ||
-  pendingKassScheduleMutations.length
+  pendingKassScheduleMutations.length ||
+  pendingHolidayMutations.length ||
+  pendingGiftCardMutations.length
 );
 
 function hideServerLogin() {
@@ -6401,6 +6557,10 @@ function holidayForDate(salonName, dateText) {
   return state.holidays.find(item => item.salon === salonName && item.date === dateText);
 }
 
+function holidayRecordKey(holiday = {}) {
+  return `${String(holiday.salon || "")}\u0000${String(holiday.id || "")}`;
+}
+
 function isSalonAccount() {
   return activeAccount.role === "salon";
 }
@@ -6685,24 +6845,24 @@ function renderHolidaySettings() {
         <span>${dateWithWeekday(holiday.date)} · ${holiday.name}${holiday.note ? ` · ${holiday.note}` : ""}</span>
       </div>
       <div class="holiday-actions">
-        <button class="secondary-btn icon-action holiday-edit" data-id="${holiday.id}" type="button" aria-label="Засах">${editIcon()}</button>
-        <button class="danger-btn icon-danger holiday-delete" data-id="${holiday.id}" type="button" aria-label="Устгах">${trashIcon()}</button>
+        <button class="secondary-btn icon-action holiday-edit" data-id="${htmlSafe(holiday.id)}" data-salon="${htmlSafe(holiday.salon)}" type="button" aria-label="Засах">${editIcon()}</button>
+        <button class="danger-btn icon-danger holiday-delete" data-id="${htmlSafe(holiday.id)}" data-salon="${htmlSafe(holiday.salon)}" type="button" aria-label="Устгах">${trashIcon()}</button>
       </div>
     </div>
   `).join("") || `<div class="holiday-item"><div><strong>Амралтын өдөр бүртгэгдээгүй</strong><span>Шинээр амралтын өдөр нэмнэ үү</span></div></div>`;
 
   list.querySelectorAll(".holiday-edit").forEach(button => {
-    button.addEventListener("click", () => editHoliday(Number(button.dataset.id)));
+    button.addEventListener("click", () => editHoliday(button.dataset.id, button.dataset.salon));
   });
   list.querySelectorAll(".holiday-delete").forEach(button => {
-    button.addEventListener("click", () => deleteHoliday(Number(button.dataset.id)));
+    button.addEventListener("click", () => deleteHoliday(button.dataset.id, button.dataset.salon));
   });
 }
 
-function editHoliday(id) {
-  const holiday = state.holidays.find(item => Number(item.id) === Number(id));
+function editHoliday(id, salon) {
+  const holiday = state.holidays.find(item => String(item.id) === String(id) && item.salon === salon);
   if (!holiday || !canAccessSalon(holiday.salon)) return showToast("Өөр салбарын амралтын өдрийг засах эрхгүй");
-  holidayEditingId = holiday.id;
+  holidayEditingId = holidayRecordKey(holiday);
   const dateInput = document.getElementById("holidayDate");
   const nameInput = document.getElementById("holidayName");
   if (dateInput) dateInput.value = holiday.date;
@@ -6790,20 +6950,29 @@ function saveHoliday(event) {
     showToast("Өнгөрсөн өдөр амралт нэмэх боломжгүй");
     return;
   }
+  const editedHoliday = holidayEditingId
+    ? state.holidays.find(item => holidayRecordKey(item) === holidayEditingId)
+    : null;
+  const auditEntry = { id: entityId("audit"), title: "holiday_saved", createdAt: auditNowText(), meta: `${auditActorUsername()} • ${selectedSalons.join(", ")} • ${date} • ${name}` };
   if (holidayEditingId) {
-    state.holidays = state.holidays.filter(item => Number(item.id) !== Number(holidayEditingId));
+    state.holidays = state.holidays.filter(item => holidayRecordKey(item) !== holidayEditingId);
+    if (editedHoliday) registerPendingHolidayMutation({ type: "delete", before: editedHoliday, auditEntry });
   }
   selectedSalons.forEach(salon => {
     const existing = holidayForDate(salon, date);
     if (existing) {
+      const before = structuredClone(existing);
       existing.name = name;
       existing.note = note;
+      registerPendingHolidayMutation({ type: "update", item: existing, before, auditEntry });
     } else {
-      state.holidays.unshift({ id: nextId(state.holidays), salon, date, name, note });
+      const item = { id: entityId("holiday"), salon, date, name, note };
+      state.holidays.unshift(item);
+      registerPendingHolidayMutation({ type: "create", item, auditEntry });
     }
   });
-  state.audit.unshift({ title: "holiday_saved", meta: `${auditActorUsername()} • ${selectedSalons.join(", ")} • ${date} • ${name}` });
-  saveState();
+  state.audit.unshift(auditEntry);
+  saveState(["holidays", "audit"]);
   closeHolidayForm();
   renderHolidaySettings();
   renderBookings();
@@ -6811,13 +6980,17 @@ function saveHoliday(event) {
   showToast("Амралтын өдөр хадгалагдлаа");
 }
 
-async function deleteHoliday(id) {
-  const holiday = state.holidays.find(item => Number(item.id) === Number(id));
+async function deleteHoliday(id, salon) {
+  const holiday = state.holidays.find(item => String(item.id) === String(id) && item.salon === salon);
   if (!holiday || !canAccessSalon(holiday.salon)) return showToast("Өөр салбарын амралтын өдрийг устгах эрхгүй");
   if (!await requireDeleteCode()) return;
-  state.holidays = state.holidays.filter(item => Number(item.id) !== Number(id));
-  state.audit.unshift({ title: "holiday_deleted", meta: `${auditActorUsername()} • амралтын өдөр устгасан` });
-  saveState();
+  const before = structuredClone(holiday);
+  const key = holidayRecordKey(holiday);
+  state.holidays = state.holidays.filter(item => holidayRecordKey(item) !== key);
+  const auditEntry = { id: entityId("audit"), title: "holiday_deleted", createdAt: auditNowText(), meta: `${auditActorUsername()} • амралтын өдөр устгасан` };
+  state.audit.unshift(auditEntry);
+  registerPendingHolidayMutation({ type: "delete", before, auditEntry });
+  saveState(["holidays", "audit"]);
   renderHolidaySettings();
   renderBookings();
   renderInfoHeader(activeView);
@@ -11776,7 +11949,7 @@ function bindInlinePaymentForms(customer) {
         }
         referenceLabel = role.name;
         voucherLog = {
-          id: nextId(state.voucherLogs),
+          id: entityId("voucher-log"),
           paymentId,
           date: paidDate,
           time: currentTimeText(),
@@ -13619,9 +13792,9 @@ function renderGiftCards() {
         <td><span class="gift-card-usage">${usageText}</span></td>
         <td>
           <div class="table-actions">
-            <button class="secondary-btn gift-card-toggle" type="button" data-id="${card.id}" ${["used", "expired"].includes(status) ? "disabled" : ""}>${status === "inactive" ? "Идэвхжүүлэх" : "Идэвхгүй"}</button>
-            <button class="secondary-btn icon-action gift-card-edit" type="button" data-id="${card.id}" aria-label="Засах" ${editable ? "" : "disabled"}>${editIcon()}</button>
-            <button class="danger-btn icon-danger gift-card-delete" type="button" data-id="${card.id}" aria-label="Устгах" ${editable ? "" : "disabled"}>${trashIcon()}</button>
+            <button class="secondary-btn gift-card-toggle" type="button" data-id="${htmlSafe(card.id)}" ${["used", "expired"].includes(status) ? "disabled" : ""}>${status === "inactive" ? "Идэвхжүүлэх" : "Идэвхгүй"}</button>
+            <button class="secondary-btn icon-action gift-card-edit" type="button" data-id="${htmlSafe(card.id)}" aria-label="Засах" ${editable ? "" : "disabled"}>${editIcon()}</button>
+            <button class="danger-btn icon-danger gift-card-delete" type="button" data-id="${htmlSafe(card.id)}" aria-label="Устгах" ${editable ? "" : "disabled"}>${trashIcon()}</button>
           </div>
         </td>
       </tr>
@@ -13629,13 +13802,13 @@ function renderGiftCards() {
   }).join("");
 
   rows.querySelectorAll(".gift-card-edit").forEach(button => {
-    button.addEventListener("click", () => editGiftCard(Number(button.dataset.id)));
+    button.addEventListener("click", () => editGiftCard(button.dataset.id));
   });
   rows.querySelectorAll(".gift-card-toggle").forEach(button => {
-    button.addEventListener("click", () => toggleGiftCard(Number(button.dataset.id)));
+    button.addEventListener("click", () => toggleGiftCard(button.dataset.id));
   });
   rows.querySelectorAll(".gift-card-delete").forEach(button => {
-    button.addEventListener("click", () => deleteGiftCard(Number(button.dataset.id)));
+    button.addEventListener("click", () => deleteGiftCard(button.dataset.id));
   });
 
   if (pagination) {
@@ -13666,21 +13839,23 @@ function saveGiftCard(event) {
   if (!numbers.length || amount <= 0) return;
 
   if (giftCardEditingId) {
-    const card = state.giftCards.find(item => Number(item.id) === Number(giftCardEditingId));
+    const card = state.giftCards.find(item => String(item.id) === String(giftCardEditingId));
     const nextNumber = numbers[0];
     if (!card || !giftCardCanEdit(card)) {
       showToast("Зөвхөн ашиглаагүй картыг засна", "error");
       return;
     }
-    const duplicate = state.giftCards.some(item => item.cardNumber === nextNumber && Number(item.id) !== Number(card.id));
+    const duplicate = state.giftCards.some(item => item.cardNumber === nextNumber && String(item.id) !== String(card.id));
     if (duplicate) {
       showToast("Картын дугаар давхардсан байна");
       return;
     }
+    const before = structuredClone(card);
     card.cardNumber = nextNumber;
     card.amount = amount;
     card.remainingAmount = amount;
     card.expiryDate = expiryDate;
+    registerPendingGiftCardMutation({ type: "update", item: card, before });
     showToast("Бэлгийн карт шинэчлэгдлээ");
   } else {
     let inserted = 0;
@@ -13690,8 +13865,8 @@ function saveGiftCard(event) {
         skipped += 1;
         return;
       }
-      state.giftCards.unshift({
-        id: nextId(state.giftCards),
+      const card = {
+        id: entityId("gift-card"),
         cardNumber: number,
         status: "new",
         amount,
@@ -13699,12 +13874,14 @@ function saveGiftCard(event) {
         createdAt: todayText(),
         expiryDate,
         usage: []
-      });
+      };
+      state.giftCards.unshift(card);
+      registerPendingGiftCardMutation({ type: "create", item: card });
       inserted += 1;
     });
     showToast(`${inserted} карт нэмэгдлээ${skipped ? `, ${skipped} давхардсан` : ""}`);
   }
-  saveState();
+  saveState(["giftCards"]);
   resetGiftCardForm();
   giftCardPage = 1;
   renderGiftCards();
@@ -13712,7 +13889,7 @@ function saveGiftCard(event) {
 }
 
 async function editGiftCard(id) {
-  const card = state.giftCards.find(item => Number(item.id) === Number(id));
+  const card = state.giftCards.find(item => String(item.id) === String(id));
   if (!card || !giftCardCanEdit(card)) return;
   if (!await requireEditCode()) return;
   giftCardEditingId = id;
@@ -13724,22 +13901,26 @@ async function editGiftCard(id) {
 }
 
 async function toggleGiftCard(id) {
-  const card = state.giftCards.find(item => Number(item.id) === Number(id));
+  const card = state.giftCards.find(item => String(item.id) === String(id));
   if (!card || giftCardStatus(card) === "used") return;
   if (!await requireEditCode()) return;
+  const before = structuredClone(card);
   card.status = card.status === "inactive" ? "new" : "inactive";
-  saveState();
+  registerPendingGiftCardMutation({ type: "update", item: card, before });
+  saveState(["giftCards"]);
   renderGiftCards();
   renderInfoHeader(activeView);
   showToast("Бэлгийн картын төлөв өөрчлөгдлөө");
 }
 
 async function deleteGiftCard(id) {
-  const card = state.giftCards.find(item => Number(item.id) === Number(id));
+  const card = state.giftCards.find(item => String(item.id) === String(id));
   if (!card || !giftCardCanEdit(card)) return;
   if (!await requireDeleteCode()) return;
-  state.giftCards = state.giftCards.filter(item => Number(item.id) !== Number(id));
-  saveState();
+  const before = structuredClone(card);
+  state.giftCards = state.giftCards.filter(item => String(item.id) !== String(id));
+  registerPendingGiftCardMutation({ type: "delete", before });
+  saveState(["giftCards"]);
   renderGiftCards();
   renderInfoHeader(activeView);
   showToast("Бэлгийн карт устлаа");

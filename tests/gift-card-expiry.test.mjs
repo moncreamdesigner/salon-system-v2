@@ -23,3 +23,11 @@ test("gift card edit and delete actions require their security codes", () => {
   assert.match(appSource, /async function editGiftCard\(id\)[\s\S]+?if \(!await requireEditCode\(\)\) return;/);
   assert.match(appSource, /async function deleteGiftCard\(id\)[\s\S]+?if \(!await requireDeleteCode\(\)\) return;/);
 });
+
+test("gift cards use unique ids and replay disjoint concurrent changes", () => {
+  assert.match(appSource, /id: entityId\("gift-card"\)/);
+  assert.doesNotMatch(appSource, /id: nextId\(state\.giftCards\)/);
+  assert.match(appSource, /function registerPendingGiftCardMutation/);
+  assert.match(appSource, /function replayPendingGiftCardMutations/);
+  assert.match(appSource, /markPendingGiftCardSections\(\);/);
+});

@@ -11182,8 +11182,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   justify-content: flex-start;
   gap: 8px !important;
   align-self: end;
+  justify-self: start;
+  width: max-content;
   min-height: 40px;
-  padding: 0 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text) !important;
 }
 
@@ -11206,7 +11211,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .voucher-role-form {
-  grid-template-columns: minmax(200px, 250px) minmax(220px, 300px) minmax(230px, 1fr) auto;
+  grid-template-columns: minmax(200px, 250px) minmax(220px, 300px) max-content minmax(108px, 1fr);
 }
 
 .performance-adjustment-form {

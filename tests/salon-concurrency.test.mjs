@@ -23,6 +23,19 @@ test("legacy duplicate kass ids remain distinct between salons", () => {
   assert.match(stateApiSource, /assert_dated_section_unlocked\(\$current, \$incoming, 'kassSchedules',[\s\S]+?'kass-schedule'\);/);
 });
 
+test("holidays use globally unique ids and legacy rows are addressed by salon", () => {
+  assert.match(appSource, /id: entityId\("holiday"\)/);
+  assert.doesNotMatch(appSource, /id: nextId\(state\.holidays\)/);
+  assert.match(appSource, /function holidayRecordKey\(holiday = \{\}\)/);
+  assert.match(appSource, /editHoliday\(button\.dataset\.id, button\.dataset\.salon\)/);
+  assert.match(appSource, /deleteHoliday\(button\.dataset\.id, button\.dataset\.salon\)/);
+});
+
+test("voucher usage logs use globally unique ids", () => {
+  assert.match(appSource, /id: entityId\("voucher-log"\)/);
+  assert.doesNotMatch(appSource, /id: nextId\(state\.voucherLogs\)/);
+});
+
 test("partial views fetch the shared rules they render", () => {
   assert.match(appSource, /profile: \[[^\]]+"generalSettings"[^\]]+"_serviceSettings"\]/);
   assert.match(appSource, /settingsPricing: \[[^\]]+"customerTypes"[^\]]+"customerTypeRules"[^\]]+"customers"/);
