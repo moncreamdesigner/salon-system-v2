@@ -31,10 +31,17 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
 test("transferred courses can be corrected within the configured window without orphaning credit", () => {
   assert.match(appSource, /if \(item\.transferClosed\) return "transfer-details";/);
   assert.match(appSource, /function courseTransferLedgerEntries\(/);
-  assert.match(appSource, /if \(transferableCreditToReverse > customerCreditBalance\(customer\)\)/);
-  assert.match(appSource, /customer\.creditLedger = customerCreditLedger\(customer\)[\s\S]+?\.filter\(entry => !transferEntryIds\.has/);
+  assert.match(appSource, /function serviceCreditLedgerEntries\(/);
+  assert.match(appSource, /if \(remainingCreditBalance < 0\)/);
+  assert.match(appSource, /customer\.creditLedger = remainingCreditLedger;/);
   assert.match(appSource, /course_credit_transfer_reversed/);
   assert.match(appSource, /if \(editingItem\.transferClosed\)[\s\S]+?creditTransfers: editingItem\.creditTransfers,[\s\S]+?transferClosed: true/);
+});
+
+test("deleted services do not leave credit ledger history behind", () => {
+  assert.match(appSource, /const historyIds = new Set\(\(Array\.isArray\(customer\.serviceHistory\)/);
+  assert.match(appSource, /return \(!sourceId \|\| historyIds\.has\(sourceId\)\) && \(!targetId \|\| historyIds\.has\(targetId\)\);/);
+  assert.match(appSource, /function reverseCustomerCreditPayment[\s\S]+?String\(entry\.targetServiceId \|\| ""\) === historyId/);
 });
 
 test("non-admin accounts cannot create or convert branch customer types", () => {

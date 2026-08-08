@@ -3207,22 +3207,12 @@ function reverseVoucherPayment(payment, customer = null, historyItem = null) {
 
 function reverseCustomerCreditPayment(payment, customer = null, historyItem = null) {
   if (payment?.method !== "customer_credit" || !customer) return;
-  customer.creditLedger = customerCreditLedger(customer);
-  const alreadyReversed = customer.creditLedger.some(entry => entry.type === "credit_payment_reversal" && String(entry.paymentId || "") === String(payment.id || ""));
-  if (alreadyReversed) return;
-  customer.creditLedger.unshift({
-    id: entityId("credit-reversal"),
-    type: "credit_payment_reversal",
-    amount: Math.max(0, Number(payment.paidAmount ?? payment.amount ?? 0)),
-    date: todayText(),
-    createdAt: new Date().toISOString(),
-    targetServiceId: historyItem?.id || "",
-    targetTitle: historyItem?.kind === "kass" ? kassRevenueServiceName(historyItem) : (historyItem?.service || historyItem?.title || "Үйлчилгээ"),
-    paymentId: payment.id || "",
-    reason: "Төлбөр буцаасан",
-    createdBy: auditActorUsername(),
-    createdById: activeAccount.id || 0
-  });
+  const paymentId = String(payment.id || "");
+  const historyId = String(historyItem?.id || "");
+  customer.creditLedger = customerCreditLedger(customer).filter(entry =>
+    !(paymentId && String(entry.paymentId || "") === paymentId) &&
+    !(historyId && String(entry.targetServiceId || "") === historyId)
+  );
 }
 
 function treatmentStageClass(treatment) {
@@ -8560,7 +8550,16 @@ function servicePaidAmount(item = {}) {
 }
 
 function customerCreditLedger(customer = {}) {
-  return Array.isArray(customer.creditLedger) ? customer.creditLedger : [];
+  const ledger = Array.isArray(customer.creditLedger) ? customer.creditLedger : [];
+  const historyIds = new Set((Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [])
+    .map(item => String(item.id || ""))
+    .filter(Boolean));
+  return ledger.filter(entry => {
+    const sourceId = String(entry.sourceServiceId || "");
+    const targetId = String(entry.targetServiceId || "");
+    if (!sourceId && !targetId) return true;
+    return (!sourceId || historyIds.has(sourceId)) && (!targetId || historyIds.has(targetId));
+  });
 }
 
 function customerCreditBalance(customer = {}) {
@@ -8584,6 +8583,25 @@ function courseTransferLedgerEntries(customer = {}, item = {}) {
 function courseTransferredCreditAmount(customer = {}, item = {}) {
   return courseTransferLedgerEntries(customer, item)
     .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
+}
+
+function serviceCreditLedgerEntries(customer = {}, item = {}) {
+  const serviceId = String(item.id || "");
+  const paymentIds = new Set((Array.isArray(item.payments) ? item.payments : [])
+    .map(payment => String(payment.id || ""))
+    .filter(Boolean));
+  const transferIds = new Set((Array.isArray(item.creditTransfers) ? item.creditTransfers : [])
+    .flatMap(entry => [entry.id, entry.ledgerEntryId])
+    .filter(Boolean)
+    .map(String));
+  return customerCreditLedger(customer).filter(entry =>
+    transferIds.has(String(entry.id || "")) ||
+    paymentIds.has(String(entry.paymentId || "")) ||
+    (serviceId && (
+      String(entry.sourceServiceId || "") === serviceId ||
+      String(entry.targetServiceId || "") === serviceId
+    ))
+  );
 }
 
 function courseEligiblePaidAmount(item = {}) {
@@ -12451,20 +12469,25 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
   const transferLedgerEntries = courseTransferLedgerEntries(customer, historyItem);
   const transferableCreditToReverse = courseTransferredCreditAmount(customer, historyItem);
+  const relatedCreditEntries = serviceCreditLedgerEntries(customer, historyItem);
+  const relatedCreditEntryIds = new Set(relatedCreditEntries.map(entry => String(entry.id || "")));
+  const remainingCreditLedger = customerCreditLedger(customer)
+    .filter(entry => !relatedCreditEntryIds.has(String(entry.id || "")));
+  const remainingCreditBalance = remainingCreditLedger.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   if (recordedTransferAmount > 0 && transferableCreditToReverse < recordedTransferAmount) {
     showToast("Шилжүүлгийн дансны холбоос дутуу байна. Админд мэдэгдэнэ үү", "error");
     return;
   }
-  if (transferableCreditToReverse > customerCreditBalance(customer)) {
-    const shortage = transferableCreditToReverse - customerCreditBalance(customer);
+  if (remainingCreditBalance < 0) {
+    const shortage = Math.abs(remainingCreditBalance);
     showToast(`Шилжүүлсэн үлдэгдлээс ${money(shortage)} зарцуулсан байна. Зарцуулалтыг эхлээд буцаана уу`, "error");
     return;
   }
   if (!await requireDeleteCode()) return;
+  if (relatedCreditEntries.length) {
+    customer.creditLedger = remainingCreditLedger;
+  }
   if (transferLedgerEntries.length) {
-    const transferEntryIds = new Set(transferLedgerEntries.map(entry => String(entry.id || "")));
-    customer.creditLedger = customerCreditLedger(customer)
-      .filter(entry => !transferEntryIds.has(String(entry.id || "")));
     state.audit.unshift({
       id: entityId("audit"),
       title: "course_credit_transfer_reversed",
