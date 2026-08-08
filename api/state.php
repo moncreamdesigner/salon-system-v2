@@ -374,7 +374,7 @@ function assert_dated_section_unlocked(array $current, array $incoming, string $
 
 function service_core_for_lock(array $service): array
 {
-    $derived = ['payments', 'visits', 'diagnosisHistory', 'balance', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'diagnosisAddOpen', 'diagnosisDetailId', 'signatureOpen'];
+    $derived = ['payments', 'visits', 'diagnosisHistory', 'creditTransfers', 'balance', 'transferClosed', 'transferClosedAt', 'transferClosedBy', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'diagnosisAddOpen', 'diagnosisDetailId', 'signatureOpen'];
     if (($service['kind'] ?? '') === 'course') {
         $derived = array_merge($derived, ['staff', 'price']);
     }
@@ -382,6 +382,23 @@ function service_core_for_lock(array $service): array
         unset($service[$key]);
     }
     return $service;
+}
+
+function assert_branch_customer_type_permissions(array $current, array $proposed, array $user): void
+{
+    if (($user['role'] ?? '') === 'admin') return;
+    $oldCustomers = operational_item_index(is_array($current['customers'] ?? null) ? $current['customers'] : []);
+    $newCustomers = operational_item_index(is_array($proposed['customers'] ?? null) ? $proposed['customers'] : []);
+    foreach ($newCustomers as $customerId => $newCustomer) {
+        $newType = trim((string)($newCustomer['type'] ?? ''));
+        $oldType = trim((string)($oldCustomers[$customerId]['type'] ?? ''));
+        if (!isset($oldCustomers[$customerId]) && $newType === 'Салбар') {
+            throw new DomainException('“Салбар” төрлийн хэрэглэгчийг зөвхөн админ бүртгэнэ.');
+        }
+        if (isset($oldCustomers[$customerId]) && $oldType !== $newType && ($oldType === 'Салбар' || $newType === 'Салбар')) {
+            throw new DomainException('“Салбар” хэрэглэгчийн төрлийг зөвхөн админ өөрчилнө.');
+        }
+    }
 }
 
 function operational_nested_row_for_lock(array $row): array
@@ -618,6 +635,7 @@ try {
     }
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
+    assert_branch_customer_type_permissions($currentSections, $sections, $user);
     if ($clientSectionRevisions === null) {
         // Old browser tabs do not know section revisions. Preserve existing
         // customer/service/payment rows until those tabs reload the new build.

@@ -166,6 +166,11 @@ const defaultState = {
   pricePolicy: {
     vipRoomFee: 20000,
     masterStaffFee: 15000,
+    employeeDiscount: {
+      enabled: true,
+      percent: 10,
+      applyToDiscountedPrice: true
+    },
     performance: {
       version: 1,
       configured: false,
@@ -839,6 +844,7 @@ function clearCustomerUiState(customer) {
   delete customer.profileKassDraftDate;
   delete customer.profileInfoEditing;
   delete customer.profileJoinGroupOpen;
+  delete customer.creditExpandedEntryId;
   (customer.serviceHistory || []).forEach(item => {
     delete item.expandedVisit;
     delete item.diagnosisViewVisit;
@@ -1549,6 +1555,13 @@ function applyPendingPaymentMutations(targetState) {
     if (!targetCustomer) return;
     const historyItem = pendingHistoryItem(targetCustomer, mutation);
     if (!historyItem) return;
+    if (mutation.creditLedgerEntry) {
+      targetCustomer.creditLedger = Array.isArray(targetCustomer.creditLedger) ? targetCustomer.creditLedger : [];
+      if (!targetCustomer.creditLedger.some(entry => String(entry.id || "") === String(mutation.creditLedgerEntry.id || ""))) {
+        targetCustomer.creditLedger.unshift(structuredClone(mutation.creditLedgerEntry));
+        changed = true;
+      }
+    }
     historyItem.payments = Array.isArray(historyItem.payments) ? historyItem.payments : [];
     if (historyItem.payments.some(payment => String(payment.id || "") === String(mutation.payment?.id || mutation.id))) return;
 
@@ -3192,6 +3205,26 @@ function reverseVoucherPayment(payment, customer = null, historyItem = null) {
   if (logIndex >= 0) state.voucherLogs.splice(logIndex, 1);
 }
 
+function reverseCustomerCreditPayment(payment, customer = null, historyItem = null) {
+  if (payment?.method !== "customer_credit" || !customer) return;
+  customer.creditLedger = customerCreditLedger(customer);
+  const alreadyReversed = customer.creditLedger.some(entry => entry.type === "credit_payment_reversal" && String(entry.paymentId || "") === String(payment.id || ""));
+  if (alreadyReversed) return;
+  customer.creditLedger.unshift({
+    id: entityId("credit-reversal"),
+    type: "credit_payment_reversal",
+    amount: Math.max(0, Number(payment.paidAmount ?? payment.amount ?? 0)),
+    date: todayText(),
+    createdAt: new Date().toISOString(),
+    targetServiceId: historyItem?.id || "",
+    targetTitle: historyItem?.kind === "kass" ? kassRevenueServiceName(historyItem) : (historyItem?.service || historyItem?.title || "Үйлчилгээ"),
+    paymentId: payment.id || "",
+    reason: "Төлбөр буцаасан",
+    createdBy: auditActorUsername(),
+    createdById: activeAccount.id || 0
+  });
+}
+
 function treatmentStageClass(treatment) {
   if (!treatment) return "idle";
   if (Number(treatment.paymentBalance || 0) > 0) return "payment";
@@ -3237,7 +3270,9 @@ function populateHumanResourceSalonSelect(selected = "") {
 }
 
 function customerTypeOptions(selected = "") {
-  return state.customerTypes.map(type => `<option ${type === selected ? "selected" : ""}>${type}</option>`).join("");
+  return state.customerTypes
+    .filter(type => type !== "Салбар" || isAdminAccount() || selected === "Салбар")
+    .map(type => `<option ${type === selected ? "selected" : ""}>${type}</option>`).join("");
 }
 
 function renderCustomerTypeFilter() {
@@ -3322,6 +3357,17 @@ function pricePolicy() {
   state.pricePolicy = {
     ...structuredClone(defaultState.pricePolicy),
     ...stored,
+    employeeDiscount: {
+      ...structuredClone(defaultState.pricePolicy.employeeDiscount),
+      ...(stored.employeeDiscount || {}),
+      enabled: Object.prototype.hasOwnProperty.call(stored.employeeDiscount || {}, "enabled")
+        ? Boolean(stored.employeeDiscount.enabled)
+        : Boolean(defaultState.pricePolicy.employeeDiscount.enabled),
+      percent: Math.max(0, Math.min(100, Number(stored.employeeDiscount?.percent ?? defaultState.pricePolicy.employeeDiscount.percent) || 0)),
+      applyToDiscountedPrice: Object.prototype.hasOwnProperty.call(stored.employeeDiscount || {}, "applyToDiscountedPrice")
+        ? Boolean(stored.employeeDiscount.applyToDiscountedPrice)
+        : true
+    },
     performance: {
       ...structuredClone(defaultState.pricePolicy.performance),
       ...(stored.performance || {}),
@@ -3787,10 +3833,16 @@ function renderPricePolicySettings() {
   const performancePolicy = currentPerformancePolicy();
   const vipRoom = document.getElementById("vipRoomFee");
   const masterStaff = document.getElementById("masterStaffFee");
+  const employeeDiscountEnabled = document.getElementById("employeeDiscountEnabled");
+  const employeeDiscountPercent = document.getElementById("employeeDiscountPercent");
+  const employeeDiscountStacking = document.getElementById("employeeDiscountStacking");
   const tierSummary = document.getElementById("bonusTierSummary");
   if (!vipRoom || !masterStaff) return;
   vipRoom.value = policy.vipRoomFee;
   masterStaff.value = policy.masterStaffFee;
+  if (employeeDiscountEnabled) employeeDiscountEnabled.checked = Boolean(policy.employeeDiscount.enabled);
+  if (employeeDiscountPercent) employeeDiscountPercent.value = policy.employeeDiscount.percent;
+  if (employeeDiscountStacking) employeeDiscountStacking.checked = Boolean(policy.employeeDiscount.applyToDiscountedPrice);
   if (tierSummary) tierSummary.textContent = bonusTierSummary();
   const version = document.getElementById("performancePolicyVersion");
   if (version) version.textContent = performancePolicy.configured ? `Хувилбар ${performancePolicy.version}` : "Тохируулаагүй";
@@ -3853,7 +3905,12 @@ function savePricePolicy(event) {
   state.pricePolicy = {
     ...pricePolicy(),
     vipRoomFee: Number(formValue("vipRoomFee")) || 0,
-    masterStaffFee: Number(formValue("masterStaffFee")) || 0
+    masterStaffFee: Number(formValue("masterStaffFee")) || 0,
+    employeeDiscount: {
+      enabled: Boolean(document.getElementById("employeeDiscountEnabled")?.checked),
+      percent: Math.max(0, Math.min(100, Number(formValue("employeeDiscountPercent")) || 0)),
+      applyToDiscountedPrice: Boolean(document.getElementById("employeeDiscountStacking")?.checked)
+    }
   };
   saveState();
   renderInfoHeader(activeView);
@@ -4166,7 +4223,7 @@ function kassRevenueType(kind = "") {
 
 function isActualKassRevenueRow(row = {}) {
   const method = String(row.method || "").trim().toLowerCase().replace(/\s+/g, "_");
-  return !["bonus", "gift_card", "бонус", "бэлгийн_карт"].includes(method);
+  return !["bonus", "gift_card", "customer_credit", "credit_transfer", "бонус", "бэлгийн_карт", "шилжүүлсэн_үлдэгдлээс"].includes(method);
 }
 
 function kassRevenueSourceRows() {
@@ -7829,6 +7886,10 @@ function saveInlineCustomer(event) {
     return;
   }
   const selectedType = formValue("inlineCustomerType") || "Хэрэглэгч";
+  if (selectedType === "Салбар" && !isAdminAccount()) {
+    showToast("“Салбар” төрлийн хэрэглэгчийг зөвхөн админ бүртгэнэ", "error");
+    return;
+  }
   const registeredSalon = activeAccount.salon || formValue("inlineCustomerSalon");
   if (!registeredSalon) {
     showToast("Бүртгэх салбарыг сонгоно уу");
@@ -7924,7 +7985,7 @@ function customerSingleServiceIsActive(customer = {}, item = {}) {
 function customerCourseEntryStatus(customer = {}) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   const activeCourse = history
-    .filter(item => !item?.deleted && (item?.kind === "course" || String(item?.title || "").toLowerCase().includes("курс")))
+    .filter(item => !item?.deleted && !item?.transferClosed && (item?.kind === "course" || String(item?.title || "").toLowerCase().includes("курс")))
     .map(item => {
       const titleProgress = String(item.title || "").match(/(\d+)\s*\/\s*(\d+)/);
       const total = Number(item.visitsTotal || titleProgress?.[2] || parseVisitCount(item.visits || item.title) || 0);
@@ -8485,7 +8546,7 @@ function courseVisitExtras(item = {}) {
 function serviceTotalAmount(item = {}) {
   if (item.kind === "course") {
     const extras = courseVisitExtras(item);
-    return Number(item.basePrice || item.price || item.total || 0) + extras.vipRoomFee + extras.masterStaffFee;
+    return Math.max(0, Number(item.basePrice || item.price || item.total || 0) + extras.vipRoomFee + extras.masterStaffFee - Number(item.employeeDiscountAmount || 0));
   }
   return Number(item.price || item.total || 0);
 }
@@ -8496,6 +8557,44 @@ function servicePaidAmount(item = {}) {
     return payments.reduce((sum, payment) => sum + Number(payment.amount || payment.paidAmount || 0), 0);
   }
   return Math.max(0, serviceTotalAmount(item) - Number(item.balance || 0));
+}
+
+function customerCreditLedger(customer = {}) {
+  return Array.isArray(customer.creditLedger) ? customer.creditLedger : [];
+}
+
+function customerCreditBalance(customer = {}) {
+  return Math.max(0, customerCreditLedger(customer).reduce((sum, entry) => sum + Number(entry.amount || 0), 0));
+}
+
+function courseEligiblePaidAmount(item = {}) {
+  const payments = Array.isArray(item.payments) ? item.payments : [];
+  if (!payments.length) return Math.max(0, servicePaidAmount(item));
+  return payments.reduce((sum, payment) => {
+    const method = String(payment.method || "").trim().toLowerCase();
+    if (["bonus", "voucher", "customer_credit", "credit_transfer"].includes(method)) return sum;
+    return sum + Math.max(0, Number(payment.paidAmount ?? payment.amount ?? 0));
+  }, 0);
+}
+
+function courseTransferInfo(item = {}) {
+  if (item.kind !== "course") return { totalVisits: 0, usedVisits: 0, paid: 0, usedValue: 0, transferred: 0, available: 0 };
+  const visits = (Array.isArray(item.visits) ? item.visits : []).filter(visit => !visit.deleted);
+  const totalVisits = Math.max(1, Number(item.visitsTotal || visits.length || 1));
+  const netCoursePrice = Math.max(0, Number(item.basePrice || item.price || 0) - Number(item.employeeDiscountAmount || 0));
+  const paid = Math.min(netCoursePrice, courseEligiblePaidAmount(item));
+  const usedVisits = Math.min(totalVisits, visits.length);
+  const usedValue = Math.min(paid, Math.round((netCoursePrice / totalVisits) * usedVisits));
+  const transferred = (Array.isArray(item.creditTransfers) ? item.creditTransfers : [])
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
+  return {
+    totalVisits,
+    usedVisits,
+    paid,
+    usedValue,
+    transferred,
+    available: Math.max(0, paid - usedValue - transferred)
+  };
 }
 
 function localDateText(date) {
@@ -9497,9 +9596,10 @@ function renderServicePaymentSummary(item, paid, historyIndex) {
       <span>Үндсэн үнэ <strong>${money(basePrice)}</strong></span>
       ${extras.masterStaffFee ? `<span>Мастер массажист <strong>${money(extras.masterStaffFee)}</strong></span>` : ""}
       ${extras.vipRoomFee ? `<span>Вип өрөө <strong>${money(extras.vipRoomFee)}</strong></span>` : ""}
+      ${item.employeeDiscountAmount ? `<span class="payment-discount">Ажилтны ${formatNumber(item.employeeDiscountPercent || 0)}% хөнгөлөлт <strong>−${money(item.employeeDiscountAmount)}</strong></span>` : ""}
       <span class="payment-total">Нийт үнэ <strong>${money(total)}</strong></span>
       ${overpaid ? `<span class="payment-overpaid">Илүү төлөлт <strong>${money(overpaid)}</strong></span>` : (balance ? `<span class="red">Үлдэгдэл <strong>${money(balance)}</strong></span>` : `<span>Төлбөр хаагдсан</span>`)}
-      ${balance ? `<button class="primary-btn profile-payment-open" type="button" data-history-index="${historyIndex}" aria-expanded="${item.paymentFormOpen ? "true" : "false"}"><span>Төлбөр төлөх</span><span class="payment-open-arrow${item.paymentFormOpen ? " open" : ""}" aria-hidden="true"></span></button>` : ""}
+      <button class="${balance ? "primary-btn" : "secondary-btn payment-closed"} profile-payment-open" type="button" data-history-index="${historyIndex}" aria-expanded="${item.paymentFormOpen ? "true" : "false"}"><span>Төлбөр төлөх</span><span class="payment-open-arrow${item.paymentFormOpen ? " open" : ""}" aria-hidden="true"></span></button>
     </div>
     ${item.paymentFormOpen ? renderInlinePaymentForm(item, historyIndex, balance) : ""}
     ${paymentChips}
@@ -9537,12 +9637,14 @@ function paymentMethodOptionsLabel(value = "") {
     bonus: "Бонус",
     voucher: "Ваучер",
     gift_card: "Бэлгийн карт",
-    salary: "Цалингаас суутгах"
+    salary: "Цалингаас суутгах",
+    customer_credit: "Шилжүүлсэн үлдэгдлээс",
+    credit_transfer: "Үлдэгдэл шилжүүлэх"
   };
   return labels[normalizedValue] || "";
 }
 
-function paymentMethodOptions(selected = "card") {
+function paymentMethodOptions(selected = "card", { allowCreditTransfer = false, creditBalance = 0 } = {}) {
   const methods = [
     ["card", "Карт"],
     ["qpay", "QPay"],
@@ -9551,7 +9653,9 @@ function paymentMethodOptions(selected = "card") {
     ["loan_app", "Зээлийн апп"],
     ["voucher", "Ваучер"],
     ["gift_card", "Бэлгийн карт"],
-    ["salary", "Цалингаас суутгах"]
+    ["salary", "Цалингаас суутгах"],
+    ...(creditBalance > 0 ? [["customer_credit", `Шилжүүлсэн үлдэгдлээс · ${money(creditBalance)}`]] : []),
+    ...(allowCreditTransfer ? [["credit_transfer", "Үлдэгдэл шилжүүлэх"]] : [])
   ];
   return methods.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
@@ -9581,12 +9685,12 @@ function giftCardPaymentMessage(number = "") {
   return `<span class="success"><strong>Карт хүчинтэй</strong> · Үлдэгдэл: <strong>${money(card.remainingAmount)}</strong>${expiry}</span>`;
 }
 
-function renderPaymentMethodExtra(method = "card", item = {}) {
+function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
   const voucherId = item.pendingVoucherRoleId || "";
   const voucherNote = item.pendingVoucherNote || "";
   const giftCardNumber = item.pendingGiftCardNumber || "";
   return `
-    <div class="inline-payment-extra ${method === "voucher" || method === "gift_card" ? "show" : ""}">
+    <div class="inline-payment-extra ${["voucher", "gift_card", "customer_credit", "credit_transfer"].includes(method) ? "show" : ""}">
       <label class="inline-voucher-field ${method === "voucher" ? "" : "hidden"}">Эрх сонгох
         <select class="input inline-payment-voucher-role">${voucherRoleOptions(voucherId)}</select>
       </label>
@@ -9597,6 +9701,24 @@ function renderPaymentMethodExtra(method = "card", item = {}) {
         <input class="input inline-payment-gift-card" type="text" value="${giftCardNumber}" placeholder="Картын дугаар">
       </label>
       <div class="inline-payment-extra-note ${method === "gift_card" ? "" : "hidden"}">${method === "gift_card" ? giftCardPaymentMessage(giftCardNumber) : ""}</div>
+      <div class="inline-credit-payment-note ${method === "customer_credit" ? "" : "hidden"}">
+        Боломжит үлдэгдэл <strong>${money(customerCreditBalance(customer))}</strong>. Энэ дүн шинэ орлого болон кассын урамшуулалд дахин тооцогдохгүй.
+      </div>
+      ${item.kind === "course" ? (() => {
+        const transfer = courseTransferInfo(item);
+        return `<div class="inline-credit-transfer ${method === "credit_transfer" ? "" : "hidden"}">
+          <div class="credit-transfer-summary">
+            <span>Төлсөн дүн <strong>${money(transfer.paid)}</strong></span>
+            <span>Ашигласан оролт <strong>${transfer.usedVisits}/${transfer.totalVisits}</strong></span>
+            <span>Ашигласан дүн <strong>${money(transfer.usedValue)}</strong></span>
+            <span class="credit-transfer-available">Шилжүүлэх үлдэгдэл <strong>${money(transfer.available)}</strong></span>
+          </div>
+          <label>Шалтгаан
+            <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" placeholder="Жишээ: Курсыг зогсоож бараа авах"></textarea>
+          </label>
+          <p>Шилжүүлсний дараа ашиглаагүй оролтууд хаагдаж, үлдэгдэл хэрэглэгчийн дансанд орно.</p>
+        </div>`;
+      })() : ""}
     </div>
   `;
 }
@@ -9608,6 +9730,8 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const bonusAlreadyUsed = (item.payments || []).some(payment => Number(payment.bonusAmount || 0) > 0);
   const availableBonus = bonusAlreadyUsed ? 0 : Math.max(0, Math.min(Number(bonus?.balance || 0), Math.floor(serviceTotalAmount(item) * 0.5), amount));
   const selectedMethod = "card";
+  const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
+  const allowCreditTransfer = item.kind === "course" && courseTransferInfo(item).available > 0 && !item.transferClosed;
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
       <div class="inline-payment-grid">
@@ -9624,11 +9748,11 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
           <input class="input inline-payment-date" type="date" value="${todayText()}" required>
         </label>
         <label class="inline-payment-method-field">Төлбөрийн арга
-          <select class="input inline-payment-method">${paymentMethodOptions(selectedMethod)}</select>
+          <select class="input inline-payment-method">${paymentMethodOptions(selectedMethod, { allowCreditTransfer, creditBalance })}</select>
         </label>
-        <button class="primary-btn" type="submit" ${amount <= 0 ? "disabled" : ""}>Хадгалах</button>
+        <button class="primary-btn inline-payment-submit" type="submit" ${amount <= 0 && !allowCreditTransfer ? "disabled" : ""}>Хадгалах</button>
       </div>
-      ${renderPaymentMethodExtra(selectedMethod, item)}
+      ${renderPaymentMethodExtra(selectedMethod, item, customer)}
     </form>
   `;
 }
@@ -10214,13 +10338,49 @@ function renderProfileInfoPanel(customer) {
           <label><span>Хүйс</span><select class="input" id="profileInfoGender"><option ${customer.gender === "Эмэгтэй" ? "selected" : ""}>Эмэгтэй</option><option ${customer.gender === "Эрэгтэй" ? "selected" : ""}>Эрэгтэй</option></select></label>
           <label><span>Дүүрэг</span><select class="input" id="profileInfoDistrict" required>${districtOptions(customer.district || "")}</select></label>
           <label><span>Хороо</span><input class="input" id="profileInfoKhoroo" value="${customer.khoroo || ""}" required></label>
-          <label><span>Төрөл</span><select class="input" id="profileInfoType">${customerTypeOptions(customer.type || "Хэрэглэгч")}</select></label>
+          <label><span>Төрөл</span><select class="input" id="profileInfoType" ${customer.type === "Салбар" && !isAdminAccount() ? "disabled" : ""}>${customerTypeOptions(customer.type || "Хэрэглэгч")}</select></label>
           <div class="profile-info-actions">
             <button class="danger-btn icon-danger" id="profileDeleteCustomerBtn" type="button" aria-label="Устгах">${trashIcon()}</button>
             <button class="primary-btn" type="submit">Хадгалах</button>
           </div>
         </form>
       ` : ""}
+    </section>
+  `;
+}
+
+function renderCustomerCreditCard(customer) {
+  const ledger = customerCreditLedger(customer);
+  if (!ledger.length) return "";
+  const balance = customerCreditBalance(customer);
+  const expandedId = String(customer.creditExpandedEntryId || "");
+  const ordered = ledger.slice().sort((a, b) => String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || "")));
+  return `
+    <section class="profile-side-card profile-credit-card ${balance > 0 ? "has-balance" : "is-empty"}">
+      <div class="profile-card-title">Шилжүүлсэн үлдэгдэл</div>
+      <strong class="profile-credit-balance">${money(balance)}</strong>
+      <div class="profile-credit-history">
+        ${ordered.map(entry => {
+          const id = String(entry.id || "");
+          const expanded = expandedId === id;
+          const incoming = Number(entry.amount || 0) > 0;
+          return `
+            <div class="profile-credit-entry ${expanded ? "expanded" : ""}">
+              <button class="profile-credit-date" type="button" data-credit-entry-id="${htmlSafe(id)}" aria-expanded="${expanded}">
+                <span>${htmlSafe(entry.date || String(entry.createdAt || "").slice(0, 10) || "—")}</span><i>${expanded ? "↑" : "↓"}</i>
+              </button>
+              ${expanded ? `<div class="profile-credit-detail">
+                <div><span>Үйлдэл</span><strong>${entry.type === "credit_payment_reversal" ? "Үлдэгдлийн төлбөр буцаасан" : (incoming ? "Курсын үлдэгдэл шилжүүлсэн" : "Үлдэгдлээс төлсөн")}</strong></div>
+                <div><span>Дүн</span><strong class="${incoming ? "credit-in" : "credit-out"}">${incoming ? "+" : "−"}${money(Math.abs(Number(entry.amount || 0)))}</strong></div>
+                ${entry.sourceTitle ? `<div><span>Эх үүсвэр</span><strong>${htmlSafe(entry.sourceTitle)}</strong></div>` : ""}
+                ${entry.targetTitle ? `<div><span>Зарцуулсан</span><strong>${htmlSafe(entry.targetTitle)}</strong></div>` : ""}
+                ${entry.visitSummary ? `<div><span>Оролт</span><strong>${htmlSafe(entry.visitSummary)}</strong></div>` : ""}
+                ${entry.reason ? `<div><span>Шалтгаан</span><strong>${htmlSafe(entry.reason)}</strong></div>` : ""}
+                <div><span>Бүртгэсэн</span><strong>${htmlSafe(entry.createdBy || "—")}</strong></div>
+              </div>` : ""}
+            </div>`;
+        }).join("")}
+      </div>
     </section>
   `;
 }
@@ -10487,10 +10647,10 @@ function renderCourseSlots(item, historyIndex) {
             const expanded = expandedVisit === number;
             const locked = visit && !isServiceEditable(visit);
             return `
-              <div class="course-slot-card ${visit ? "done" : ""} ${expanded ? "active" : ""} ${locked ? "locked" : ""}">
-                <button class="course-slot-btn" type="button" data-history-index="${historyIndex}" data-visit="${number}" data-filled="${visit ? "true" : "false"}">
+              <div class="course-slot-card ${visit ? "done" : ""} ${expanded ? "active" : ""} ${locked ? "locked" : ""} ${item.transferClosed && !visit ? "transfer-closed" : ""}">
+                <button class="course-slot-btn" type="button" data-history-index="${historyIndex}" data-visit="${number}" data-filled="${visit ? "true" : "false"}" ${item.transferClosed && !visit ? "disabled" : ""}>
                   <strong>${number}</strong>
-                  <span>${visit ? visit.date : "Оролт нэмэх"}</span>
+                  <span>${visit ? visit.date : (item.transferClosed ? "Үлдэгдэл шилжүүлсэн" : "Оролт нэмэх")}</span>
                   ${visit ? `<small>${visit.staff || "Ажилтан сонгоогүй"}</small>` : ""}
                   ${visit ? `<em class="course-slot-icons">${visitStatusIcons(visit)}</em>` : ""}
                 </button>
@@ -10537,6 +10697,10 @@ function bindCourseVisitInlineForms(customer) {
       const visitNumber = Number(form.dataset.visit);
       const course = customer.serviceHistory?.[historyIndex];
       if (!course) return;
+      if (course.transferClosed && !(course.visits || []).some(item => Number(item.number) === Number(visitNumber))) {
+        showToast("Энэ курсын ашиглаагүй үлдэгдлийг шилжүүлсэн тул шинэ оролт нэмэх боломжгүй", "error");
+        return;
+      }
       const existingVisit = (course.visits || []).find(item => Number(item.number) === Number(visitNumber));
       if (existingVisit && form.dataset.mode !== "edit") {
         showToast("Бүртгэлтэй оролтыг засах товчоор засна");
@@ -10966,6 +11130,7 @@ function profileServiceEditMode(item = {}) {
 }
 
 function isServiceDeletable(item) {
+  if ((Array.isArray(item.creditTransfers) && item.creditTransfers.length) || item.transferClosed) return false;
   return isServiceWithinEditDays(item);
 }
 
@@ -11019,6 +11184,7 @@ function renderProfile() {
       <aside class="profile-side-column">
         ${renderProfileInfoPanel(customer)}
         ${renderProfileGroupPanel(customer, group, bonus)}
+        ${renderCustomerCreditCard(customer)}
         <section class="profile-side-card profile-bonus-card">
           <div class="profile-card-title">Групп бонус</div>
           <strong>${money(bonus.balance)}</strong>
@@ -11114,6 +11280,13 @@ function renderProfile() {
       setView("profile");
     });
   });
+  document.querySelectorAll(".profile-credit-date").forEach(button => {
+    button.addEventListener("click", () => {
+      const id = String(button.dataset.creditEntryId || "");
+      customer.creditExpandedEntryId = String(customer.creditExpandedEntryId || "") === id ? "" : id;
+      renderProfile();
+    });
+  });
   bindProfileGroupInlineSearch(customer);
   bindCourseVisitInlineForms(customer);
   bindServiceClinicalControls(customer);
@@ -11141,6 +11314,7 @@ function renderProfile() {
       const visitNumber = Number(button.dataset.visit);
       const item = customer.serviceHistory?.[historyIndex];
       if (!item) return;
+      if (item.transferClosed) return showToast("Энэ курсын үлдэгдлийг шилжүүлсэн", "error");
       const wasOpen = Number(item.expandedVisit) === visitNumber;
       collapseCustomerServicePanels(customer);
       if (!wasOpen) item.expandedVisit = visitNumber;
@@ -11250,6 +11424,10 @@ function renderProfile() {
     if (!await requireCustomerEditCodeIfExpired(customer)) return;
     const selectedType = document.getElementById("profileInfoType")?.value || "Хэрэглэгч";
     const previousType = customer.type || "Хэрэглэгч";
+    if (!isAdminAccount() && selectedType !== previousType && (selectedType === "Салбар" || previousType === "Салбар")) {
+      showToast("“Салбар” хэрэглэгчийн төрлийг зөвхөн админ өөрчилнө", "error");
+      return;
+    }
     const profileUpdate = {
       name: formValue("profileInfoName"),
       phone: formValue("profileInfoPhone"),
@@ -11360,13 +11538,22 @@ function profileServicePriceParts(customer) {
   const vipRoom = formValue("profileServiceRoom") === "vip";
   const vipRoomFee = vipRoom ? Number(policy.vipRoomFee || 0) : 0;
   const masterStaffFee = isMasterStaffName(formValue("profileServiceStaff")) ? Number(policy.masterStaffFee || 0) : 0;
+  const grossTotal = basePrice + vipRoomFee + masterStaffFee;
+  const employeeDiscountPolicy = policy.employeeDiscount || defaultState.pricePolicy.employeeDiscount;
+  const employeeDiscountPercent = customer?.type === "Ажилтан" && employeeDiscountPolicy.enabled
+    ? Math.max(0, Math.min(100, Number(employeeDiscountPolicy.percent || 0)))
+    : 0;
+  const employeeDiscountAmount = Math.round(grossTotal * employeeDiscountPercent / 100);
   return {
     item,
     basePrice,
     vipRoom,
     vipRoomFee,
     masterStaffFee,
-    total: basePrice + vipRoomFee + masterStaffFee
+    grossTotal,
+    employeeDiscountPercent,
+    employeeDiscountAmount,
+    total: Math.max(0, grossTotal - employeeDiscountAmount)
   };
 }
 
@@ -11380,6 +11567,7 @@ function profileServicePriceBreakdownHtml(price) {
     <div class="price-breakdown-lines">
       <div><span>Үндсэн үнэ</span><strong>${money(price.basePrice)}</strong></div>
       ${extraRows}
+      ${price.employeeDiscountAmount ? `<div class="price-breakdown-discount"><span>Ажилтны ${formatNumber(price.employeeDiscountPercent)}% хөнгөлөлт</span><strong>−${money(price.employeeDiscountAmount)}</strong></div>` : ""}
       <div class="price-breakdown-total"><span>Нийт</span><strong>${money(price.total)}</strong></div>
     </div>
   `;
@@ -11725,6 +11913,9 @@ function bindProfileServiceInlineForm(customer) {
       price: Number(priceParts.total || 0),
       balance: Number(priceParts.total || 0),
       basePrice: Number(priceParts.basePrice || 0),
+      employeeDiscountPercent: Number(priceParts.employeeDiscountPercent || 0),
+      employeeDiscountAmount: Number(priceParts.employeeDiscountAmount || 0),
+      employeeDiscountAppliedAt: priceParts.employeeDiscountAmount ? new Date().toISOString() : "",
       vipRoom: priceParts.vipRoom,
       vipRoomFee: Number(priceParts.vipRoomFee || 0),
       masterStaffFee: Number(priceParts.masterStaffFee || 0),
@@ -11734,7 +11925,7 @@ function bindProfileServiceInlineForm(customer) {
       historyItem.visitsTotal = parseVisitCount(item.visits || item.name);
       historyItem.visits = [];
       historyItem.price = Number(priceParts.basePrice || 0);
-      historyItem.balance = Number(priceParts.basePrice || 0);
+      historyItem.balance = Math.max(0, Number(priceParts.basePrice || 0) - Number(priceParts.employeeDiscountAmount || 0));
       historyItem.vipRoom = false;
       historyItem.vipRoomFee = 0;
       historyItem.masterStaffFee = 0;
@@ -11837,12 +12028,16 @@ function bindInlinePaymentForms(customer) {
     const historyIndex = Number(form.dataset.historyIndex);
     const item = customer.serviceHistory?.[historyIndex];
     const balance = Number(item?.balance || 0);
+    const availableTransfer = courseTransferInfo(item).available;
+    const availableCustomerCredit = customerCreditBalance(customer);
     const group = customerGroup(customer);
     const bonus = groupBonusInfo(group);
     const bonusBalance = Math.max(0, Number(bonus?.balance || 0));
     const bonusAlreadyUsed = (item?.payments || []).some(payment => Number(payment.bonusAmount || 0) > 0);
     const maxBonus = bonusAlreadyUsed ? 0 : Math.max(0, Math.min(bonusBalance, Math.floor(serviceTotalAmount(item) * 0.5), balance));
     const bonusRow = form.querySelector(".inline-bonus-row");
+    const amountField = form.querySelector(".inline-payment-amount-field");
+    const submitButton = form.querySelector(".inline-payment-submit");
     let bonusApplied = false;
     const updateBonusLimit = () => {
       if (!bonusInput) return 0;
@@ -11878,7 +12073,10 @@ function bindInlinePaymentForms(customer) {
       const appliedBonusAmount = bonusApplied
         ? Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus))
         : 0;
-      const payableBalance = Math.max(0, balance - appliedBonusAmount);
+      const selectedMethod = method?.value || "";
+      const payableBalance = selectedMethod === "customer_credit"
+        ? Math.max(0, Math.min(balance - appliedBonusAmount, availableCustomerCredit))
+        : Math.max(0, balance - appliedBonusAmount);
       amountInput.value = moneyInputValue(Math.max(1, Math.min(parseMoneyInput(raw), payableBalance)));
     });
     bonusInput?.addEventListener("input", () => {
@@ -11889,10 +12087,14 @@ function bindInlinePaymentForms(customer) {
     });
     const updatePaymentExtras = () => {
       const value = method?.value || "card";
-      extraPanel?.classList.toggle("show", value === "voucher" || value === "gift_card");
+      const transferMode = value === "credit_transfer";
+      const creditPaymentMode = value === "customer_credit";
+      extraPanel?.classList.toggle("show", ["voucher", "gift_card", "customer_credit", "credit_transfer"].includes(value));
       form.querySelector(".inline-voucher-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-voucher-note-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-gift-card-field")?.classList.toggle("hidden", value !== "gift_card");
+      form.querySelector(".inline-credit-payment-note")?.classList.toggle("hidden", !creditPaymentMode);
+      form.querySelector(".inline-credit-transfer")?.classList.toggle("hidden", !transferMode);
       giftCardNote?.classList.toggle("hidden", value !== "gift_card");
       if (giftCardNote) {
         giftCardNote.innerHTML = value === "gift_card"
@@ -11905,6 +12107,25 @@ function bindInlinePaymentForms(customer) {
       const validCard = Boolean(card && ["fresh", "partial"].includes(giftCardStatus(card)) && Number(card.remainingAmount || 0) > 0);
       giftCardInput?.classList.toggle("gift-card-valid", validCard);
       giftCardInput?.classList.toggle("gift-card-invalid", value === "gift_card" && Boolean(giftCardInput.value.trim()) && !validCard);
+      bonusRow?.classList.toggle("hidden", transferMode || creditPaymentMode);
+      amountField?.classList.toggle("hidden", transferMode);
+      if (transferMode) {
+        setBonusApplied(false);
+        if (submitButton) {
+          submitButton.disabled = availableTransfer <= 0;
+          submitButton.textContent = "Үлдэгдэл шилжүүлэх";
+        }
+      } else {
+        if (amountInput) {
+          const maxAmount = creditPaymentMode ? Math.min(balance, availableCustomerCredit) : balance;
+          amountInput.dataset.max = String(maxAmount);
+          amountInput.value = moneyInputValue(maxAmount);
+        }
+        if (submitButton) {
+          submitButton.disabled = balance <= 0 || (creditPaymentMode && availableCustomerCredit <= 0);
+          submitButton.textContent = "Хадгалах";
+        }
+      }
     };
     method?.addEventListener("change", updatePaymentExtras);
     giftCardInput?.addEventListener("input", event => {
@@ -11913,17 +12134,77 @@ function bindInlinePaymentForms(customer) {
     });
     updateBonusLimit();
     updatePaymentExtras();
-    form.addEventListener("submit", event => {
+    form.addEventListener("submit", async event => {
       event.preventDefault();
       const historyItem = customer.serviceHistory?.[historyIndex];
       if (!historyItem) return;
       historyItem.id = historyItem.id || entityId("svc");
-      const currentBalance = Number(historyItem.balance || 0);
-      const amount = Math.max(0, Math.min(parseMoneyInput(amountInput?.value), currentBalance));
-      const currentBonusUsed = (historyItem.payments || []).some(payment => Number(payment.bonusAmount || 0) > 0);
-      const bonusAmount = currentBonusUsed || !bonusApplied ? 0 : Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus, Math.max(0, currentBalance - amount)));
-      const appliedAmount = Math.min(currentBalance, amount + bonusAmount);
       const methodSelect = form.querySelector(".inline-payment-method");
+      const selectedMethodValue = methodSelect?.value || "";
+      if (selectedMethodValue === "credit_transfer") {
+        const transfer = courseTransferInfo(historyItem);
+        const reason = form.querySelector(".inline-credit-transfer-reason")?.value?.trim() || "";
+        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.available <= 0) {
+          showToast("Шилжүүлэх боломжтой үлдэгдэл алга", "error");
+          return;
+        }
+        if (!reason) {
+          showToast("Шилжүүлгийн шалтгаан оруулна уу", "error");
+          return;
+        }
+        if (!await requireEditCode()) return;
+        const transferId = entityId("credit");
+        const transferDate = form.querySelector(".inline-payment-date")?.value || todayText();
+        const createdAt = new Date().toISOString();
+        const ledgerEntry = {
+          id: transferId,
+          type: "course_transfer",
+          amount: transfer.available,
+          date: transferDate,
+          createdAt,
+          sourceServiceId: historyItem.id,
+          sourceTitle: historyItem.service || historyItem.title || "Курс эмчилгээ",
+          visitSummary: `${transfer.usedVisits}/${transfer.totalVisits}`,
+          reason,
+          createdBy: auditActorUsername(),
+          createdById: activeAccount.id || 0
+        };
+        customer.creditLedger = customerCreditLedger(customer);
+        customer.creditLedger.unshift(ledgerEntry);
+        historyItem.creditTransfers = Array.isArray(historyItem.creditTransfers) ? historyItem.creditTransfers : [];
+        historyItem.creditTransfers.unshift({ ...structuredClone(ledgerEntry), ledgerEntryId: transferId });
+        historyItem.transferClosed = true;
+        historyItem.transferClosedAt = createdAt;
+        historyItem.transferClosedBy = auditActorUsername();
+        historyItem.paymentFormOpen = false;
+        if (customer.currentTreatment && (
+          String(customer.currentTreatment.historyId || "") === String(historyItem.id) ||
+          (!customer.currentTreatment.historyId && customer.currentTreatment.service === (historyItem.service || historyItem.title))
+        )) {
+          customer.currentTreatment.historyId = historyItem.id;
+          customer.currentTreatment.stage = "Үлдэгдэл шилжүүлж хаасан";
+          customer.currentTreatment.paymentBalance = 0;
+        }
+        const remainingCourse = customerCourseEntryStatus(customer);
+        customer.activeCourse = remainingCourse?.kind === "course";
+        const auditEntry = {
+          id: entityId("audit"),
+          title: "course_credit_transferred",
+          createdAt: auditNowText(),
+          meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title} • ${money(transfer.available)}`
+        };
+        state.audit.unshift(auditEntry);
+        saveAndRefreshCustomerProfile("Үлдэгдэл хэрэглэгчийн дансанд шилжлээ", { auditEntries: [auditEntry] });
+        return;
+      }
+      const currentBalance = Number(historyItem.balance || 0);
+      const paymentLimit = selectedMethodValue === "customer_credit"
+        ? Math.min(currentBalance, customerCreditBalance(customer))
+        : currentBalance;
+      const amount = Math.max(0, Math.min(parseMoneyInput(amountInput?.value), paymentLimit));
+      const currentBonusUsed = (historyItem.payments || []).some(payment => Number(payment.bonusAmount || 0) > 0);
+      const bonusAmount = selectedMethodValue === "customer_credit" || currentBonusUsed || !bonusApplied ? 0 : Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus, Math.max(0, currentBalance - amount)));
+      const appliedAmount = Math.min(currentBalance, amount + bonusAmount);
       const methodLabel = methodSelect?.selectedOptions?.[0]?.textContent || "";
       if (!appliedAmount) {
         showToast("Төлөх дүн эсвэл бонус оруулна уу");
@@ -11940,6 +12221,7 @@ function bindInlinePaymentForms(customer) {
       let giftCardUsageId = "";
       let voucherLog = null;
       let giftCardUsage = null;
+      let creditLedgerEntry = null;
       if (methodSelect?.value === "voucher") {
         const roleId = form.querySelector(".inline-payment-voucher-role")?.value;
         const role = state.voucherRoles.find(item => String(item.id) === String(roleId));
@@ -11991,9 +12273,29 @@ function bindInlinePaymentForms(customer) {
         };
         card.usage.unshift(giftCardUsage);
       }
+      if (methodSelect?.value === "customer_credit") {
+        if (amount <= 0 || amount > customerCreditBalance(customer)) {
+          showToast("Шилжүүлсэн үлдэгдэл хүрэлцэхгүй байна", "error");
+          return;
+        }
+        creditLedgerEntry = {
+          id: entityId("credit-use"),
+          type: "credit_payment",
+          amount: -amount,
+          date: paidDate,
+          createdAt: new Date().toISOString(),
+          targetServiceId: historyItem.id,
+          targetTitle: historyItem.kind === "kass" ? kassRevenueServiceName(historyItem) : (historyItem.service || historyItem.title || "Үйлчилгээ"),
+          paymentId,
+          createdBy: auditActorUsername(),
+          createdById: activeAccount.id || 0
+        };
+        customer.creditLedger = customerCreditLedger(customer);
+        customer.creditLedger.unshift(creditLedgerEntry);
+      }
       const historySnapshot = structuredClone(historyItem);
       historyItem.payments = historyItem.payments || [];
-      const groupPayment = applyGroupPayment(group, amount, bonusAmount, paidDate, {
+      const groupPayment = methodSelect?.value === "customer_credit" ? null : applyGroupPayment(group, amount, bonusAmount, paidDate, {
         bonusEligible: !["voucher", "gift_card"].includes(methodSelect?.value || ""),
         bonusPercent: customer.type === "Тусгай хэрэглэгч"
           ? specialCustomerBonusPercent(customer, amount)
@@ -12015,6 +12317,7 @@ function bindInlinePaymentForms(customer) {
         createdById: activeAccount.id || 0,
         createdBy: auditActorUsername(),
         createdByRole: activeAccount.role || "",
+        internalCredit: methodSelect?.value === "customer_credit",
         ...(groupPayment || {})
       };
       historyItem.payments.unshift(payment);
@@ -12046,6 +12349,7 @@ function bindInlinePaymentForms(customer) {
         voucherLog,
         giftCardNumber: referenceLabel,
         giftCardUsage,
+        creditLedgerEntry,
         auditEntry
       });
       saveAndRefreshCustomerProfile("Төлбөр бүртгэгдлээ");
@@ -12107,6 +12411,7 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     reverseGroupPayment(payment, group);
     reverseGiftCardPayment(payment, customer, historyItem);
     reverseVoucherPayment(payment, customer, historyItem);
+    reverseCustomerCreditPayment(payment, customer, historyItem);
     state.audit.unshift({
       title: "payment_reversed",
       paymentId: payment.id || "",
@@ -15017,6 +15322,7 @@ function auditActionText(title = "") {
     staff_assignment_deleted: "Ажилтны томилгоог устгасан",
     payment_created: "Төлбөр бүртгэсэн",
     payment_reversed: "Төлбөрийг буцаасан",
+    course_credit_transferred: "Курсын үлдэгдэл шилжүүлсэн",
     customer_created: "Шинэ хэрэглэгч бүртгэсэн",
     customer_updated: "Хэрэглэгчийн мэдээллийг зассан",
     customer_deleted: "Хэрэглэгчийг устгасан",
@@ -15219,6 +15525,10 @@ function openCustomerModal() {
           return;
         }
         const selectedType = formValue("modalCustomerType") || "Хэрэглэгч";
+        if (selectedType === "Салбар" && !isAdminAccount()) {
+          showToast("“Салбар” төрлийн хэрэглэгчийг зөвхөн админ бүртгэнэ", "error");
+          return;
+        }
         const registeredSalon = lockedSalon || formValue("modalCustomerSalon");
         if (!registeredSalon) {
           showToast("Бүртгэх салбарыг сонгоно уу");

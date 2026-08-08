@@ -11192,6 +11192,85 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: var(--text) !important;
 }
 
+/* Customer credit transfer and employee discount policy */
+.employee-discount-policy {
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto minmax(180px, 240px) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.employee-discount-policy > div strong,
+.employee-discount-policy > div span { display: block; }
+.employee-discount-policy > div strong { color: var(--accent); margin-bottom: 5px; }
+.employee-discount-policy > div span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.pricing-policy-form .employee-discount-policy label { flex: none; }
+.employee-discount-policy .compact-check {
+  min-height: 44px;
+  display: inline-flex;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.employee-discount-policy .compact-check input { width: 16px; height: 16px; }
+.price-breakdown-discount,
+.profile-payment-summary .payment-discount,
+.profile-payment-summary .payment-discount strong { color: var(--accent); }
+.profile-payment-open.payment-closed { color: var(--text); background: var(--surface); border-color: var(--line); }
+.inline-credit-payment-note,
+.inline-credit-transfer {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfb;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.inline-credit-transfer { display: grid; gap: 14px; }
+.credit-transfer-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.credit-transfer-summary span { display: grid; gap: 5px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.credit-transfer-summary span strong { color: var(--text); }
+.credit-transfer-summary .credit-transfer-available,
+.credit-transfer-summary .credit-transfer-available strong { color: var(--accent); border-color: var(--accent-line); }
+.inline-credit-transfer textarea.input { min-height: 72px; resize: vertical; }
+.inline-credit-transfer p { margin: 0; font-size: 12px; }
+.course-slot-card.transfer-closed { background: var(--surface-soft); border-style: dashed; opacity: .7; }
+.profile-credit-card { transition: border-color .2s ease, background-color .2s ease; }
+.profile-credit-card.has-balance { border-color: var(--accent-line); }
+.profile-credit-card.is-empty { background: var(--surface-soft); }
+.profile-credit-balance { display: block; margin: 8px 0 14px; color: var(--accent); font-size: 28px; }
+.profile-credit-card.is-empty .profile-credit-balance { color: var(--muted); }
+.profile-credit-history { display: grid; gap: 7px; }
+.profile-credit-entry { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.profile-credit-date { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 11px; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.profile-credit-date i { color: var(--accent); font-style: normal; }
+.profile-credit-detail { display: grid; gap: 8px; padding: 10px 11px 12px; border-top: 1px solid var(--line); }
+.profile-credit-detail div { display: flex; justify-content: space-between; gap: 12px; }
+.profile-credit-detail span { color: var(--muted); }
+.profile-credit-detail strong { text-align: right; }
+.profile-credit-detail .credit-in { color: var(--accent); }
+.profile-credit-detail .credit-out { color: var(--danger); }
+
+@media (max-width: 900px) {
+  .employee-discount-policy,
+  .credit-transfer-summary { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 600px) {
+  .employee-discount-policy,
+  .credit-transfer-summary { grid-template-columns: 1fr; }
+}
+
 #giftCardExpiry {
   width: 100%;
   min-width: 0;

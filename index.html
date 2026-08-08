@@ -1150,6 +1150,17 @@
             <label>Мастер массажист нэмэгдэл ₮
               <input class="input" id="masterStaffFee" type="number" min="0">
             </label>
+            <section class="employee-discount-policy">
+              <div>
+                <strong>Ажилтны шууд хөнгөлөлт</strong>
+                <span>“Ажилтан” төрлийн хэрэглэгчийн үйлчилгээний төлөх дүнгээс автоматаар хасна.</span>
+              </div>
+              <label class="compact-check"><input id="employeeDiscountEnabled" type="checkbox"> Идэвхтэй</label>
+              <label>Хөнгөлөлтийн хувь
+                <input class="input" id="employeeDiscountPercent" type="number" min="0" max="100" step="0.01">
+              </label>
+              <label class="compact-check"><input id="employeeDiscountStacking" type="checkbox"> Хямдарсан үнэд давхар тооцно</label>
+            </section>
             <div class="form-actions">
               <button class="primary-btn" type="submit">Хадгалах</button>
             </div>
