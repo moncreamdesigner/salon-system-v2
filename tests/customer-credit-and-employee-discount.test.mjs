@@ -28,6 +28,15 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
   assert.match(styleSource, /\.inline-payment-extra\.credit-transfer-mode\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
 });
 
+test("transferred courses can be corrected within the configured window without orphaning credit", () => {
+  assert.match(appSource, /if \(item\.transferClosed\) return "transfer-details";/);
+  assert.match(appSource, /function courseTransferLedgerEntries\(/);
+  assert.match(appSource, /if \(transferableCreditToReverse > customerCreditBalance\(customer\)\)/);
+  assert.match(appSource, /customer\.creditLedger = customerCreditLedger\(customer\)[\s\S]+?\.filter\(entry => !transferEntryIds\.has/);
+  assert.match(appSource, /course_credit_transfer_reversed/);
+  assert.match(appSource, /if \(editingItem\.transferClosed\)[\s\S]+?creditTransfers: editingItem\.creditTransfers,[\s\S]+?transferClosed: true/);
+});
+
 test("non-admin accounts cannot create or convert branch customer types", () => {
   assert.match(appSource, /type !== "Салбар" \|\| isAdminAccount\(\)/);
   assert.match(apiSource, /function assert_branch_customer_type_permissions/);

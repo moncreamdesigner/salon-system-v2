@@ -8567,6 +8567,25 @@ function customerCreditBalance(customer = {}) {
   return Math.max(0, customerCreditLedger(customer).reduce((sum, entry) => sum + Number(entry.amount || 0), 0));
 }
 
+function courseTransferLedgerEntries(customer = {}, item = {}) {
+  const transferIds = new Set((Array.isArray(item.creditTransfers) ? item.creditTransfers : [])
+    .flatMap(entry => [entry.id, entry.ledgerEntryId])
+    .filter(Boolean)
+    .map(String));
+  const serviceId = String(item.id || "");
+  return customerCreditLedger(customer).filter(entry =>
+    entry.type === "course_transfer" && (
+      transferIds.has(String(entry.id || "")) ||
+      (serviceId && String(entry.sourceServiceId || "") === serviceId)
+    )
+  );
+}
+
+function courseTransferredCreditAmount(customer = {}, item = {}) {
+  return courseTransferLedgerEntries(customer, item)
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
+}
+
 function courseEligiblePaidAmount(item = {}) {
   const payments = Array.isArray(item.payments) ? item.payments : [];
   if (!payments.length) return Math.max(0, servicePaidAmount(item));
@@ -9716,7 +9735,6 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
           <label>Шалтгаан
             <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" placeholder="Жишээ: Курсыг зогсоож бараа авах"></textarea>
           </label>
-          <p>Шилжүүлсний дараа ашиглаагүй оролтууд хаагдаж, үлдэгдэл хэрэглэгчийн дансанд орно.</p>
         </div>`;
       })() : ""}
     </div>
@@ -10581,7 +10599,7 @@ function renderProfileServiceInlineForm(customer) {
       ${editingItem ? "" : profileServiceTabsHtml(kind)}
       <div class="customer-service-grid profile-service-row">
         <label class="service-select-field">Үйлчилгээ
-          <select class="input" id="profileServiceSelect">${serviceOptionHtml(kind, selectedOptionIndex, customer)}</select>
+          <select class="input" id="profileServiceSelect" ${editingItem?.transferClosed ? "disabled" : ""}>${serviceOptionHtml(kind, selectedOptionIndex, customer)}</select>
         </label>
         <label>Огноо
           <input class="input" id="profileServiceDate" type="date" value="${editingItem?.date || todayText()}" required>
@@ -11124,13 +11142,13 @@ function isServiceEditable(item) {
 
 function profileServiceEditMode(item = {}) {
   if (!isServiceWithinEditDays(item)) return "locked";
+  if (item.transferClosed) return "transfer-details";
   if (item.kind === "course" && Array.isArray(item.visits) && item.visits.length > 0) return "locked";
   if (serviceHasPayment(item)) return "locked";
   return "full";
 }
 
 function isServiceDeletable(item) {
-  if ((Array.isArray(item.creditTransfers) && item.creditTransfers.length) || item.transferClosed) return false;
   return isServiceWithinEditDays(item);
 }
 
@@ -11533,6 +11551,19 @@ function profileServicePriceParts(customer) {
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const kind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
   const item = serviceOptionsForKind(kind, customer)[Number(document.getElementById("profileServiceSelect")?.value || 0)];
+  if (editingItem?.transferClosed) {
+    return {
+      item,
+      basePrice: Number(editingItem.basePrice || editingItem.price || 0),
+      vipRoom: Boolean(editingItem.vipRoom),
+      vipRoomFee: Number(editingItem.vipRoomFee || 0),
+      masterStaffFee: Number(editingItem.masterStaffFee || 0),
+      grossTotal: serviceTotalAmount(editingItem) + Number(editingItem.employeeDiscountAmount || 0),
+      employeeDiscountPercent: Number(editingItem.employeeDiscountPercent || 0),
+      employeeDiscountAmount: Number(editingItem.employeeDiscountAmount || 0),
+      total: serviceTotalAmount(editingItem)
+    };
+  }
   const policy = pricePolicy();
   const basePrice = Number(item?.price || 0);
   const vipRoom = formValue("profileServiceRoom") === "vip";
@@ -11946,12 +11977,38 @@ function bindProfileServiceInlineForm(customer) {
         historyItem.visitsTotal = editingItem.visitsTotal || historyItem.visitsTotal;
       }
       historyItem.balance = Math.max(0, Number(priceParts.total || 0) - paidAmount);
+      if (editingItem.transferClosed) {
+        Object.assign(historyItem, {
+          title: editingItem.title,
+          service: editingItem.service,
+          price: editingItem.price,
+          balance: editingItem.balance,
+          basePrice: editingItem.basePrice,
+          employeeDiscountPercent: editingItem.employeeDiscountPercent,
+          employeeDiscountAmount: editingItem.employeeDiscountAmount,
+          employeeDiscountAppliedAt: editingItem.employeeDiscountAppliedAt,
+          vipRoom: editingItem.vipRoom,
+          vipRoomFee: editingItem.vipRoomFee,
+          masterStaffFee: editingItem.masterStaffFee,
+          creditTransfers: editingItem.creditTransfers,
+          transferClosed: true,
+          transferClosedAt: editingItem.transferClosedAt,
+          transferClosedBy: editingItem.transferClosedBy
+        });
+      }
       customer.serviceHistory[editingIndex] = historyItem;
     } else {
       customer.serviceHistory.unshift(historyItem);
     }
     if (date === todayText()) assignDailyQueue(customer, date, salon);
     customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, kind === "course" ? `Курс ${(historyItem.visits || []).length}/${historyItem.visitsTotal}` : "Нэг удаа");
+    if (historyItem.transferClosed && customer.currentTreatment) {
+      customer.currentTreatment.stage = "Үлдэгдэл шилжүүлж хаасан";
+      customer.currentTreatment.paymentBalance = 0;
+    }
+    const remainingCourse = customerCourseEntryStatus(customer);
+    customer.activeCourse = remainingCourse?.kind === "course";
+    customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
     customer.unpaid = customerBalance(customer) > 0;
     customer.last = date;
     customer.profileServiceOpen = false;
@@ -12390,7 +12447,31 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     showToast("Үйлчилгээ устгах хугацаа дууссан байна");
     return;
   }
+  const recordedTransferAmount = (Array.isArray(historyItem.creditTransfers) ? historyItem.creditTransfers : [])
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
+  const transferLedgerEntries = courseTransferLedgerEntries(customer, historyItem);
+  const transferableCreditToReverse = courseTransferredCreditAmount(customer, historyItem);
+  if (recordedTransferAmount > 0 && transferableCreditToReverse < recordedTransferAmount) {
+    showToast("Шилжүүлгийн дансны холбоос дутуу байна. Админд мэдэгдэнэ үү", "error");
+    return;
+  }
+  if (transferableCreditToReverse > customerCreditBalance(customer)) {
+    const shortage = transferableCreditToReverse - customerCreditBalance(customer);
+    showToast(`Шилжүүлсэн үлдэгдлээс ${money(shortage)} зарцуулсан байна. Зарцуулалтыг эхлээд буцаана уу`, "error");
+    return;
+  }
   if (!await requireDeleteCode()) return;
+  if (transferLedgerEntries.length) {
+    const transferEntryIds = new Set(transferLedgerEntries.map(entry => String(entry.id || "")));
+    customer.creditLedger = customerCreditLedger(customer)
+      .filter(entry => !transferEntryIds.has(String(entry.id || "")));
+    state.audit.unshift({
+      id: entityId("audit"),
+      title: "course_credit_transfer_reversed",
+      createdAt: auditNowText(),
+      meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title || "Курс эмчилгээ"} • ${money(transferableCreditToReverse)}`
+    });
+  }
   const diagnosisImages = historyItem.kind === "diagnosis"
     ? [
         ...(historyItem.generalPhotos || []),
@@ -15328,6 +15409,7 @@ function auditActionText(title = "") {
     payment_created: "Төлбөр бүртгэсэн",
     payment_reversed: "Төлбөрийг буцаасан",
     course_credit_transferred: "Курсын үлдэгдэл шилжүүлсэн",
+    course_credit_transfer_reversed: "Курсын шилжүүлсэн үлдэгдлийг буцаасан",
     customer_created: "Шинэ хэрэглэгч бүртгэсэн",
     customer_updated: "Хэрэглэгчийн мэдээллийг зассан",
     customer_deleted: "Хэрэглэгчийг устгасан",
