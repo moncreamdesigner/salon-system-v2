@@ -551,6 +551,9 @@ try {
     $conflictingSections = [];
     if ($clientSectionRevisions !== null) {
         foreach ($incomingKeys as $key) {
+            // Audit is append-only and is merged below. A write from another
+            // workstation must not reject an unrelated business operation.
+            if ((string)$key === 'audit') continue;
             $expected = filter_var($clientSectionRevisions[$key] ?? null, FILTER_VALIDATE_INT);
             if ($expected === false || $expected === null || (int)$expected !== (int)($currentSectionRevisions[$key] ?? 0)) {
                 $conflictingSections[] = (string)$key;

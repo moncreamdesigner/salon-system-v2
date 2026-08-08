@@ -45,6 +45,7 @@ const pendingCustomerProfileUpdates = new Map();
 const pendingCustomerGroupUpdates = new Map();
 const pendingCustomerAuditEntries = new Map();
 const pendingCustomerSaveMessages = [];
+const pendingKassScheduleMutations = [];
 const pendingPaymentMutations = new Map();
 const pendingMediaTrashRequests = [];
 const lastSyncedCustomerFingerprints = new Map();
@@ -1130,6 +1131,79 @@ function syncedCustomerGroupFingerprint(group) {
   return syncedEntityFingerprint(snapshot);
 }
 
+function syncedKassScheduleFingerprint(item) {
+  return syncedEntityFingerprint(item ? {
+    id: item.id,
+    date: item.date || "",
+    salon: item.salon || "",
+    staff: item.staff || "",
+    createdAt: item.createdAt || ""
+  } : null);
+}
+
+function registerPendingKassScheduleMutation({ type, item = null, before = null, auditEntry = null } = {}) {
+  if (IS_LOCAL_RUNTIME || !type) return;
+  const mutationVersion = localStateMutationVersion + 1;
+  pendingKassScheduleMutations.push({
+    type,
+    id: item?.id ?? before?.id,
+    item: item ? structuredClone(item) : null,
+    baseFingerprint: before ? syncedKassScheduleFingerprint(before) : null,
+    auditEntry: auditEntry ? structuredClone(auditEntry) : null,
+    mutationVersion
+  });
+}
+
+function replayPendingKassScheduleMutations(remoteData = {}, savingMutationVersion = 0) {
+  const rows = Array.isArray(state.kassSchedules) ? state.kassSchedules : [];
+  let unsafeCount = 0;
+  pendingKassScheduleMutations.forEach(mutation => {
+    if (Number(mutation.mutationVersion || 0) > savingMutationVersion) return;
+    const remoteItem = rows.find(item => String(item.id) === String(mutation.id));
+    const currentIndex = rows.findIndex(item => String(item.id) === String(mutation.id));
+    const alreadyApplied = mutation.type === "delete"
+      ? !remoteItem
+      : Boolean(remoteItem) && syncedKassScheduleFingerprint(remoteItem) === syncedKassScheduleFingerprint(mutation.item);
+    const safe = alreadyApplied || (mutation.type === "create"
+      ? !remoteItem
+      : Boolean(remoteItem) && syncedKassScheduleFingerprint(remoteItem) === mutation.baseFingerprint);
+    if (!safe) {
+      mutation.unsafe = true;
+      unsafeCount += 1;
+      return;
+    }
+    if (mutation.type === "delete") {
+      if (currentIndex >= 0) rows.splice(currentIndex, 1);
+    } else if (currentIndex >= 0) {
+      rows[currentIndex] = structuredClone(mutation.item);
+    } else {
+      rows.unshift(structuredClone(mutation.item));
+    }
+    if (mutation.auditEntry && !state.audit.some(entry => String(entry.id || "") === String(mutation.auditEntry.id || ""))) {
+      state.audit.unshift(structuredClone(mutation.auditEntry));
+    }
+  });
+  state.kassSchedules = rows;
+  return unsafeCount;
+}
+
+function clearPendingKassScheduleMutationsThrough(mutationVersion = 0, { unsafeOnly = false } = {}) {
+  for (let index = pendingKassScheduleMutations.length - 1; index >= 0; index -= 1) {
+    const mutation = pendingKassScheduleMutations[index];
+    if (Number(mutation.mutationVersion || 0) > mutationVersion) continue;
+    if (unsafeOnly && !mutation.unsafe) continue;
+    pendingKassScheduleMutations.splice(index, 1);
+  }
+}
+
+function markPendingKassScheduleSections() {
+  const versions = pendingKassScheduleMutations.map(item => Number(item.mutationVersion || 0));
+  if (!versions.length) return;
+  const version = Math.max(localStateMutationVersion, ...versions);
+  pendingServerSections.set("kassSchedules", version);
+  if (pendingKassScheduleMutations.some(item => item.auditEntry)) pendingServerSections.set("audit", version);
+}
+
 function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) {
   if (replace) {
     lastSyncedCustomerFingerprints.clear();
@@ -1214,6 +1288,7 @@ function discardPendingMutationsThrough(mutationVersion = 0) {
   if (pendingServiceSettingsMutation && Number(pendingServiceSettingsMutation.mutationVersion || 0) <= mutationVersion) {
     pendingServiceSettingsMutation = null;
   }
+  clearPendingKassScheduleMutationsThrough(mutationVersion);
   for (let index = pendingMediaTrashRequests.length - 1; index >= 0; index -= 1) {
     if (Number(pendingMediaTrashRequests[index].mutationVersion || 0) <= mutationVersion) {
       pendingMediaTrashRequests.splice(index, 1);
@@ -1602,6 +1677,7 @@ async function saveServerStateNow() {
     pendingPaymentMutations.forEach((mutation, mutationId) => {
       if (Number(mutation.mutationVersion || 0) <= savingMutationVersion) pendingPaymentMutations.delete(mutationId);
     });
+    clearPendingKassScheduleMutationsThrough(savingMutationVersion);
     if (pendingServiceSettingsMutation && Number(pendingServiceSettingsMutation.mutationVersion || 0) <= savingMutationVersion) {
       const successMessage = pendingServiceSettingsMutation.message;
       pendingServiceSettingsMutation = null;
@@ -1662,22 +1738,28 @@ async function saveServerStateNow() {
         applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
         virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
-        renderActiveView(activeView, { force: true });
         if (error.payload?.dangerousChange) {
           savingSections.forEach(key => {
             if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
           });
           discardPendingMutationsThrough(savingMutationVersion);
           clearPendingServerOperation(savingOperationId);
+          applyServerData(remote.data || {});
+          renderActiveView(activeView, { force: true });
           showServerProtectionNotice(error.payload.message || "Олон мэдээлэл хасагдах өөрчлөлтийг хамгаалж зогсоолоо.");
           return;
         }
-        if (unsafeReplayCount > 0) {
+        const unsafeKassReplayCount = replayPendingKassScheduleMutations(remote.data || {}, savingMutationVersion);
+        renderActiveView(activeView, { force: true });
+        if (unsafeReplayCount > 0 || unsafeKassReplayCount > 0) {
           savingSections.forEach(key => {
             if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
           });
           clearPendingServerOperation(savingOperationId);
-          showServerProtectionNotice("Таны нээсэн хэрэглэгчийн мэдээллийг өөр ажилтан мөн шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
+          clearPendingKassScheduleMutationsThrough(savingMutationVersion, { unsafeOnly: true });
+          showServerProtectionNotice(unsafeKassReplayCount > 0
+            ? "Энэ кассын хуваарийг өөр ажилтан мөн өөрчилсөн тул таны үйлдлийг автоматаар нэгтгэсэнгүй."
+            : "Таны нээсэн хэрэглэгчийн мэдээллийг өөр ажилтан мөн шинэчилсэн тул энэ үйлдлийг автоматаар нэгтгэсэнгүй.");
           return;
         }
         if (pendingServiceSettingsMutation) {
@@ -1695,11 +1777,13 @@ async function saveServerStateNow() {
           if (activeView === "settingsServices") renderSettingsServices();
         }
         markPendingCustomerSections();
+        markPendingKassScheduleSections();
         const retryingLocalMutation = pendingCustomerProfileUpdates.size > 0 ||
           pendingCustomerGroupUpdates.size > 0 ||
           pendingCustomerAuditEntries.size > 0 ||
           pendingPaymentMutations.size > 0 ||
-          Boolean(pendingServiceSettingsMutation);
+          Boolean(pendingServiceSettingsMutation) ||
+          pendingKassScheduleMutations.length > 0;
         if (retryingLocalMutation) {
           // A 409 transaction was not committed. Build a fresh request against
           // the revision just loaded instead of retrying the rejected body.
@@ -1729,6 +1813,7 @@ async function saveServerStateNow() {
         if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
       });
       hideServerSyncOverlay();
+      discardPendingMutationsThrough(savingMutationVersion);
       clearPendingServerOperation(savingOperationId);
       if (serverRetryNoticeOperationId === savingOperationId) serverRetryNoticeOperationId = "";
       showServerProtectionNotice(
@@ -1772,7 +1857,8 @@ window.khalgaiHasPendingSave = () => Boolean(
   pendingCustomerGroupUpdates.size ||
   pendingCustomerAuditEntries.size ||
   pendingPaymentMutations.size ||
-  pendingServiceSettingsMutation
+  pendingServiceSettingsMutation ||
+  pendingKassScheduleMutations.length
 );
 
 function hideServerLogin() {
@@ -1830,15 +1916,15 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
 
 const VIEW_SERVER_SECTIONS = {
   bookings: ["bookings", "salons", "holidays"],
-  customers: ["customers", "customerGroups"],
-  profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
+  customers: ["customers", "customerGroups", "salons", "customerTypes", "customerTypeRules", "generalSettings"],
+  profile: ["customers", "customerGroups", "giftCards", "voucherRoles", "voucherLogs", "services", "staff", "salons", "pricePolicy", "discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings"],
   kass: ["kassSchedules", "staff", "assignments", "salons", "generalSettings"],
-  performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
+  performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments", "generalSettings"],
   vouchers: ["voucherRoles", "voucherLogs"],
   giftCards: ["giftCards"],
   settingsServices: ["_serviceSettings"],
-  settingsPricing: ["pricePolicy", "voucherRoles", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
-  groups: ["customers", "customerGroups"],
+  settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules", "customers", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
+  groups: ["customers", "customerGroups", "customerTypes", "customerTypeRules", "pricePolicy"],
   audit: ["audit"],
   dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"]
 };
@@ -4192,11 +4278,20 @@ function saveKassSchedule(event) {
       return;
     }
   }
+  const createdItems = [];
   for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
     const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    state.kassSchedules.unshift({ id: nextId(state.kassSchedules), date: value, salon, staff, createdAt: todayText() });
+    const item = { id: uniqueNumericId([...state.kassSchedules, ...createdItems]), date: value, salon, staff, createdAt: todayText() };
+    createdItems.push(item);
+    state.kassSchedules.unshift(item);
   }
-  state.audit.unshift({ title: "kass_schedule_saved", meta: `${auditActorUsername()} • ${staff} • ${salon} • ${startDate}` });
+  const auditEntry = { id: entityId("audit"), title: "kass_schedule_saved", createdAt: auditNowText(), meta: `${auditActorUsername()} • ${staff} • ${salon} • ${startDate}` };
+  state.audit.unshift(auditEntry);
+  createdItems.forEach((item, index) => registerPendingKassScheduleMutation({
+    type: "create",
+    item,
+    auditEntry: index === 0 ? auditEntry : null
+  }));
   saveState();
   resetKassForm();
   renderKassSchedule();
@@ -4237,10 +4332,13 @@ function saveInlineKassSchedule(event, id) {
     showToast(kassConflictMessage(conflict, salon, staff), "error");
     return;
   }
+  const before = structuredClone(item);
   item.date = date;
   item.salon = salon;
   item.staff = staff;
-  state.audit.unshift({ title: "kass_schedule_saved", meta: `${auditActorUsername()} • ${staff} • ${salon} • ${date}` });
+  const auditEntry = { id: entityId("audit"), title: "kass_schedule_saved", createdAt: auditNowText(), meta: `${auditActorUsername()} • ${staff} • ${salon} • ${date}` };
+  state.audit.unshift(auditEntry);
+  registerPendingKassScheduleMutation({ type: "update", item, before, auditEntry });
   kassInlineEditingId = null;
   saveState();
   renderKassSchedule();
@@ -4255,7 +4353,11 @@ async function deleteKassSchedule(id) {
     return;
   }
   if (!await requireDeleteCode()) return;
+  const before = structuredClone(item);
   state.kassSchedules = state.kassSchedules.filter(row => Number(row.id) !== Number(id));
+  const auditEntry = { id: entityId("audit"), title: "kass_schedule_deleted", createdAt: auditNowText(), meta: `${auditActorUsername()} • ${item.staff || ""} • ${item.salon || ""} • ${item.date || ""}` };
+  state.audit.unshift(auditEntry);
+  registerPendingKassScheduleMutation({ type: "delete", before, auditEntry });
   saveState();
   renderKassSchedule();
   renderInfoHeader(activeView);
@@ -13040,7 +13142,7 @@ function saveHumanResourceAssignment(event) {
   };
   const editing = state.assignments.find(item => Number(item.id) === Number(assignmentEditingId));
   if (editing) Object.assign(editing, payload);
-  else state.assignments.unshift({ id: nextId(state.assignments), ...payload });
+  else state.assignments.unshift({ id: uniqueNumericId(state.assignments), ...payload });
   state.audit.unshift({ title: editing ? "staff_assignment_updated" : "staff_assigned", meta: `${auditActorUsername()} • ${staff.name} • ${staff.salon} → ${destination} • ${startDate}` });
   saveState();
   resetHumanResourceAssignmentForm();

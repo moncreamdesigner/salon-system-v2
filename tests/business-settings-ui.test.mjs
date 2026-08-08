@@ -9,7 +9,7 @@ const styleSource = fs.readFileSync(new URL("../styles.css", import.meta.url), "
 test("voucher reward checkbox uses the short label and aligned layout", () => {
   assert.match(htmlSource, /<span>Урамшуулалд тооцох<\/span>\s*<input id="voucherRoleCashierEligible" type="checkbox">/);
   assert.doesNotMatch(htmlSource, /Кассын урамшуулалд тооцно/);
-  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?display: flex !important;[\s\S]+?align-items: center;/);
+  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?flex-direction: column;[\s\S]+?align-items: flex-start;/);
 });
 
 test("employee customer bonus rules are saved from settings instead of being forced", () => {
