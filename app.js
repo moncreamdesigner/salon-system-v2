@@ -9727,7 +9727,7 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
   const voucherNote = item.pendingVoucherNote || "";
   const giftCardNumber = item.pendingGiftCardNumber || "";
   return `
-    <div class="inline-payment-extra ${["voucher", "gift_card", "customer_credit", "credit_transfer"].includes(method) ? "show" : ""}">
+    <div class="inline-payment-extra ${["voucher", "gift_card", "credit_transfer"].includes(method) ? "show" : ""}">
       <label class="inline-voucher-field ${method === "voucher" ? "" : "hidden"}">Эрх сонгох
         <select class="input inline-payment-voucher-role">${voucherRoleOptions(voucherId)}</select>
       </label>
@@ -9738,9 +9738,6 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
         <input class="input inline-payment-gift-card" type="text" value="${giftCardNumber}" placeholder="Картын дугаар">
       </label>
       <div class="inline-payment-extra-note ${method === "gift_card" ? "" : "hidden"}">${method === "gift_card" ? giftCardPaymentMessage(giftCardNumber) : ""}</div>
-      <div class="inline-credit-payment-note ${method === "customer_credit" ? "" : "hidden"}">
-        Боломжит үлдэгдэл <strong>${money(customerCreditBalance(customer))}</strong>. Энэ дүн шинэ орлого болон кассын урамшуулалд дахин тооцогдохгүй.
-      </div>
       ${item.kind === "course" ? (() => {
         const transfer = courseTransferInfo(item);
         return `<div class="inline-credit-transfer ${method === "credit_transfer" ? "" : "hidden"}">
@@ -9750,9 +9747,7 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
             <span>Ашигласан дүн <strong>${money(transfer.usedValue)}</strong></span>
             <span class="credit-transfer-available">Шилжүүлэх үлдэгдэл <strong>${money(transfer.available)}</strong></span>
           </div>
-          <label>Шалтгаан
-            <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" placeholder="Жишээ: Курсыг зогсоож бараа авах"></textarea>
-          </label>
+          <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" aria-label="Шалтгаан" placeholder="Шалтгаан: Курсыг зогсоож бараа авах"></textarea>
         </div>`;
       })() : ""}
     </div>
@@ -9768,6 +9763,7 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const selectedMethod = "card";
   const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
   const allowCreditTransfer = item.kind === "course" && courseTransferInfo(item).available > 0 && !item.transferClosed;
+  const paymentEditable = isServiceWithinEditDays(item);
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
       <div class="inline-payment-grid">
@@ -9780,13 +9776,16 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
         <label class="inline-payment-amount-field">Дүн ₮
           <input class="input inline-payment-amount money-input" type="text" inputmode="numeric" data-max="${amount}" value="${moneyInputValue(amount)}" placeholder="Төлөх дүн" required>
         </label>
+        <label class="inline-payment-credit-balance-field hidden">Боломжит үлдэгдэл
+          <span class="input inline-payment-credit-balance-value">${money(creditBalance)}</span>
+        </label>
         <label class="inline-payment-date-field">Огноо
           <input class="input inline-payment-date" type="date" value="${todayText()}" required>
         </label>
         <label class="inline-payment-method-field">Төлбөрийн арга
           <select class="input inline-payment-method">${paymentMethodOptions(selectedMethod, { allowCreditTransfer, creditBalance })}</select>
         </label>
-        <button class="primary-btn inline-payment-submit" type="submit" ${amount <= 0 && !allowCreditTransfer ? "disabled" : ""}>Хадгалах</button>
+        ${paymentEditable ? `<button class="primary-btn inline-payment-submit" type="submit" ${amount <= 0 && !allowCreditTransfer ? "disabled" : ""}>Хадгалах</button>` : ""}
       </div>
       ${renderPaymentMethodExtra(selectedMethod, item, customer)}
     </form>
@@ -10658,7 +10657,10 @@ function renderCourseVisitInlineForm(item, historyIndex, visitNumber) {
         <label>Салбар<select class="input course-visit-salon" id="${prefix}Salon" required ${isSalonAccount() ? "disabled" : ""}>${accountSalons().map(item => `<option value="${item.name}" ${item.name === salon ? "selected" : ""}>${item.name}</option>`).join("")}</select></label>
         <label>Ажилтан<select class="input course-visit-staff" id="${prefix}Staff" required>${staffOptionHtmlForSalon(salon, previousStaff, existing?.date || todayText())}</select></label>
         <label>Өрөө<select class="input course-visit-room" id="${prefix}Room"><option value="standard" ${room === "standard" ? "selected" : ""}>Энгийн</option><option value="vip" ${room === "vip" ? "selected" : ""}>Вип</option></select></label>
-        <button class="primary-btn" type="submit">${existing ? "Оролт шинэчлэх" : "Оролт бүртгэх"}</button>
+        <div class="course-visit-submit-actions">
+          ${existing ? `<button class="secondary-btn icon-clear course-visit-cancel" type="button" aria-label="Оролт цуцлах">×</button>` : ""}
+          <button class="primary-btn" type="submit">${existing ? "Оролт шинэчлэх" : "Оролт бүртгэх"}</button>
+        </div>
       </div>
     </form>
   `;
@@ -10714,6 +10716,25 @@ function bindCourseVisitInlineForms(customer) {
     const visitNumber = Number(form.dataset.visit);
     const course = customer.serviceHistory?.[historyIndex];
     const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
+    form.querySelector(".course-visit-cancel")?.addEventListener("click", () => {
+      if (!existingVisit || !isServiceEditable(existingVisit)) {
+        showToast("Оролт цуцлах хугацаа дууссан байна", "error");
+        return;
+      }
+      form.dataset.cancelRequested = "true";
+      form.classList.add("course-visit-cancel-pending");
+      form.querySelectorAll("input, select").forEach(control => {
+        control.required = false;
+        control.value = "";
+        control.disabled = true;
+      });
+      form.querySelectorAll(".native-select-proxy .custom-select-trigger").forEach(trigger => {
+        const text = trigger.querySelector("span");
+        if (text) text.textContent = "—";
+        trigger.disabled = true;
+        trigger.setAttribute("aria-disabled", "true");
+      });
+    });
     form.querySelector(".course-visit-salon")?.addEventListener("change", event => {
       const staffSelect = form.querySelector(".course-visit-staff");
       if (!staffSelect) return;
@@ -10744,6 +10765,56 @@ function bindCourseVisitInlineForms(customer) {
       }
       if (existingVisit && !isServiceEditable(existingVisit)) {
         showToast("Оролт засах хугацаа дууссан байна");
+        return;
+      }
+      if (existingVisit && form.dataset.cancelRequested === "true") {
+        const cancelledDate = existingVisit.date || existingVisit.createdAt || todayText();
+        if (!requireOperationalDateEditable(cancelledDate, "цуцлах")) return;
+        const oldExtra = Number(existingVisit.vipRoomFee || 0) + Number(existingVisit.masterStaffFee || 0);
+        const visitImages = [
+          ...(existingVisit.diagnosis?.generalPhotos || []),
+          ...(existingVisit.diagnosis?.scopePhotos || [])
+        ].filter(value => typeof value === "string" && value.includes("api/media.php"));
+        course.price = Math.max(0, Number(course.price || course.basePrice || 0) - oldExtra);
+        course.balance = Math.max(0, Number(course.balance || 0) - oldExtra);
+        course.visits = (course.visits || []).filter(item => Number(item.number) !== Number(visitNumber));
+        course.expandedVisit = null;
+        course.diagnosisViewVisit = null;
+        const done = course.visits.length;
+        const remainingCourse = customerCourseEntryStatus(customer);
+        customer.activeCourse = remainingCourse?.kind === "course";
+        customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
+        customer.currentTreatment = currentTreatmentFromHistory(customer, course, `Курс ${done}/${course.visitsTotal}`);
+        customer.unpaid = customerBalance(customer) > 0;
+        if (cancelledDate === todayText() && Number(customer.dailyQueueSequence || 0)) {
+          const queueSalon = existingVisit.salon || dailyQueueSalon(customer);
+          const remainingQueueTreatment = dailyQueueTreatmentFromHistory(customer, cancelledDate, queueSalon);
+          if (remainingQueueTreatment) {
+            customer.dailyQueueHadService = true;
+            customer.dailyQueueVacant = false;
+            customer.dailyQueueLastTreatment = remainingQueueTreatment;
+          } else {
+            customer.dailyQueueVacant = true;
+            customer.dailyQueueLastTreatment = {
+              historyId: course.id || "",
+              service: course.service || course.title || "Курс эмчилгээ",
+              progress: `Курс ${visitNumber}/${course.visitsTotal}`,
+              salon: queueSalon,
+              stage: "Оролт цуцалсан"
+            };
+            expandedDailyQueueCustomerIds.delete(Number(customer.id));
+            trimVacantDailyQueueTail(cancelledDate, queueSalon);
+          }
+        }
+        const auditEntry = {
+          id: entityId("audit"),
+          title: "course_visit_cancelled",
+          createdAt: auditNowText(),
+          meta: `${auditActorUsername()} • ${customer.name} • ${course.service || course.title || "Курс эмчилгээ"} • ${visitNumber}-р оролт`
+        };
+        state.audit.unshift(auditEntry);
+        queueMediaTrashAfterSave(visitImages);
+        saveAndRefreshCustomerProfile("Курсийн оролт цуцлагдлаа", { auditEntries: [auditEntry] });
         return;
       }
       const visitDate = form.querySelector(".course-visit-date")?.value || todayText();
@@ -12112,6 +12183,7 @@ function bindInlinePaymentForms(customer) {
     const maxBonus = bonusAlreadyUsed ? 0 : Math.max(0, Math.min(bonusBalance, Math.floor(serviceTotalAmount(item) * 0.5), balance));
     const bonusRow = form.querySelector(".inline-bonus-row");
     const amountField = form.querySelector(".inline-payment-amount-field");
+    const creditBalanceField = form.querySelector(".inline-payment-credit-balance-field");
     const submitButton = form.querySelector(".inline-payment-submit");
     let bonusApplied = false;
     const updateBonusLimit = () => {
@@ -12164,11 +12236,10 @@ function bindInlinePaymentForms(customer) {
       const value = method?.value || "card";
       const transferMode = value === "credit_transfer";
       const creditPaymentMode = value === "customer_credit";
-      extraPanel?.classList.toggle("show", ["voucher", "gift_card", "customer_credit", "credit_transfer"].includes(value));
+      extraPanel?.classList.toggle("show", ["voucher", "gift_card", "credit_transfer"].includes(value));
       form.querySelector(".inline-voucher-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-voucher-note-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-gift-card-field")?.classList.toggle("hidden", value !== "gift_card");
-      form.querySelector(".inline-credit-payment-note")?.classList.toggle("hidden", !creditPaymentMode);
       form.querySelector(".inline-credit-transfer")?.classList.toggle("hidden", !transferMode);
       extraPanel?.classList.toggle("credit-transfer-mode", transferMode);
       giftCardNote?.classList.toggle("hidden", value !== "gift_card");
@@ -12185,6 +12256,7 @@ function bindInlinePaymentForms(customer) {
       giftCardInput?.classList.toggle("gift-card-invalid", value === "gift_card" && Boolean(giftCardInput.value.trim()) && !validCard);
       bonusRow?.classList.toggle("hidden", transferMode || creditPaymentMode);
       amountField?.classList.toggle("hidden", transferMode);
+      creditBalanceField?.classList.toggle("hidden", !creditPaymentMode);
       if (amountInput) {
         amountInput.disabled = transferMode;
         amountInput.required = !transferMode;
@@ -12218,6 +12290,10 @@ function bindInlinePaymentForms(customer) {
       event.preventDefault();
       const historyItem = customer.serviceHistory?.[historyIndex];
       if (!historyItem) return;
+      if (!isServiceWithinEditDays(historyItem)) {
+        showToast("Төлбөр бүртгэх хугацаа дууссан байна", "error");
+        return;
+      }
       historyItem.id = historyItem.id || entityId("svc");
       const methodSelect = form.querySelector(".inline-payment-method");
       const selectedMethodValue = methodSelect?.value || "";
@@ -15442,6 +15518,7 @@ function auditActionText(title = "") {
     diagnosis_service_created: "Оношилгооны үйлчилгээ бүртгэсэн",
     diagnosis_completed: "Оношилгоо дуусгасан",
     course_visit_signed: "Курсийн оролт баталгаажуулсан",
+    course_visit_cancelled: "Курсийн оролт цуцалсан",
     service_deleted: "Үйлчилгээ устгасан",
     service_settings_created: "Үйлчилгээний тохиргоонд нэмсэн",
     service_settings_updated: "Үйлчилгээний тохиргоог зассан",

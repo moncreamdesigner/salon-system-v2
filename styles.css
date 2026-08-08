@@ -1345,9 +1345,16 @@ body.sidebar-collapsed .sidebar-logout {
   align-items: end;
 }
 
-.customer-service-grid.course-visit-row .primary-btn {
+.course-visit-submit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   justify-self: end;
 }
+
+.course-visit-submit-actions .icon-clear { flex: 0 0 40px; }
+.course-visit-cancel-pending .course-visit-row > label { opacity: .45; }
 
 .course-visit-action-tabs {
   display: flex;
@@ -7200,6 +7207,20 @@ td.empty-state {
   flex: 0 0 150px !important;
 }
 
+.inline-payment-credit-balance-field {
+  flex: 0 0 170px !important;
+}
+
+.inline-payment-credit-balance-value {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: default;
+}
+
 .inline-payment-date-field {
   flex: 0 0 150px !important;
 }
@@ -9851,12 +9872,17 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .inline-payment-grid .inline-bonus-row,
   .inline-payment-grid .inline-payment-amount-field,
+  .inline-payment-grid .inline-payment-credit-balance-field,
   .inline-payment-grid .inline-payment-date-field,
   .inline-payment-grid .inline-payment-method-field {
     width: 100%;
     max-width: none;
     min-width: 0;
     flex: none !important;
+  }
+
+  .inline-payment-grid:has(.inline-payment-credit-balance-field:not(.hidden)) {
+    grid-template-columns: 94px 120px 110px minmax(150px, 1fr) 80px;
   }
 
   .inline-payment-grid .inline-bonus-row {
@@ -9884,11 +9910,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     gap: 8px;
   }
 
-  .customer-service-grid.course-visit-row .primary-btn {
+  .customer-service-grid.course-visit-row .course-visit-submit-actions {
     grid-column: 1 / -1;
     width: auto;
     min-width: 0;
     justify-self: end;
+  }
+
+  .customer-service-grid.course-visit-row .primary-btn {
     padding-left: 8px;
     padding-right: 8px;
   }
@@ -9909,7 +9938,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     gap: 8px;
   }
 
-  .customer-service-grid.course-visit-row .primary-btn {
+  .customer-service-grid.course-visit-row .course-visit-submit-actions {
     grid-column: 1 / -1;
     width: auto;
     min-width: 0;
@@ -11227,7 +11256,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .profile-payment-summary .payment-discount,
 .profile-payment-summary .payment-discount strong { color: var(--accent); }
 .profile-payment-open.payment-closed { color: var(--text); background: var(--surface); border-color: var(--line); }
-.inline-credit-payment-note,
 .inline-credit-transfer {
   width: 100%;
   padding: 14px;
@@ -11252,8 +11280,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .credit-transfer-summary span strong { color: var(--text); font-size: 14px; font-weight: 700; white-space: nowrap; }
 .credit-transfer-summary .credit-transfer-available,
 .credit-transfer-summary .credit-transfer-available strong { color: var(--accent); border-color: var(--accent-line); }
-.inline-credit-transfer > label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
-.inline-credit-transfer textarea.input { min-height: 62px; resize: vertical; font-size: 13px; font-weight: 400; }
+.inline-credit-transfer textarea.input { min-height: 62px; resize: vertical; align-self: stretch; font-size: 13px; font-weight: 400; }
 .course-slot-card.transfer-closed { background: var(--surface-soft); border-style: dashed; opacity: .7; }
 .profile-credit-card { transition: border-color .2s ease, background-color .2s ease; }
 .profile-credit-card.has-balance { border-color: var(--accent-line); }

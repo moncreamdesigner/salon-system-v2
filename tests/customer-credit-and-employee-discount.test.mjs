@@ -26,6 +26,24 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
   assert.match(appSource, /amountInput\.disabled = transferMode;/);
   assert.match(appSource, /amountInput\.required = !transferMode;/);
   assert.match(styleSource, /\.inline-payment-extra\.credit-transfer-mode\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(appSource, /inline-payment-credit-balance-field hidden/);
+  assert.doesNotMatch(appSource, /Энэ дүн шинэ орлого болон кассын урамшуулалд дахин тооцогдохгүй/);
+  assert.match(appSource, /placeholder="Шалтгаан: Курсыг зогсоож бараа авах"/);
+});
+
+test("expired services cannot submit a new payment", () => {
+  assert.match(appSource, /const paymentEditable = isServiceWithinEditDays\(item\);/);
+  assert.match(appSource, /paymentEditable \? `<button class="primary-btn inline-payment-submit"/);
+  assert.match(appSource, /if \(!isServiceWithinEditDays\(historyItem\)\)[\s\S]+?Төлбөр бүртгэх хугацаа дууссан байна/);
+});
+
+test("course visits use a staged, per-visit cancellation flow", () => {
+  assert.match(appSource, /class="secondary-btn icon-clear course-visit-cancel"/);
+  assert.match(appSource, /form\.dataset\.cancelRequested = "true"/);
+  assert.match(appSource, /if \(existingVisit && form\.dataset\.cancelRequested === "true"\)/);
+  assert.match(appSource, /requireOperationalDateEditable\(cancelledDate, "цуцлах"\)/);
+  assert.match(appSource, /course\.visits = \(course\.visits \|\| \[\]\)\.filter/);
+  assert.match(appSource, /course_visit_cancelled/);
 });
 
 test("transferred courses can be corrected within the configured window without orphaning credit", () => {
