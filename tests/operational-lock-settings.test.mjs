@@ -27,6 +27,11 @@ assert.match(
 const appSource = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 assert.match(
   appSource,
+  /kass: \["kassSchedules", "staff", "assignments", "salons", "generalSettings"\]/,
+  "Every salon account must load the shared operational edit-day setting in the kass view"
+);
+assert.match(
+  appSource,
   /discardPendingMutationsThrough\(savingMutationVersion\);[\s\S]+?const remote = await serverApi\("state\.php"\)/,
   "A rejected locked operation must be removed from the retry queue and replaced with server state"
 );

@@ -4405,7 +4405,7 @@ input[type="date"].input {
 .voucher-role-form,
 .gift-card-form {
   display: grid;
-  grid-template-columns: minmax(210px, 1fr) 132px 156px auto minmax(210px, .85fr) auto;
+  grid-template-columns: minmax(210px, 1fr) 150px 190px auto minmax(210px, .85fr) auto;
   gap: 12px;
   align-items: end;
   padding: 10px 0 30px;
@@ -11176,8 +11176,32 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .voucher-commission-check {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px !important;
   align-self: end;
-  min-height: 46px;
+  min-height: 40px;
+  padding: 0 4px;
+  color: var(--text) !important;
+}
+
+#giftCardExpiry {
+  width: 100%;
+  min-width: 0;
+}
+
+.voucher-commission-check span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.voucher-commission-check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 
 .voucher-role-form {

@@ -1832,7 +1832,7 @@ const VIEW_SERVER_SECTIONS = {
   bookings: ["bookings", "salons", "holidays"],
   customers: ["customers", "customerGroups"],
   profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
-  kass: ["kassSchedules", "staff", "assignments", "salons"],
+  kass: ["kassSchedules", "staff", "assignments", "salons", "generalSettings"],
   performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
   vouchers: ["voucherRoles", "voucherLogs"],
   giftCards: ["giftCards"],
@@ -2750,6 +2750,15 @@ function groupMembers(group) {
   return state.customers.filter(customer => memberIds.includes(Number(customer.id)));
 }
 
+function customerTypeExcludesGroupBonus(type) {
+  const rule = customerTypeRule(type || "Хэрэглэгч");
+  return rule.dynamic === false && Number(rule.bonusPercent || 0) <= 0;
+}
+
+function groupExcludesBonus(group) {
+  return groupMembers(group).some(member => !member.deleted && !member.deletedAt && customerTypeExcludesGroupBonus(member.type));
+}
+
 function groupPaymentLedgerTotals(group, activeOnly = false) {
   const groupId = Number(group?.id || 0);
   const empty = { spent: 0, pool: 0, used: 0, dates: [] };
@@ -2802,6 +2811,9 @@ function groupPaymentLedgerTotals(group, activeOnly = false) {
 
 function groupBonusInfo(group) {
   if (!group) return null;
+  if (groupExcludesBonus(group)) {
+    return { spent: 0, percent: 0, pool: 0, used: 0, balance: 0 };
+  }
   const allLedger = groupPaymentLedgerTotals(group, false);
   const activeLedger = groupPaymentLedgerTotals(group, true);
   const legacyDate = group.bonusLegacyDate || group.startedAt || group.createdAt || todayText();
@@ -2829,6 +2841,20 @@ function groupBonusInfo(group) {
 
 function applyGroupPayment(group, paidAmount, bonusAmount, paidDate, options = {}) {
   if (!group) return null;
+  if (groupExcludesBonus(group)) {
+    group.spent2y = 0;
+    group.bonusPool = 0;
+    group.usedBonus = 0;
+    return {
+      groupId: group.id,
+      groupSpentAmount: 0,
+      groupBonusEligibleAmount: 0,
+      groupBonusEarned: 0,
+      groupBonusPercent: 0,
+      groupBonusUsed: 0,
+      groupPaymentDate: paidDate || todayText()
+    };
+  }
   const current = groupBonusInfo(group);
   group.spent2y = Number(current?.spent || 0);
   group.bonusPool = Number(current?.pool || 0);
@@ -2864,6 +2890,12 @@ function reverseGroupPayment(payment, fallbackGroup = null) {
   const groupId = Number(payment?.groupId || 0);
   const group = state.customerGroups.find(item => Number(item.id) === groupId) || fallbackGroup;
   if (!group) return;
+  if (groupExcludesBonus(group)) {
+    group.spent2y = 0;
+    group.bonusPool = 0;
+    group.usedBonus = 0;
+    return;
+  }
 
   const spentAmount = Math.max(0, Number(payment?.groupSpentAmount || 0));
   const bonusEarned = Math.max(0, Number(payment?.groupBonusEarned || 0));
@@ -3082,6 +3114,13 @@ function customerTypeRule(type) {
       dynamic: type !== "Ажилтан"
     };
   }
+  if (type === "Салбар") {
+    state.customerTypeRules[type] = {
+      ...state.customerTypeRules[type],
+      bonusPercent: 0,
+      dynamic: false
+    };
+  }
   return state.customerTypeRules[type];
 }
 
@@ -3098,22 +3137,29 @@ function ensureCustomerBonusTypeRules(targetState) {
       changed = true;
     }
     const currentRule = targetState.customerTypeRules[type] || {};
-    const dynamic = type === "Тусгай хэрэглэгч";
-    if (Number(currentRule.bonusPercent) !== 10 || currentRule.dynamic !== dynamic) changed = true;
+    const bonusPercent = type === "Тусгай хэрэглэгч"
+      ? 10
+      : (Number.isFinite(Number(currentRule.bonusPercent)) ? Number(currentRule.bonusPercent) : 10);
+    const dynamic = type === "Тусгай хэрэглэгч"
+      ? true
+      : (typeof currentRule.dynamic === "boolean" ? currentRule.dynamic : false);
+    if (Number(currentRule.bonusPercent) !== bonusPercent || currentRule.dynamic !== dynamic) changed = true;
     targetState.customerTypeRules[type] = {
       ...currentRule,
-      bonusPercent: 10,
+      bonusPercent,
       dynamic
     };
   });
   targetState.customers = (Array.isArray(targetState.customers) ? targetState.customers : []).map(customer => {
     if (!["Тусгай хэрэглэгч", "Ажилтан"].includes(customer.type)) return customer;
+    const configuredPercent = Number(targetState.customerTypeRules[customer.type]?.bonusPercent || 0);
     const specialSince = customer.type === "Тусгай хэрэглэгч"
       ? serviceDateKey(customer.specialSince || customer.registeredAt || customer.last || todayText())
       : customer.specialSince;
-    if (customer.bonus === "10%" && customer.specialSince === specialSince) return customer;
+    const bonus = `${configuredPercent}%`;
+    if (customer.bonus === bonus && customer.specialSince === specialSince) return customer;
     changed = true;
-    return { ...customer, bonus: "10%", specialSince };
+    return { ...customer, bonus, specialSince };
   });
   targetState.customerBonusTypeRulesV4 = true;
   return changed;
@@ -3624,13 +3670,12 @@ function saveCustomerType(event) {
   event.preventDefault();
   const input = document.getElementById("customerTypeName");
   const name = input?.value.trim();
-  const protectedType = ["Тусгай хэрэглэгч", "Ажилтан"].includes(name);
-  const bonusPercent = protectedType ? 10 : Number(formValue("customerTypeBonus"));
+  const protectedType = name === "Тусгай хэрэглэгч";
+  const noBonusType = name === "Салбар";
+  const bonusPercent = protectedType ? 10 : (noBonusType ? 0 : Number(formValue("customerTypeBonus")));
   const dynamic = name === "Тусгай хэрэглэгч"
     ? true
-    : name === "Ажилтан"
-      ? false
-      : document.getElementById("customerTypeDynamic")?.value !== "false";
+    : (noBonusType ? false : document.getElementById("customerTypeDynamic")?.value !== "false");
   if (!name) return;
   if (customerTypeEditingName && customerTypeEditingName !== name) {
     state.customerTypes = state.customerTypes.map(type => type === customerTypeEditingName ? name : type);
@@ -3643,6 +3688,9 @@ function saveCustomerType(event) {
     bonusPercent: Number.isFinite(bonusPercent) ? bonusPercent : 0,
     dynamic
   };
+  state.customers = state.customers.map(customer => customer.type === name
+    ? { ...customer, bonus: `${state.customerTypeRules[name].bonusPercent}%` }
+    : customer);
   customerTypeEditingName = null;
   input.value = "";
   document.getElementById("customerTypeBonus").value = "";
@@ -3652,7 +3700,7 @@ function saveCustomerType(event) {
   renderCustomerTypeFilter();
   renderCustomerTypeManager();
   renderInfoHeader(activeView);
-  showToast("Хэрэглэгчийн төрөл нэмэгдлээ");
+  showToast("Хэрэглэгчийн төрлийн тохиргоо хадгалагдлаа");
 }
 
 function generalSettings() {
@@ -4614,21 +4662,6 @@ function todayText() {
   return `${year}-${month}-${day}`;
 }
 
-function dateAfterCalendarMonths(dateText, months = 6) {
-  const match = String(dateText || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return "";
-  const [, yearText, monthTextValue, dayText] = match;
-  const year = Number(yearText);
-  const monthIndex = Number(monthTextValue) - 1;
-  const day = Number(dayText);
-  const targetFirstDay = new Date(year, monthIndex + Number(months || 0), 1);
-  const targetYear = targetFirstDay.getFullYear();
-  const targetMonthIndex = targetFirstDay.getMonth();
-  const targetLastDay = new Date(targetYear, targetMonthIndex + 1, 0).getDate();
-  const targetDay = Math.min(day, targetLastDay);
-  return `${targetYear}-${String(targetMonthIndex + 1).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
-}
-
 function dateTimeText(dateText = todayText()) {
   const date = new Date();
   const hours = String(date.getHours()).padStart(2, "0");
@@ -4985,7 +5018,7 @@ function infoForView(name) {
     groups: name === "groups" ? ["ГРУПП", [
       ["Нийт групп", state.customerGroups.length],
       ["Нийт гишүүн", state.customerGroups.reduce((sum, group) => sum + (group.members || []).length, 0)],
-      ["Нийт хэрэглээ", money(state.customerGroups.reduce((sum, group) => sum + Number(group.spent2y || 0), 0))],
+      ["Нийт хэрэглээ", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.spent || 0), 0))],
       ["Бонус үлдэгдэл", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.balance || 0), 0))]
     ]] : null,
     profile: name === "profile" ? (() => {
@@ -9266,7 +9299,7 @@ function giftCardPaymentMessage(number = "") {
   if (!String(number || "").trim()) return `<span>Картын дугаар оруулна уу</span>`;
   if (!card) return `<span class="danger"><strong>Карт олдсонгүй</strong></span>`;
   const status = giftCardStatus(card);
-  const expiry = card.expiryDate ? ` · Дуусах: ${card.expiryDate}` : "";
+  const expiry = card.expiryDate ? ` · Дуусах: ${card.expiryDate}` : " · Хугацаагүй";
   if (status === "inactive") return `<span class="danger"><strong>Идэвхгүй карт</strong> · Үлдэгдэл: ${money(card.remainingAmount)}${expiry}</span>`;
   if (status === "expired") return `<span class="danger"><strong>Хугацаа дууссан</strong> · Үлдэгдэл: ${money(card.remainingAmount)}${expiry}</span>`;
   if (status === "used" || Number(card.remainingAmount || 0) <= 0) return `<span class="danger"><strong>Үлдэгдэлгүй карт</strong>${expiry}</span>`;
@@ -9376,6 +9409,7 @@ function nextBonusTierInfo(spent) {
 }
 
 function groupPeriodInfo(group) {
+  if (groupExcludesBonus(group)) return { used: 0, left: 730, endDate: "—", percent: 0 };
   const activeLedger = groupPaymentLedgerTotals(group, true);
   const legacyStart = group?.bonusLegacyDate || group?.startedAt || group?.createdAt || state.customers.find(customer => Number(customer.id) === Number(group?.adminCustomerId))?.registeredAt || todayText();
   const legacyAge = daysBetween(legacyStart, todayText());
@@ -9525,7 +9559,7 @@ function renderGroupDirectory() {
       group.name,
       ...members.filter(member => !member.deleted).flatMap(member => [member.name, member.phone])
     ].some(value => String(value || "").toLowerCase().includes(search)))
-    .sort((a, b) => Number(b.group.spent2y || 0) - Number(a.group.spent2y || 0));
+    .sort((a, b) => Number(groupBonusInfo(b.group)?.spent || 0) - Number(groupBonusInfo(a.group)?.spent || 0));
   const groupCount = document.getElementById("groupDirectoryTabCount");
   if (groupCount) groupCount.textContent = state.customerGroups.length;
   const deletedCount = document.getElementById("groupDeletedTabCount");
@@ -13439,8 +13473,6 @@ function renderVouchers() {
 function resetGiftCardForm() {
   giftCardEditingId = null;
   document.getElementById("giftCardForm")?.reset();
-  const expiryInput = document.getElementById("giftCardExpiry");
-  if (expiryInput) expiryInput.value = dateAfterCalendarMonths(todayText(), 6);
   const submit = document.getElementById("giftCardSubmit");
   if (submit) submit.textContent = "Нэмэх";
 }
@@ -13481,7 +13513,7 @@ function renderGiftCards() {
         <td><strong>${money(card.amount)}</strong></td>
         <td>${money(card.remainingAmount)}</td>
         <td>${card.createdAt || ""}</td>
-        <td>${card.expiryDate || "—"}</td>
+        <td>${card.expiryDate || "Хугацаагүй"}</td>
         <td><span class="gift-card-usage">${usageText}</span></td>
         <td>
           <div class="table-actions">
@@ -13528,7 +13560,7 @@ function saveGiftCard(event) {
     .map(item => item.trim())
     .filter(Boolean);
   const amount = Number(formValue("giftCardAmount"));
-  const expiryDate = document.getElementById("giftCardExpiry").value || dateAfterCalendarMonths(todayText(), 6);
+  const expiryDate = document.getElementById("giftCardExpiry").value || "";
   if (!numbers.length || amount <= 0) return;
 
   if (giftCardEditingId) {
