@@ -11222,6 +11222,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   white-space: nowrap;
 }
 .employee-discount-policy .compact-check input { width: 16px; height: 16px; }
+.employee-discount-policy input[type="checkbox"] { accent-color: var(--accent); }
 .price-breakdown-discount,
 .profile-payment-summary .payment-discount,
 .profile-payment-summary .payment-discount strong { color: var(--accent); }
@@ -11234,16 +11235,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-radius: 9px;
   background: #fbfcfb;
   color: var(--muted);
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.45;
 }
-.inline-credit-transfer { display: grid; gap: 14px; }
-.credit-transfer-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.credit-transfer-summary span { display: grid; gap: 5px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.credit-transfer-summary span strong { color: var(--text); }
+.inline-payment-extra.credit-transfer-mode { grid-template-columns: minmax(0, 1fr); }
+.inline-credit-transfer {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 320px);
+  align-items: start;
+  gap: 10px 14px;
+  padding: 12px;
+}
+.credit-transfer-summary { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 8px; }
+.credit-transfer-summary span { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.3; }
+.credit-transfer-summary span strong { color: var(--text); font-size: 14px; font-weight: 700; white-space: nowrap; }
 .credit-transfer-summary .credit-transfer-available,
 .credit-transfer-summary .credit-transfer-available strong { color: var(--accent); border-color: var(--accent-line); }
-.inline-credit-transfer textarea.input { min-height: 72px; resize: vertical; }
-.inline-credit-transfer p { margin: 0; font-size: 12px; }
+.inline-credit-transfer > label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.inline-credit-transfer textarea.input { min-height: 62px; resize: vertical; font-size: 13px; font-weight: 400; }
+.inline-credit-transfer p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
 .course-slot-card.transfer-closed { background: var(--surface-soft); border-style: dashed; opacity: .7; }
 .profile-credit-card { transition: border-color .2s ease, background-color .2s ease; }
 .profile-credit-card.has-balance { border-color: var(--accent-line); }
@@ -11262,7 +11273,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .profile-credit-detail .credit-out { color: var(--danger); }
 
 @media (max-width: 900px) {
-  .employee-discount-policy,
+  .employee-discount-policy { grid-template-columns: 1fr 1fr; }
+  .inline-credit-transfer { grid-template-columns: 1fr; }
   .credit-transfer-summary { grid-template-columns: 1fr 1fr; }
 }
 

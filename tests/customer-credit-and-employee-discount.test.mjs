@@ -5,6 +5,7 @@ import test from "node:test";
 const appSource = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const apiSource = fs.readFileSync(new URL("../api/state.php", import.meta.url), "utf8");
 const htmlSource = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const styleSource = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 test("employee discount is policy-driven and snapshotted on each service", () => {
   assert.match(appSource, /employeeDiscount:\s*\{/);
@@ -22,6 +23,9 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
   assert.match(appSource, /type:\s*"credit_payment"/);
   assert.match(appSource, /!\["bonus", "gift_card", "customer_credit", "credit_transfer"/);
   assert.match(appSource, /methodSelect\?\.value === "customer_credit" \? null : applyGroupPayment/);
+  assert.match(appSource, /amountInput\.disabled = transferMode;/);
+  assert.match(appSource, /amountInput\.required = !transferMode;/);
+  assert.match(styleSource, /\.inline-payment-extra\.credit-transfer-mode\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
 });
 
 test("non-admin accounts cannot create or convert branch customer types", () => {
@@ -31,3 +35,6 @@ test("non-admin accounts cannot create or convert branch customer types", () => 
   assert.match(apiSource, /assert_branch_customer_type_permissions\(\$currentSections, \$sections, \$user\);/);
 });
 
+test("employee policy checkboxes use the product accent color", () => {
+  assert.match(styleSource, /\.employee-discount-policy input\[type="checkbox"\]\s*\{\s*accent-color: var\(--accent\);\s*\}/);
+});

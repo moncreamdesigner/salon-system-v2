@@ -12095,6 +12095,7 @@ function bindInlinePaymentForms(customer) {
       form.querySelector(".inline-gift-card-field")?.classList.toggle("hidden", value !== "gift_card");
       form.querySelector(".inline-credit-payment-note")?.classList.toggle("hidden", !creditPaymentMode);
       form.querySelector(".inline-credit-transfer")?.classList.toggle("hidden", !transferMode);
+      extraPanel?.classList.toggle("credit-transfer-mode", transferMode);
       giftCardNote?.classList.toggle("hidden", value !== "gift_card");
       if (giftCardNote) {
         giftCardNote.innerHTML = value === "gift_card"
@@ -12109,6 +12110,10 @@ function bindInlinePaymentForms(customer) {
       giftCardInput?.classList.toggle("gift-card-invalid", value === "gift_card" && Boolean(giftCardInput.value.trim()) && !validCard);
       bonusRow?.classList.toggle("hidden", transferMode || creditPaymentMode);
       amountField?.classList.toggle("hidden", transferMode);
+      if (amountInput) {
+        amountInput.disabled = transferMode;
+        amountInput.required = !transferMode;
+      }
       if (transferMode) {
         setBonusApplied(false);
         if (submitButton) {
