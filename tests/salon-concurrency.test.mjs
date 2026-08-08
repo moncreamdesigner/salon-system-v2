@@ -18,6 +18,11 @@ test("kass schedules use cross-salon unique ids and replay safely after a revisi
   assert.match(appSource, /markPendingKassScheduleSections\(\);[\s\S]+?pendingKassScheduleMutations\.length > 0/);
 });
 
+test("legacy duplicate kass ids remain distinct between salons", () => {
+  assert.match(stateApiSource, /if \(\$kind === 'kass-schedule'[\s\S]+?return 'kass-schedule:' \. trim\(\(string\)\(\$item\['salon'\]/);
+  assert.match(stateApiSource, /assert_dated_section_unlocked\(\$current, \$incoming, 'kassSchedules',[\s\S]+?'kass-schedule'\);/);
+});
+
 test("partial views fetch the shared rules they render", () => {
   assert.match(appSource, /profile: \[[^\]]+"generalSettings"[^\]]+"_serviceSettings"\]/);
   assert.match(appSource, /settingsPricing: \[[^\]]+"customerTypes"[^\]]+"customerTypeRules"[^\]]+"customers"/);

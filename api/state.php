@@ -42,6 +42,13 @@ function load_section_revisions(PDO $pdo, array $keys = [], bool $lock = false):
 
 function recovery_entity_key(array $item, int $index, string $kind = 'generic'): string
 {
+    // Older salon-scoped browsers generated numeric ids from only their own
+    // visible rows. The same numeric id can therefore exist in two salons.
+    // Treat the salon as part of kass identity so legacy rows do not become
+    // false edits/deletes when scoped rows are merged in a different order.
+    if ($kind === 'kass-schedule' && isset($item['id']) && trim((string)$item['id']) !== '') {
+        return 'kass-schedule:' . trim((string)($item['salon'] ?? '')) . ':' . trim((string)$item['id']);
+    }
     foreach (['id', 'paymentId', 'code', 'cardNumber'] as $key) {
         if (isset($item[$key]) && trim((string)$item[$key]) !== '') return (string)$item[$key];
     }
@@ -340,11 +347,11 @@ function operational_date_is_locked(string $date, string $cutoff): bool
     return $date !== '' && $date < $cutoff;
 }
 
-function assert_dated_section_unlocked(array $current, array $incoming, string $section, array $dateKeys, string $cutoff): void
+function assert_dated_section_unlocked(array $current, array $incoming, string $section, array $dateKeys, string $cutoff, string $kind = 'generic'): void
 {
     if (!array_key_exists($section, $incoming)) return;
-    $oldRows = operational_item_index(is_array($current[$section] ?? null) ? $current[$section] : []);
-    $newRows = operational_item_index(is_array($incoming[$section] ?? null) ? $incoming[$section] : []);
+    $oldRows = operational_item_index(is_array($current[$section] ?? null) ? $current[$section] : [], $kind);
+    $newRows = operational_item_index(is_array($incoming[$section] ?? null) ? $incoming[$section] : [], $kind);
     foreach ($newRows as $id => $newItem) {
         $date = operational_date($newItem, $dateKeys);
         if (!isset($oldRows[$id]) && operational_date_is_locked($date, $cutoff)) {
@@ -468,7 +475,7 @@ function assert_operational_lock(array $current, array $incoming): void
     $days = operational_edit_days($current, $incoming);
     $cutoff = operational_cutoff($current, $incoming);
     try {
-        assert_dated_section_unlocked($current, $incoming, 'kassSchedules', ['date', 'createdAt'], $cutoff);
+        assert_dated_section_unlocked($current, $incoming, 'kassSchedules', ['date', 'createdAt'], $cutoff, 'kass-schedule');
         assert_dated_section_unlocked($current, $incoming, 'assignments', ['startDate', 'date'], $cutoff);
         assert_customer_operations_unlocked($current, $incoming, $cutoff);
     } catch (DomainException $error) {
