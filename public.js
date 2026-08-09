@@ -64,6 +64,8 @@ let lastSuccessfulBooking = null;
 let bookingInlineMessage = "";
 let bookingPhoneDraft = "";
 let activeHeroSlide = 0;
+let renderedCatalogSignature = "";
+let publicDataRequest = null;
 
 function readPublicUiState() {
   try {
@@ -133,21 +135,29 @@ function mergePublicSettings(settings = {}) {
 }
 
 async function loadPublicData() {
-  try {
-    const response = await fetch("api/public.php", { cache: "no-store", headers: { "X-Requested-With": "KhalgaiSalon" } });
-    if (!response.ok) throw new Error("Public API unavailable");
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.message || "Public API unavailable");
-    publicState = { ...structuredClone(publicFallbackState), ...(result.data || {}) };
-  } catch (error) {
+  if (publicDataRequest) return publicDataRequest;
+  publicDataRequest = (async () => {
     try {
-      const local = JSON.parse(localStorage.getItem(PUBLIC_STORAGE_KEY) || "null");
-      publicState = local ? { ...structuredClone(publicFallbackState), ...local } : structuredClone(publicFallbackState);
-    } catch (storageError) {
-      publicState = structuredClone(publicFallbackState);
+      const response = await fetch("api/public.php", { cache: "no-store", headers: { "X-Requested-With": "KhalgaiSalon" } });
+      if (!response.ok) throw new Error("Public API unavailable");
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.message || "Public API unavailable");
+      publicState = { ...structuredClone(publicFallbackState), ...(result.data || {}) };
+    } catch (error) {
+      try {
+        const local = JSON.parse(localStorage.getItem(PUBLIC_STORAGE_KEY) || "null");
+        publicState = local ? { ...structuredClone(publicFallbackState), ...local } : structuredClone(publicFallbackState);
+      } catch (storageError) {
+        publicState = structuredClone(publicFallbackState);
+      }
     }
+    publicSettings = mergePublicSettings(publicState.homepageSettings);
+  })();
+  try {
+    await publicDataRequest;
+  } finally {
+    publicDataRequest = null;
   }
-  publicSettings = mergePublicSettings(publicState.homepageSettings);
 }
 
 function publicViewFromLocation() {
@@ -178,9 +188,8 @@ function setPublicView(name, options = {}) {
   document.getElementById("publicApp")?.classList.toggle("catalog-mode", activePublicView === "catalog");
   document.querySelectorAll("[data-public-view]").forEach(view => view.classList.toggle("active", view.dataset.publicView === activePublicView));
   document.querySelectorAll("[data-public-target]").forEach(button => button.classList.toggle("active", button.dataset.publicTarget === activePublicView));
-  if (activePublicView === "booking") renderSalonDirectory();
-  if (activePublicView === "results") renderResults();
-  void refreshActivePublicView(activePublicView);
+  renderPublicView(activePublicView);
+  if (options.refresh !== false) void refreshActivePublicView(activePublicView);
   if (options.scroll !== false) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -207,17 +216,26 @@ function safeText(value = "") {
   return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
+function renderPublicView(viewName) {
+  if (viewName === "catalog") renderCatalog();
+  if (viewName === "booking") renderSalonDirectory();
+  if (viewName === "results") renderResults();
+}
+
 function salonVisual(salon, type = "cover") {
   const config = salonConfig(salon);
   const gallery = Array.isArray(config.gallery) ? config.gallery.filter(Boolean) : [];
   const url = type === "cover" ? (config.coverImage || gallery[0] || "") : (gallery[activeHeroSlide] || config.coverImage || "");
   return url
-    ? `<img src="${safeText(url)}" alt="${safeText(salon.name)}">`
-    : `<img class="salon-cover-placeholder" src="assets/khalgai-salon-logo.png" alt="${safeText(salon.name)} cover зураг">`;
+    ? `<img src="${safeText(url)}" alt="${safeText(salon.name)}" loading="lazy" decoding="async">`
+    : `<img class="salon-cover-placeholder" src="assets/khalgai-salon-logo.png" alt="${safeText(salon.name)} cover зураг" loading="lazy" decoding="async">`;
 }
 
 function renderCatalog() {
+  const signature = JSON.stringify(publicSettings.catalog || {});
+  if (signature === renderedCatalogSignature && document.querySelector("#catalogStage #flipOuter")) return;
   window.KhalgaiFlipHtml5.render(document.getElementById("catalogStage"), publicSettings.catalog);
+  renderedCatalogSignature = signature;
 }
 
 function activeSalons() {
@@ -555,7 +573,7 @@ function resultPosts() {
 }
 
 function resultImage(url, label) {
-  return url ? `<img src="${safeText(url)}" alt="${safeText(label)}">` : `<div class="result-placeholder"><img src="assets/khalgai-salon-logo.png" alt=""><b>${safeText(label)} зураг</b></div>`;
+  return url ? `<img src="${safeText(url)}" alt="${safeText(label)}" loading="lazy" decoding="async">` : `<div class="result-placeholder"><img src="assets/khalgai-salon-logo.png" alt="" loading="lazy" decoding="async"><b>${safeText(label)} зураг</b></div>`;
 }
 
 function resultImages(post = {}) {
@@ -752,11 +770,8 @@ async function initializePublicApp() {
     : null;
   bookingInlineMessage = String(restoredUi.bookingInlineMessage || "");
   bookingPhoneDraft = String(restoredUi.bookingPhoneDraft || "").replace(/\D/g, "").slice(0, 8);
-  renderCatalog();
-  renderSalonDirectory();
-  renderResults();
   bindPublicEvents();
-  setPublicView(restoredView, { historyMode: "replace", scroll: false });
+  setPublicView(restoredView, { historyMode: "replace", scroll: false, refresh: false });
   if (restoredView === "booking" && activeSalons().some(item => Number(item.id) === Number(selectedSalonId))) {
     if (bookingSubmissionSucceeded && lastSuccessfulBooking) renderBookingSuccessScreen(lastSuccessfulBooking);
     else renderSalonDetail(selectedSalonId, { preserveSelection: true, preserveScroll: true });
