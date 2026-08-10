@@ -10440,8 +10440,38 @@ function kassCartTotal(cart = []) {
   return cart.reduce((sum, item) => sum + kassLineUnitPrice(item, item.qty) * Math.max(1, Number(item.qty || 1)), 0);
 }
 
-function renderProfileKassCartBox(cart = []) {
-  const total = kassCartTotal(cart);
+function employeeDiscountPriceParts(customer, grossTotal, discountedSubtotal = 0) {
+  const policy = pricePolicy().employeeDiscount || defaultState.pricePolicy.employeeDiscount;
+  const percent = customer?.type === "Ажилтан" && policy.enabled
+    ? Math.max(0, Math.min(100, Number(policy.percent || 0)))
+    : 0;
+  const eligibleTotal = policy.applyToDiscountedPrice
+    ? Math.max(0, Number(grossTotal || 0))
+    : Math.max(0, Number(grossTotal || 0) - Number(discountedSubtotal || 0));
+  const amount = Math.round(eligibleTotal * percent / 100);
+  return {
+    percent,
+    amount,
+    total: Math.max(0, Number(grossTotal || 0) - amount)
+  };
+}
+
+function kassCartPriceParts(customer, cart = []) {
+  const grossTotal = kassCartTotal(cart);
+  const discountedSubtotal = cart.reduce((sum, item) => {
+    const qty = Math.max(1, Number(item.qty || 1));
+    return sum + (kassHasSpecialPrice(item) && qty >= kassSaleThreshold(item)
+      ? kassLineUnitPrice(item, qty) * qty
+      : 0);
+  }, 0);
+  return {
+    grossTotal,
+    ...employeeDiscountPriceParts(customer, grossTotal, discountedSubtotal)
+  };
+}
+
+function renderProfileKassCartBox(customer, cart = []) {
+  const price = kassCartPriceParts(customer, cart);
   return `
     ${cart.length ? cart.map((item, index) => {
       const qty = Math.max(1, Number(item.qty || 1));
@@ -10464,7 +10494,8 @@ function renderProfileKassCartBox(cart = []) {
         </div>
       `;
     }).join("") : `<div class="profile-kass-empty">Зүүн талаас бараа сонгоно уу</div>`}
-    <div class="profile-kass-total"><span>Нийт</span><strong>${money(total)}</strong></div>
+    ${price.amount ? `<div class="profile-kass-total profile-kass-discount"><span>Ажилтны ${formatNumber(price.percent)}% хөнгөлөлт</span><strong>−${money(price.amount)}</strong></div>` : ""}
+    <div class="profile-kass-total"><span>Нийт</span><strong>${money(price.total)}</strong></div>
   `;
 }
 
@@ -10529,7 +10560,7 @@ function renderProfileKassInlineForm(customer) {
         <section class="profile-kass-cart">
           <div class="profile-kass-section-title">Сонгосон бараа</div>
           <div class="profile-kass-cart-box">
-            ${renderProfileKassCartBox(cart)}
+            ${renderProfileKassCartBox(customer, cart)}
           </div>
         </section>
       </div>
@@ -11659,11 +11690,7 @@ function profileServicePriceParts(customer) {
   const vipRoomFee = vipRoom ? Number(policy.vipRoomFee || 0) : 0;
   const masterStaffFee = isMasterStaffName(formValue("profileServiceStaff")) ? Number(policy.masterStaffFee || 0) : 0;
   const grossTotal = basePrice + vipRoomFee + masterStaffFee;
-  const employeeDiscountPolicy = policy.employeeDiscount || defaultState.pricePolicy.employeeDiscount;
-  const employeeDiscountPercent = customer?.type === "Ажилтан" && employeeDiscountPolicy.enabled
-    ? Math.max(0, Math.min(100, Number(employeeDiscountPolicy.percent || 0)))
-    : 0;
-  const employeeDiscountAmount = Math.round(grossTotal * employeeDiscountPercent / 100);
+  const employeeDiscount = employeeDiscountPriceParts(customer, grossTotal);
   return {
     item,
     basePrice,
@@ -11671,9 +11698,9 @@ function profileServicePriceParts(customer) {
     vipRoomFee,
     masterStaffFee,
     grossTotal,
-    employeeDiscountPercent,
-    employeeDiscountAmount,
-    total: Math.max(0, grossTotal - employeeDiscountAmount)
+    employeeDiscountPercent: employeeDiscount.percent,
+    employeeDiscountAmount: employeeDiscount.amount,
+    total: employeeDiscount.total
   };
 }
 
@@ -11719,7 +11746,7 @@ function bindProfileKassCartControls(customer, form) {
 function refreshProfileKassCart(customer, form) {
   const cart = Array.isArray(customer.profileKassCart) ? customer.profileKassCart : [];
   const cartBox = form.querySelector(".profile-kass-cart-box");
-  if (cartBox) cartBox.innerHTML = renderProfileKassCartBox(cart);
+  if (cartBox) cartBox.innerHTML = renderProfileKassCartBox(customer, cart);
   const submitButton = form.querySelector('.profile-kass-submit-row button[type="submit"]');
   if (submitButton) submitButton.disabled = !cart.length;
   bindProfileKassCartControls(customer, form);
@@ -11815,9 +11842,12 @@ function bindProfileKassInlineForm(customer, form) {
         specialPriceApplied: unitPrice < Number(item.price || 0)
       };
     });
-    const total = products.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+    const grossTotal = products.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+    const discountedSubtotal = products.reduce((sum, item) => sum + (item.specialPriceApplied ? Number(item.lineTotal || 0) : 0), 0);
+    const employeeDiscount = employeeDiscountPriceParts(customer, grossTotal, discountedSubtotal);
     const editingIndex = Number.isInteger(customer.profileKassEditingIndex) ? customer.profileKassEditingIndex : null;
     const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
+    const paidAmount = editingItem ? servicePaidAmount(editingItem) : 0;
     const historyItem = {
       id: editingItem?.id || entityId("svc"),
       kind: "kass",
@@ -11828,9 +11858,12 @@ function bindProfileKassInlineForm(customer, form) {
       staff: "Касс",
       salon,
       products,
-      price: total,
-      basePrice: total,
-      balance: total,
+      price: employeeDiscount.total,
+      basePrice: grossTotal,
+      employeeDiscountPercent: employeeDiscount.percent,
+      employeeDiscountAmount: employeeDiscount.amount,
+      employeeDiscountAppliedAt: employeeDiscount.amount ? new Date().toISOString() : "",
+      balance: Math.max(0, employeeDiscount.total - paidAmount),
       paymentMethod: "",
       payments: editingItem?.payments || [],
       paymentFormOpen: true

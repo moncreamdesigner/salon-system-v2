@@ -16,6 +16,27 @@ test("employee discount is policy-driven and snapshotted on each service", () =>
   assert.match(htmlSource, /id="employeeDiscountEnabled"/);
 });
 
+test("employee discount applies to kass products and respects special-price stacking", () => {
+  const functionSource = appSource.match(/function employeeDiscountPriceParts\([\s\S]*?\n}\n/)?.[0];
+  assert.ok(functionSource, "Employee discount calculator must exist");
+  let policy = { enabled: true, percent: 10, applyToDiscountedPrice: true };
+  const calculator = new Function("pricePolicy", "defaultState", `${functionSource}; return employeeDiscountPriceParts;`)(
+    () => ({ employeeDiscount: policy }),
+    { pricePolicy: { employeeDiscount: policy } }
+  );
+
+  assert.deepEqual(calculator({ type: "Ажилтан" }, 100000, 70000), { percent: 10, amount: 10000, total: 90000 });
+  policy = { ...policy, applyToDiscountedPrice: false };
+  assert.deepEqual(calculator({ type: "Ажилтан" }, 100000, 70000), { percent: 10, amount: 3000, total: 97000 });
+  assert.deepEqual(calculator({ type: "Хэрэглэгч" }, 100000, 0), { percent: 0, amount: 0, total: 100000 });
+
+  assert.match(appSource, /renderProfileKassCartBox\(customer, cart\)/);
+  assert.match(appSource, /employeeDiscountPriceParts\(customer, grossTotal, discountedSubtotal\)/);
+  assert.match(appSource, /kind: "kass"[\s\S]*?employeeDiscountPercent: employeeDiscount\.percent,[\s\S]*?employeeDiscountAmount: employeeDiscount\.amount/);
+  assert.match(appSource, /balance: Math\.max\(0, employeeDiscount\.total - paidAmount\)/);
+  assert.match(styleSource, /\.profile-kass-total\.profile-kass-discount[\s\S]*?color: var\(--accent\);/);
+});
+
 test("transferred course credit is a ledger movement, not new cash revenue", () => {
   assert.match(appSource, /function customerCreditLedger\(/);
   assert.match(appSource, /function courseTransferInfo\(/);

@@ -10642,6 +10642,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-weight: 700;
 }
 
+.profile-kass-total.profile-kass-discount,
+.profile-kass-total.profile-kass-discount strong {
+  color: var(--accent);
+}
+
 .profile-kass-submit-row {
   display: flex;
   justify-content: flex-end;
