@@ -52,10 +52,12 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
   assert.match(appSource, /placeholder="Шалтгаан: Курсыг зогсоож бараа авах"/);
 });
 
-test("expired services cannot submit a new payment", () => {
-  assert.match(appSource, /const paymentEditable = isServiceWithinEditDays\(item\);/);
-  assert.match(appSource, /paymentEditable \? `<button class="primary-btn inline-payment-submit"/);
-  assert.match(appSource, /if \(!isServiceWithinEditDays\(historyItem\)\)[\s\S]+?Төлбөр бүртгэх хугацаа дууссан байна/);
+test("an older service can receive a current payment while payment dates remain protected", () => {
+  assert.doesNotMatch(appSource, /const paymentEditable = isServiceWithinEditDays\(item\);/);
+  assert.match(appSource, /<button class="primary-btn inline-payment-submit" type="submit"/);
+  assert.doesNotMatch(appSource, /if \(!isServiceWithinEditDays\(historyItem\)\)/);
+  assert.match(appSource, /requireOperationalDateEditable\(paidDate, "[^"]+"\)/);
+  assert.match(appSource, /requireOperationalDateEditable\(transferDate, "[^"]+"\)/);
 });
 
 test("course visits use a staged, per-visit cancellation flow", () => {

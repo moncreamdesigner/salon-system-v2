@@ -9763,7 +9763,6 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const selectedMethod = "card";
   const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
   const allowCreditTransfer = item.kind === "course" && courseTransferInfo(item).available > 0 && !item.transferClosed;
-  const paymentEditable = isServiceWithinEditDays(item);
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
       <div class="inline-payment-grid">
@@ -9785,7 +9784,7 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
         <label class="inline-payment-method-field">Төлбөрийн арга
           <select class="input inline-payment-method">${paymentMethodOptions(selectedMethod, { allowCreditTransfer, creditBalance })}</select>
         </label>
-        ${paymentEditable ? `<button class="primary-btn inline-payment-submit" type="submit" ${amount <= 0 && !allowCreditTransfer ? "disabled" : ""}>Хадгалах</button>` : ""}
+        <button class="primary-btn inline-payment-submit" type="submit" ${amount <= 0 && !allowCreditTransfer ? "disabled" : ""}>Хадгалах</button>
       </div>
       ${renderPaymentMethodExtra(selectedMethod, item, customer)}
     </form>
@@ -12323,10 +12322,6 @@ function bindInlinePaymentForms(customer) {
       event.preventDefault();
       const historyItem = customer.serviceHistory?.[historyIndex];
       if (!historyItem) return;
-      if (!isServiceWithinEditDays(historyItem)) {
-        showToast("Төлбөр бүртгэх хугацаа дууссан байна", "error");
-        return;
-      }
       historyItem.id = historyItem.id || entityId("svc");
       const methodSelect = form.querySelector(".inline-payment-method");
       const selectedMethodValue = methodSelect?.value || "";
@@ -12341,9 +12336,10 @@ function bindInlinePaymentForms(customer) {
           showToast("Шилжүүлгийн шалтгаан оруулна уу", "error");
           return;
         }
-        if (!await requireEditCode()) return;
         const transferId = entityId("credit");
         const transferDate = form.querySelector(".inline-payment-date")?.value || todayText();
+        if (!requireOperationalDateEditable(transferDate, "үлдэгдэл шилжүүлэх")) return;
+        if (!await requireEditCode()) return;
         const createdAt = new Date().toISOString();
         const ledgerEntry = {
           id: transferId,
