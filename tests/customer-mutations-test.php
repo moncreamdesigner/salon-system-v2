@@ -58,11 +58,34 @@ expect(count($created['customers']) === 3, 'New customer must be added without r
 expect(!$duplicateConflicts, 'An identical retry must be idempotent.');
 expect($duplicateResult['customers'] === $created['customers'], 'An identical retry must not duplicate data.');
 
+$samePhoneCustomer = ['id' => 404, 'name' => 'D', 'phone' => '33333333', 'serviceHistory' => []];
+[$samePhoneResult, $samePhoneConflicts] = apply_customer_entity_mutations($created, [
+    'profiles' => [array_merge($samePhoneCustomer, [
+        'mutationVersion' => 5,
+        'baseFingerprint' => null,
+    ])],
+]);
+expect(count($samePhoneConflicts) === 1, 'A second active customer with the same phone must be rejected.');
+expect(($samePhoneConflicts[0]['reason'] ?? '') === 'duplicate_phone', 'Duplicate phone rejection must be explicit.');
+expect($samePhoneResult['customers'] === $created['customers'], 'Duplicate phone rejection must preserve all customers.');
+
+$changedToExistingPhone = $changedA;
+$changedToExistingPhone['phone'] = '22222222';
+[$phoneEditResult, $phoneEditConflicts] = apply_customer_entity_mutations($updated, [
+    'profiles' => [array_merge($changedToExistingPhone, [
+        'mutationVersion' => 6,
+        'baseFingerprint' => customer_mutation_fingerprint($changedA),
+    ])],
+]);
+expect(count($phoneEditConflicts) === 1, 'Changing a customer to another active customer phone must be rejected.');
+expect(($phoneEditConflicts[0]['reason'] ?? '') === 'duplicate_phone', 'Duplicate phone edit rejection must be explicit.');
+expect($phoneEditResult['customers'] === $updated['customers'], 'Rejected phone edit must preserve all customers.');
+
 $collidingCustomer = $newCustomer;
 $collidingCustomer['phone'] = '44444444';
 [$collisionResult, $collisionConflicts] = apply_customer_entity_mutations($created, [
     'profiles' => [array_merge($collidingCustomer, [
-        'mutationVersion' => 5,
+        'mutationVersion' => 7,
         'baseFingerprint' => null,
     ])],
 ]);

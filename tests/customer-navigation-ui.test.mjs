@@ -20,3 +20,12 @@ test("profile group members open their customer profile without hijacking remove
   assert.match(appSource, /class="danger-btn icon-clear group-member-remove"/);
   assert.match(styleSource, /\.profile-group-member-open:hover/);
 });
+
+test("customer creation and phone edits reject an existing active phone", () => {
+  assert.match(appSource, /function normalizedCustomerPhone\(/);
+  assert.match(appSource, /function activeCustomerWithPhone\(/);
+  assert.match(appSource, /function rejectDuplicateCustomerPhone\(/);
+  assert.match(appSource, /if \(rejectDuplicateCustomerPhone\(phone\)\) return;/);
+  assert.match(appSource, /if \(rejectDuplicateCustomerPhone\(phone, customer\.id\)\) return;/);
+  assert.match(appSource, /error\.payload\?\.duplicatePhone/);
+});

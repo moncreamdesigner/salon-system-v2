@@ -1883,6 +1883,27 @@ async function saveServerStateNow() {
       showServerLogin("Нэвтрэх хугацаа дууссан байна. Дахин нэвтэрнэ үү.");
       return;
     }
+    if (error.status === 409 && error.payload?.duplicatePhone) {
+      savingSections.forEach(key => {
+        if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+      });
+      discardPendingMutationsThrough(savingMutationVersion);
+      clearPendingServerOperation(savingOperationId);
+      try {
+        const remote = await serverApi("state.php");
+        serverStorageRevision = Number(remote.revision || serverStorageRevision);
+        serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
+        applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
+        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+        applyServerData(remote.data || {});
+        renderActiveView(activeView, { force: true });
+      } catch (reloadError) {
+        console.warn("Duplicate phone state reload failed", reloadError);
+      }
+      hideServerSyncOverlay();
+      showToast(error.payload.message || "Энэ утасны дугаартай хэрэглэгч аль хэдийн бүртгэгдсэн байна.", "error");
+      return;
+    }
     if (error.status === 409 && error.payload?.conflict) {
       try {
         showServerSyncOverlay();
@@ -7868,13 +7889,36 @@ function renderCustomerInlineForm() {
   }
 }
 
+function normalizedCustomerPhone(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, 8);
+}
+
+function activeCustomerWithPhone(phone, excludeCustomerId = null) {
+  const normalizedPhone = normalizedCustomerPhone(phone);
+  if (!/^\d{8}$/.test(normalizedPhone)) return null;
+  return state.customers.find(customer =>
+    !customer.deleted &&
+    !customer.deletedAt &&
+    Number(customer.id) !== Number(excludeCustomerId) &&
+    normalizedCustomerPhone(customer.phone) === normalizedPhone
+  ) || null;
+}
+
+function rejectDuplicateCustomerPhone(phone, excludeCustomerId = null) {
+  const duplicate = activeCustomerWithPhone(phone, excludeCustomerId);
+  if (!duplicate) return false;
+  showToast(`Энэ утасны дугаар ${duplicate.name || "өөр хэрэглэгч"}-ийн бүртгэлд байна`, "error");
+  return true;
+}
+
 function saveInlineCustomer(event) {
   event.preventDefault();
-  const phone = formValue("inlineCustomerPhone");
-  if (phone.length !== 8) {
+  const phone = normalizedCustomerPhone(formValue("inlineCustomerPhone"));
+  if (!/^\d{8}$/.test(phone)) {
     showToast("Утасны дугаар 8 оронтой байна");
     return;
   }
+  if (rejectDuplicateCustomerPhone(phone)) return;
   const selectedType = formValue("inlineCustomerType") || "Хэрэглэгч";
   if (selectedType === "Салбар" && !isAdminAccount()) {
     showToast("“Салбар” төрлийн хэрэглэгчийг зөвхөн админ бүртгэнэ", "error");
@@ -11565,9 +11609,15 @@ function renderProfile() {
       showToast("“Салбар” хэрэглэгчийн төрлийг зөвхөн админ өөрчилнө", "error");
       return;
     }
+    const phone = normalizedCustomerPhone(formValue("profileInfoPhone"));
+    if (!/^\d{8}$/.test(phone)) {
+      showToast("Утасны дугаар 8 оронтой байна");
+      return;
+    }
+    if (rejectDuplicateCustomerPhone(phone, customer.id)) return;
     const profileUpdate = {
       name: formValue("profileInfoName"),
-      phone: formValue("profileInfoPhone"),
+      phone,
       gender: formValue("profileInfoGender"),
       district: formValue("profileInfoDistrict"),
       khoroo: formValue("profileInfoKhoroo"),
@@ -15735,11 +15785,12 @@ function openCustomerModal() {
       document.getElementById("customerModalForm").addEventListener("submit", event => {
         event.preventDefault();
         const customerId = uniqueNumericId(state.customers);
-        const phone = formValue("modalCustomerPhone");
-        if (phone.length !== 8) {
+        const phone = normalizedCustomerPhone(formValue("modalCustomerPhone"));
+        if (!/^\d{8}$/.test(phone)) {
           showToast("Утасны дугаар 8 оронтой байна");
           return;
         }
+        if (rejectDuplicateCustomerPhone(phone)) return;
         const selectedType = formValue("modalCustomerType") || "Хэрэглэгч";
         if (selectedType === "Салбар" && !isAdminAccount()) {
           showToast("“Салбар” төрлийн хэрэглэгчийг зөвхөн админ бүртгэнэ", "error");

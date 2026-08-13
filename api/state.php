@@ -617,16 +617,26 @@ try {
             $customerMutations
         );
         if ($customerMutationConflicts) {
+            $duplicatePhoneConflict = null;
+            foreach ($customerMutationConflicts as $customerMutationConflict) {
+                if (($customerMutationConflict['reason'] ?? '') === 'duplicate_phone') {
+                    $duplicatePhoneConflict = $customerMutationConflict;
+                    break;
+                }
+            }
             $pdo->rollBack();
             json_response([
                 'ok' => false,
                 'conflict' => true,
                 'customerConflict' => true,
+                'duplicatePhone' => $duplicatePhoneConflict !== null,
                 'currentRevision' => $currentRevision,
                 'currentScopeRevision' => $currentScopeRevision,
                 'sectionRevisions' => load_section_revisions($pdo, $mutationKeys),
                 'conflictingEntities' => $customerMutationConflicts,
-                'message' => 'Тухайн хэрэглэгчийн мэдээллийг өөр төхөөрөмж дээр шинэчилсэн байна. Хамгийн сүүлийн мэдээллийг ачаалж, үйлдлээ дахин шалгана уу.'
+                'message' => $duplicatePhoneConflict !== null
+                    ? 'Энэ утасны дугаартай хэрэглэгч аль хэдийн бүртгэгдсэн байна.'
+                    : 'Тухайн хэрэглэгчийн мэдээллийг өөр төхөөрөмж дээр шинэчилсэн байна. Хамгийн сүүлийн мэдээллийг ачаалж, үйлдлээ дахин шалгана уу.'
             ], 409);
         }
         foreach ($mutationKeys as $key) {
