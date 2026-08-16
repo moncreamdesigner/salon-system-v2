@@ -8677,20 +8677,24 @@ function courseEligiblePaidAmount(item = {}) {
 }
 
 function courseTransferInfo(item = {}) {
-  if (item.kind !== "course") return { totalVisits: 0, usedVisits: 0, paid: 0, usedValue: 0, transferred: 0, available: 0 };
+  if (item.kind !== "course") return { totalVisits: 0, usedVisits: 0, unusedVisits: 0, paid: 0, usedValue: 0, shortfall: 0, transferred: 0, available: 0 };
   const visits = (Array.isArray(item.visits) ? item.visits : []).filter(visit => !visit.deleted);
   const totalVisits = Math.max(1, Number(item.visitsTotal || visits.length || 1));
   const netCoursePrice = Math.max(0, Number(item.basePrice || item.price || 0) - Number(item.employeeDiscountAmount || 0));
   const paid = Math.min(netCoursePrice, courseEligiblePaidAmount(item));
   const usedVisits = Math.min(totalVisits, visits.length);
-  const usedValue = Math.min(paid, Math.round((netCoursePrice / totalVisits) * usedVisits));
+  const unusedVisits = Math.max(0, totalVisits - usedVisits);
+  const usedValue = Math.min(netCoursePrice, Math.round((netCoursePrice / totalVisits) * usedVisits));
+  const shortfall = Math.max(0, usedValue - paid);
   const transferred = (Array.isArray(item.creditTransfers) ? item.creditTransfers : [])
     .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
   return {
     totalVisits,
     usedVisits,
+    unusedVisits,
     paid,
     usedValue,
+    shortfall,
     transferred,
     available: Math.max(0, paid - usedValue - transferred)
   };
@@ -9697,7 +9701,11 @@ function renderServicePaymentSummary(item, paid, historyIndex) {
       ${extras.vipRoomFee ? `<span>Вип өрөө <strong>${money(extras.vipRoomFee)}</strong></span>` : ""}
       ${item.employeeDiscountAmount ? `<span class="payment-discount">Ажилтны ${formatNumber(item.employeeDiscountPercent || 0)}% хөнгөлөлт <strong>−${money(item.employeeDiscountAmount)}</strong></span>` : ""}
       <span class="payment-total">Нийт үнэ <strong>${money(total)}</strong></span>
-      ${overpaid ? `<span class="payment-overpaid">Илүү төлөлт <strong>${money(overpaid)}</strong></span>` : (balance ? `<span class="red">Үлдэгдэл <strong>${money(balance)}</strong></span>` : `<span>Төлбөр хаагдсан</span>`)}
+      ${item.courseClosedWithoutTransfer
+        ? `<span>Курс хаагдсан</span>`
+        : overpaid
+          ? `<span class="payment-overpaid">Илүү төлөлт <strong>${money(overpaid)}</strong></span>`
+          : (balance ? `<span class="red">Үлдэгдэл <strong>${money(balance)}</strong></span>` : `<span>Төлбөр хаагдсан</span>`)}
       <button class="${balance ? "primary-btn" : "secondary-btn payment-closed"} profile-payment-open" type="button" data-history-index="${historyIndex}" aria-expanded="${item.paymentFormOpen ? "true" : "false"}"><span>Төлбөр төлөх</span><span class="payment-open-arrow${item.paymentFormOpen ? " open" : ""}" aria-hidden="true"></span></button>
     </div>
     ${item.paymentFormOpen ? renderInlinePaymentForm(item, historyIndex, balance) : ""}
@@ -9738,7 +9746,7 @@ function paymentMethodOptionsLabel(value = "") {
     gift_card: "Бэлгийн карт",
     salary: "Цалингаас суутгах",
     customer_credit: "Шилжүүлсэн үлдэгдлээс",
-    credit_transfer: "Үлдэгдэл шилжүүлэх"
+    credit_transfer: "Шилжүүлэх / хаах"
   };
   return labels[normalizedValue] || "";
 }
@@ -9754,7 +9762,7 @@ function paymentMethodOptions(selected = "card", { allowCreditTransfer = false, 
     ["gift_card", "Бэлгийн карт"],
     ["salary", "Цалингаас суутгах"],
     ...(creditBalance > 0 ? [["customer_credit", `Шилжүүлсэн үлдэгдлээс · ${money(creditBalance)}`]] : []),
-    ...(allowCreditTransfer ? [["credit_transfer", "Үлдэгдэл шилжүүлэх"]] : [])
+    ...(allowCreditTransfer ? [["credit_transfer", "Шилжүүлэх / хаах"]] : [])
   ];
   return methods.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
@@ -9807,9 +9815,13 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
             <span>Төлсөн дүн <strong>${money(transfer.paid)}</strong></span>
             <span>Ашигласан оролт <strong>${transfer.usedVisits}/${transfer.totalVisits}</strong></span>
             <span>Ашигласан дүн <strong>${money(transfer.usedValue)}</strong></span>
-            <span class="credit-transfer-available">Шилжүүлэх үлдэгдэл <strong>${money(transfer.available)}</strong></span>
+            ${transfer.shortfall > 0
+              ? `<span class="red">Төлөх шаардлагатай дүн <strong>${money(transfer.shortfall)}</strong></span>`
+              : transfer.available > 0
+                ? `<span class="credit-transfer-available">Дансанд шилжих дүн <strong>${money(transfer.available)}</strong></span>`
+                : `<span class="credit-transfer-available">Мөнгө шилжихгүй · Үлдсэн ${transfer.unusedVisits} оролт хаагдана</span>`}
           </div>
-          <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" aria-label="Шалтгаан" placeholder="Шалтгаан: Курсыг зогсоож бараа авах"></textarea>
+          <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" aria-label="Шалтгаан" placeholder="Шалтгаан: Курсыг дундаас нь дуусгах"></textarea>
         </div>`;
       })() : ""}
     </div>
@@ -9824,7 +9836,8 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const availableBonus = bonusAlreadyUsed ? 0 : Math.max(0, Math.min(Number(bonus?.balance || 0), Math.floor(serviceTotalAmount(item) * 0.5), amount));
   const selectedMethod = "card";
   const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
-  const allowCreditTransfer = item.kind === "course" && courseTransferInfo(item).available > 0 && !item.transferClosed;
+  const transferInfo = courseTransferInfo(item);
+  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && !item.transferClosed;
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
       <div class="inline-payment-grid">
@@ -10780,7 +10793,7 @@ function renderCourseSlots(item, historyIndex) {
               <div class="course-slot-card ${visit ? "done" : ""} ${expanded ? "active" : ""} ${locked ? "locked" : ""} ${item.transferClosed && !visit ? "transfer-closed" : ""}">
                 <button class="course-slot-btn" type="button" data-history-index="${historyIndex}" data-visit="${number}" data-filled="${visit ? "true" : "false"}" ${item.transferClosed && !visit ? "disabled" : ""}>
                   <strong>${number}</strong>
-                  <span>${visit ? visit.date : (item.transferClosed ? "Үлдэгдэл шилжүүлсэн" : "Оролт нэмэх")}</span>
+                  <span>${visit ? visit.date : (item.transferClosed ? (item.courseClosedWithoutTransfer ? "Курс хаасан" : "Үлдэгдэл шилжүүлсэн") : "Оролт нэмэх")}</span>
                   ${visit ? `<small>${visit.staff || "Ажилтан сонгоогүй"}</small>` : ""}
                   ${visit ? `<em class="course-slot-icons">${visitStatusIcons(visit)}</em>` : ""}
                 </button>
@@ -10847,7 +10860,7 @@ function bindCourseVisitInlineForms(customer) {
       const course = customer.serviceHistory?.[historyIndex];
       if (!course) return;
       if (course.transferClosed && !(course.visits || []).some(item => Number(item.number) === Number(visitNumber))) {
-        showToast("Энэ курсын ашиглаагүй үлдэгдлийг шилжүүлсэн тул шинэ оролт нэмэх боломжгүй", "error");
+        showToast(course.courseClosedWithoutTransfer ? "Энэ курс хаагдсан тул шинэ оролт нэмэх боломжгүй" : "Энэ курсын ашиглаагүй үлдэгдлийг шилжүүлсэн тул шинэ оролт нэмэх боломжгүй", "error");
         return;
       }
       const existingVisit = (course.visits || []).find(item => Number(item.number) === Number(visitNumber));
@@ -11513,7 +11526,7 @@ function renderProfile() {
       const visitNumber = Number(button.dataset.visit);
       const item = customer.serviceHistory?.[historyIndex];
       if (!item) return;
-      if (item.transferClosed) return showToast("Энэ курсын үлдэгдлийг шилжүүлсэн", "error");
+      if (item.transferClosed) return showToast(item.courseClosedWithoutTransfer ? "Энэ курс хаагдсан" : "Энэ курсын үлдэгдлийг шилжүүлсэн", "error");
       const wasOpen = Number(item.expandedVisit) === visitNumber;
       collapseCustomerServicePanels(customer);
       if (!wasOpen) item.expandedVisit = visitNumber;
@@ -12182,7 +12195,10 @@ function bindProfileServiceInlineForm(customer) {
           creditTransfers: editingItem.creditTransfers,
           transferClosed: true,
           transferClosedAt: editingItem.transferClosedAt,
-          transferClosedBy: editingItem.transferClosedBy
+          transferClosedBy: editingItem.transferClosedBy,
+          transferCloseReason: editingItem.transferCloseReason,
+          courseClosedWithoutTransfer: Boolean(editingItem.courseClosedWithoutTransfer),
+          courseClosedCancelledBalance: Number(editingItem.courseClosedCancelledBalance || 0)
         });
       }
       customer.serviceHistory[editingIndex] = historyItem;
@@ -12192,7 +12208,7 @@ function bindProfileServiceInlineForm(customer) {
     if (date === todayText()) assignDailyQueue(customer, date, salon);
     customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, kind === "course" ? `Курс ${(historyItem.visits || []).length}/${historyItem.visitsTotal}` : "Нэг удаа");
     if (historyItem.transferClosed && customer.currentTreatment) {
-      customer.currentTreatment.stage = "Үлдэгдэл шилжүүлж хаасан";
+      customer.currentTreatment.stage = historyItem.courseClosedWithoutTransfer ? "Курс хаасан" : "Үлдэгдэл шилжүүлж хаасан";
       customer.currentTreatment.paymentBalance = 0;
     }
     const remainingCourse = customerCourseEntryStatus(customer);
@@ -12274,7 +12290,7 @@ function bindInlinePaymentForms(customer) {
     const historyIndex = Number(form.dataset.historyIndex);
     const item = customer.serviceHistory?.[historyIndex];
     const balance = Number(item?.balance || 0);
-    const availableTransfer = courseTransferInfo(item).available;
+    const transferInfo = courseTransferInfo(item);
     const availableCustomerCredit = customerCreditBalance(customer);
     const group = customerGroup(customer);
     const bonus = groupBonusInfo(group);
@@ -12364,8 +12380,8 @@ function bindInlinePaymentForms(customer) {
       if (transferMode) {
         setBonusApplied(false);
         if (submitButton) {
-          submitButton.disabled = availableTransfer <= 0;
-          submitButton.textContent = "Үлдэгдэл шилжүүлэх";
+          submitButton.disabled = transferInfo.unusedVisits <= 0 || transferInfo.shortfall > 0;
+          submitButton.textContent = "Шилжүүлэх / хаах";
         }
       } else {
         if (amountInput) {
@@ -12396,20 +12412,24 @@ function bindInlinePaymentForms(customer) {
       if (selectedMethodValue === "credit_transfer") {
         const transfer = courseTransferInfo(historyItem);
         const reason = form.querySelector(".inline-credit-transfer-reason")?.value?.trim() || "";
-        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.available <= 0) {
-          showToast("Шилжүүлэх боломжтой үлдэгдэл алга", "error");
+        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.unusedVisits <= 0) {
+          showToast("Хаах ашиглаагүй оролт алга", "error");
+          return;
+        }
+        if (transfer.shortfall > 0) {
+          showToast(`Ашигласан үйлчилгээний ${money(transfer.shortfall)} төлбөрийг төлсний дараа хаана`, "error");
           return;
         }
         if (!reason) {
-          showToast("Шилжүүлгийн шалтгаан оруулна уу", "error");
+          showToast("Шилжүүлэх эсвэл хаах шалтгаан оруулна уу", "error");
           return;
         }
         const transferId = entityId("credit");
         const transferDate = form.querySelector(".inline-payment-date")?.value || todayText();
-        if (!requireOperationalDateEditable(transferDate, "үлдэгдэл шилжүүлэх")) return;
+        if (!requireOperationalDateEditable(transferDate, transfer.available > 0 ? "үлдэгдэл шилжүүлэх" : "курс хаах")) return;
         if (!await requireEditCode()) return;
         const createdAt = new Date().toISOString();
-        const ledgerEntry = {
+        const closureEntry = {
           id: transferId,
           type: "course_transfer",
           amount: transfer.available,
@@ -12422,32 +12442,41 @@ function bindInlinePaymentForms(customer) {
           createdBy: auditActorUsername(),
           createdById: activeAccount.id || 0
         };
-        customer.creditLedger = customerCreditLedger(customer);
-        customer.creditLedger.unshift(ledgerEntry);
-        historyItem.creditTransfers = Array.isArray(historyItem.creditTransfers) ? historyItem.creditTransfers : [];
-        historyItem.creditTransfers.unshift({ ...structuredClone(ledgerEntry), ledgerEntryId: transferId });
+        if (transfer.available > 0) {
+          customer.creditLedger = customerCreditLedger(customer);
+          customer.creditLedger.unshift(closureEntry);
+          historyItem.creditTransfers = Array.isArray(historyItem.creditTransfers) ? historyItem.creditTransfers : [];
+          historyItem.creditTransfers.unshift({ ...structuredClone(closureEntry), ledgerEntryId: transferId });
+        }
         historyItem.transferClosed = true;
         historyItem.transferClosedAt = createdAt;
         historyItem.transferClosedBy = auditActorUsername();
+        historyItem.transferCloseReason = reason;
+        historyItem.courseClosedWithoutTransfer = transfer.available <= 0;
+        historyItem.courseClosedCancelledBalance = Math.max(0, Number(historyItem.balance || 0));
+        historyItem.balance = 0;
         historyItem.paymentFormOpen = false;
         if (customer.currentTreatment && (
           String(customer.currentTreatment.historyId || "") === String(historyItem.id) ||
           (!customer.currentTreatment.historyId && customer.currentTreatment.service === (historyItem.service || historyItem.title))
         )) {
           customer.currentTreatment.historyId = historyItem.id;
-          customer.currentTreatment.stage = "Үлдэгдэл шилжүүлж хаасан";
+          customer.currentTreatment.stage = transfer.available > 0 ? "Үлдэгдэл шилжүүлж хаасан" : "Курс хаасан";
           customer.currentTreatment.paymentBalance = 0;
         }
         const remainingCourse = customerCourseEntryStatus(customer);
         customer.activeCourse = remainingCourse?.kind === "course";
         const auditEntry = {
           id: entityId("audit"),
-          title: "course_credit_transferred",
+          title: transfer.available > 0 ? "course_credit_transferred" : "course_closed",
           createdAt: auditNowText(),
-          meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title} • ${money(transfer.available)}`
+          meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title} • ${transfer.available > 0 ? money(transfer.available) : `мөнгө шилжээгүй • ${transfer.unusedVisits} оролт хаасан`} • ${reason}`
         };
         state.audit.unshift(auditEntry);
-        saveAndRefreshCustomerProfile("Үлдэгдэл хэрэглэгчийн дансанд шилжлээ", { auditEntries: [auditEntry] });
+        saveAndRefreshCustomerProfile(
+          transfer.available > 0 ? "Үлдэгдэл хэрэглэгчийн дансанд шилжиж, курс хаагдлаа" : "Мөнгө шилжүүлэхгүйгээр курс хаагдлаа",
+          { auditEntries: [auditEntry] }
+        );
         return;
       }
       const currentBalance = Number(historyItem.balance || 0);
@@ -15605,6 +15634,7 @@ function auditActionText(title = "") {
     payment_created: "Төлбөр бүртгэсэн",
     payment_reversed: "Төлбөрийг буцаасан",
     course_credit_transferred: "Курсын үлдэгдэл шилжүүлсэн",
+    course_closed: "Курсыг дундаас нь хаасан",
     course_credit_transfer_reversed: "Курсын шилжүүлсэн үлдэгдлийг буцаасан",
     customer_created: "Шинэ хэрэглэгч бүртгэсэн",
     customer_updated: "Хэрэглэгчийн мэдээллийг зассан",

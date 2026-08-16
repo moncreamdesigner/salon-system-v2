@@ -49,7 +49,7 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
   assert.match(styleSource, /\.inline-payment-extra\.credit-transfer-mode\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(appSource, /inline-payment-credit-balance-field hidden/);
   assert.doesNotMatch(appSource, /Энэ дүн шинэ орлого болон кассын урамшуулалд дахин тооцогдохгүй/);
-  assert.match(appSource, /placeholder="Шалтгаан: Курсыг зогсоож бараа авах"/);
+  assert.match(appSource, /placeholder="Шалтгаан: Курсыг дундаас нь дуусгах"/);
 });
 
 test("an older service can receive a current payment while payment dates remain protected", () => {
@@ -57,7 +57,7 @@ test("an older service can receive a current payment while payment dates remain 
   assert.match(appSource, /<button class="primary-btn inline-payment-submit" type="submit"/);
   assert.doesNotMatch(appSource, /if \(!isServiceWithinEditDays\(historyItem\)\)/);
   assert.match(appSource, /requireOperationalDateEditable\(paidDate, "[^"]+"\)/);
-  assert.match(appSource, /requireOperationalDateEditable\(transferDate, "[^"]+"\)/);
+  assert.match(appSource, /requireOperationalDateEditable\(transferDate, transfer\.available > 0 \? "үлдэгдэл шилжүүлэх" : "курс хаах"\)/);
 });
 
 test("course visits use a staged, per-visit cancellation flow", () => {
