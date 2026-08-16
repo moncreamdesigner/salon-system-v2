@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const appSource = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const styleSource = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 function functionSource(name) {
   const start = appSource.indexOf(`function ${name}(`);
@@ -75,4 +76,12 @@ test("close flow keeps zero-credit closure out of the customer ledger", () => {
   assert.match(appSource, /if \(transfer\.available > 0\) \{[\s\S]*customer\.creditLedger\.unshift\(closureEntry\)/);
   assert.match(appSource, /historyItem\.courseClosedWithoutTransfer = transfer\.available <= 0;[\s\S]*historyItem\.balance = 0;/);
   assert.match(appSource, /title: transfer\.available > 0 \? "course_credit_transferred" : "course_closed"/);
+});
+
+test("payment and close controls adapt to the profile column instead of viewport width", () => {
+  assert.match(styleSource, /\.inline-payment-form\s*\{[\s\S]*?container-type: inline-size;/);
+  assert.match(styleSource, /\.inline-payment-method-field \.custom-select-menu\s*\{[\s\S]*?width: max\(100%, 230px\);/);
+  assert.match(styleSource, /@container \(max-width: 900px\)[\s\S]*?\.inline-payment-grid\s*\{[\s\S]*?display: flex;[\s\S]*?flex-wrap: wrap;/);
+  assert.match(styleSource, /@container \(max-width: 900px\)[\s\S]*?\.inline-payment-method-field\s*\{[\s\S]*?flex: 1 1 230px !important;/);
+  assert.match(styleSource, /@container \(max-width: 900px\)[\s\S]*?\.inline-credit-transfer\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
 });
