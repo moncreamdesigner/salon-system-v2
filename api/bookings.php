@@ -60,6 +60,22 @@ function booking_index(array $rows, string $id): ?int
     return null;
 }
 
+function booking_id_count(array $rows, string $id): int
+{
+    $count = 0;
+    foreach ($rows as $row) {
+        if (is_array($row) && (string)($row['id'] ?? '') === $id) $count++;
+    }
+    return $count;
+}
+
+function booking_unique_id(array $rows): string
+{
+    $id = (string)(int)(microtime(true) * 1000000);
+    while (booking_index($rows, $id) !== null) $id = (string)((int)$id + 1);
+    return $id;
+}
+
 function booking_capacity(array $salons, string $salonName): int
 {
     foreach ($salons as $salon) {
@@ -237,7 +253,9 @@ try {
     if ($action === 'create') {
         $requested = is_array($payload['bookings'] ?? null) ? array_values($payload['bookings']) : [];
         if (!$requested || count($requested) > 4) throw new InvalidArgumentException('Нэг удаа 1–4 цаг бүртгэнэ.');
-        foreach ($requested as $requestedBooking) {
+        $bookingGroupId = 'booking-group-' . bin2hex(random_bytes(16));
+        $slotCount = count($requested);
+        foreach ($requested as $slotIndex => $requestedBooking) {
             if (!is_array($requestedBooking)) throw new InvalidArgumentException('Захиалгын мэдээлэл буруу байна.');
             $booking = booking_validate([
                 'id' => $requestedBooking['id'] ?? '',
@@ -250,12 +268,13 @@ try {
                 'createdAt' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d H:i'),
             ]);
             if (!booking_can_access($user, (string)$booking['salon'])) throw new LogicException('Өөр салбарын цагийг өөрчлөх эрхгүй.');
-            $id = trim((string)($booking['id'] ?? ''));
-            if ($id === '' || booking_index($bookings, $id) !== null) {
-                $id = (string)(int)(microtime(true) * 1000000);
-                while (booking_index($bookings, $id) !== null) $id = (string)((int)$id + 1);
-            }
+            // The server owns booking identity. Client timestamps can collide
+            // across branch computers and must never become persistent IDs.
+            $id = booking_unique_id($bookings);
             $booking['id'] = ctype_digit($id) ? (int)$id : $id;
+            $booking['bookingGroupId'] = $bookingGroupId;
+            $booking['slotIndex'] = $slotIndex + 1;
+            $booking['slotCount'] = $slotCount;
             booking_assert_slot_rules($booking, $salons, $holidays);
             booking_assert_capacity($bookings, $booking, $salons);
             array_unshift($bookings, $booking);
@@ -267,6 +286,9 @@ try {
         $id = trim((string)($payload['id'] ?? ''));
         $index = booking_index($bookings, $id);
         if ($id === '' || $index === null) throw new OutOfBoundsException('Захиалга олдсонгүй.');
+        if (booking_id_count($bookings, $id) > 1) {
+            throw new DomainException('Энэ захиалгын дугаар давхардсан байна. Админаар мэдээллийг шалгуулна уу.');
+        }
         $current = $bookings[$index];
         if (!booking_can_access($user, (string)($current['salon'] ?? ''))) throw new LogicException('Өөр салбарын цагийг өөрчлөх эрхгүй.');
         $expected = is_array($payload['expected'] ?? null) ? $payload['expected'] : null;

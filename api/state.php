@@ -536,6 +536,17 @@ if ($operationId !== '' && preg_match('/^[A-Za-z0-9._:-]{12,190}$/', $operationI
 if (!is_array($sections) || array_is_list($sections)) {
     json_response(['ok' => false, 'message' => 'Өгөгдлийн бүтэц буруу байна.'], 422);
 }
+// Booking records have their own transactional entity endpoint. Accepting a
+// full booking array here lets an old/stale browser restore rows that another
+// workstation already edited or deleted.
+if (array_key_exists('bookings', $sections)) {
+    json_response([
+        'ok' => false,
+        'conflict' => true,
+        'bookingEndpointRequired' => true,
+        'message' => 'Цаг захиалгын мэдээллийг хуучин хадгалалтын замаар өөрчлөхөөс хамгааллаа. Хуудсаа шинэчилнэ үү.',
+    ], 409);
+}
 $encoded = json_encode($sections, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 if ($encoded === false || strlen($encoded) > 50 * 1024 * 1024) {
     json_response(['ok' => false, 'message' => 'Өгөгдлийн хэмжээ хэтэрсэн байна.'], 413);

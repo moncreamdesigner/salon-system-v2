@@ -32,6 +32,7 @@ let serverSaveTimer = null;
 let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
+let bookingMutationInFlight = 0;
 let localStateMutationVersion = 0;
 let localStateSaveTimer = null;
 let saveContextView = "";
@@ -861,7 +862,9 @@ function clearCustomerUiState(customer) {
 
 function dirtySectionsForView(viewName = "") {
   return ({
-    bookings: ["bookings"],
+    // Bookings are entity-owned by api/bookings.php. Never send the whole
+    // section through the generic state writer from the booking screen.
+    bookings: [],
     customers: ["customers"],
     profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
     kass: ["kassSchedules"],
@@ -895,7 +898,8 @@ function saveState(sectionKeys = null) {
     item.createdAt = createdAt;
   }
   const inferredKeys = dirtySectionsForView(saveContextView);
-  const keys = Array.isArray(sectionKeys) ? sectionKeys : (inferredKeys || Object.keys(state));
+  const keys = (Array.isArray(sectionKeys) ? sectionKeys : (inferredKeys || Object.keys(state)))
+    .filter(key => key !== "bookings");
   keys.forEach(key => {
     if (key && key !== "selectedCustomerId") pendingServerSections.set(key, localStateMutationVersion);
   });
@@ -964,7 +968,8 @@ function serverStateRequestBody(
   customerMutations = customerMutationsForSave(mutationVersion),
   operationId = ""
 ) {
-  const keys = pendingServerSections.size ? Array.from(pendingServerSections.keys()) : Object.keys(state).filter(key => key !== "selectedCustomerId");
+  const keys = (pendingServerSections.size ? Array.from(pendingServerSections.keys()) : Object.keys(state).filter(key => key !== "selectedCustomerId"))
+    .filter(key => key !== "bookings");
   const data = {};
   const sectionRevisions = {};
   const hasCustomerMutations = customerMutations.profiles.length > 0;
@@ -1850,6 +1855,19 @@ async function saveServerStateNow() {
       if (!confirmedCustomerMessages.length) showToast("Өөрчлөлт амжилттай хадгалагдлаа");
     }
   } catch (error) {
+    if (error.status === 409 && error.payload?.bookingEndpointRequired) {
+      pendingServerSections.delete("bookings");
+      clearPendingServerOperation(savingOperationId);
+      serverSavePending = pendingServerSections.size > 0;
+      try {
+        await synchronizeServerState(localStateMutationVersion, VIEW_SERVER_SECTIONS.bookings, "bookings");
+        if (activeView === "bookings") renderBookings();
+      } catch (reloadError) {
+        console.warn("Protected booking reload failed", reloadError);
+      }
+      showToast(error.payload.message || "Цаг захиалгын мэдээллийг хамгааллаа.", "error");
+      return;
+    }
     if (error.status === 409 && error.payload?.protectedData) {
       savingSections.forEach(key => {
         if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
@@ -2184,7 +2202,7 @@ const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers",
 
 async function refreshServerStateForView(viewName = activeView) {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return;
-  if (!serverStorageReady || serverRefreshInFlight || serverSaveTimer || serverSaveInFlight || serverSavePending) return;
+  if (!serverStorageReady || serverRefreshInFlight || serverSaveTimer || serverSaveInFlight || serverSavePending || bookingMutationInFlight > 0) return;
   const refreshVersion = localStateMutationVersion;
   serverRefreshInFlight = true;
   try {
@@ -14074,7 +14092,7 @@ function renderBookings() {
       return pendingOrder || Number(a.id || 0) - Number(b.id || 0);
     });
   document.getElementById("bookingRows").innerHTML = bookings.map((booking, index) => {
-    const editingThisBooking = Number(bookingInlineEditingId) === Number(booking.id);
+    const editingThisBooking = String(bookingInlineEditingId ?? "") === String(booking.id ?? "");
     return `
     <tr class="${editingThisBooking ? "booking-row-editing" : ""}">
       <td>${index + 1}</td>
@@ -14101,14 +14119,14 @@ function renderBookings() {
   }).join("") || `<tr><td colspan="8" class="empty-state">${q || date ? "Хайлтад тохирох цаг олдсонгүй" : "Өнөөдөр болон ирээдүйд бүртгэлтэй цаг алга"}</td></tr>`;
 
   document.querySelectorAll(".booking-confirm").forEach(button => {
-    button.addEventListener("click", () => updateBookingStatus(Number(button.dataset.id), "confirmed"));
+    button.addEventListener("click", () => updateBookingStatus(button.dataset.id, "confirmed"));
   });
   document.querySelectorAll(".booking-delete").forEach(button => {
-    button.addEventListener("click", () => deleteBooking(Number(button.dataset.id)));
+    button.addEventListener("click", () => deleteBooking(button.dataset.id));
   });
   document.querySelectorAll(".booking-edit").forEach(button => {
     button.addEventListener("click", () => {
-      bookingInlineEditingId = Number(button.dataset.id);
+      bookingInlineEditingId = String(button.dataset.id || "");
       closeBookingForm();
       renderBookings();
     });
@@ -15967,40 +15985,49 @@ function bookingOperationId() {
 async function submitBookingOperation(action, payload = {}) {
   const requestBody = JSON.stringify({ action, operationId: bookingOperationId(), ...payload });
   let lastError = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const result = await serverApi("bookings.php", { method: "POST", body: requestBody });
-      serverStorageRevision = Number(result.revision || serverStorageRevision);
-      serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
-      applyServerSectionRevisions(result.sectionRevisions || {});
-      pendingServerSections.delete("bookings");
-      virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
-      const changedBookings = Array.isArray(result.bookings) ? result.bookings : [];
-      if (result.action === "create") {
-        changedBookings.slice().reverse().forEach(booking => {
-          if (!state.bookings.some(item => String(item.id) === String(booking.id))) state.bookings.unshift(booking);
-        });
-      } else if (result.action === "delete") {
-        state.bookings = state.bookings.filter(item => String(item.id) !== String(result.deletedId));
-      } else {
-        changedBookings.forEach(booking => {
-          const index = state.bookings.findIndex(item => String(item.id) === String(booking.id));
-          if (index >= 0) state.bookings[index] = booking;
-          else state.bookings.unshift(booking);
-        });
+  bookingMutationInFlight += 1;
+  // Invalidate any state refresh that started before this mutation. Without
+  // this, a late response can replace the edited row with stale data and make
+  // the inline editor silently lose its target.
+  localStateMutationVersion += 1;
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const result = await serverApi("bookings.php", { method: "POST", body: requestBody });
+        serverStorageRevision = Number(result.revision || serverStorageRevision);
+        serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
+        applyServerSectionRevisions(result.sectionRevisions || {});
+        pendingServerSections.delete("bookings");
+        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+        const changedBookings = Array.isArray(result.bookings) ? result.bookings : [];
+        if (result.action === "create") {
+          changedBookings.slice().reverse().forEach(booking => {
+            if (!state.bookings.some(item => String(item.id) === String(booking.id))) state.bookings.unshift(booking);
+          });
+        } else if (result.action === "delete") {
+          state.bookings = state.bookings.filter(item => String(item.id) !== String(result.deletedId));
+        } else {
+          changedBookings.forEach(booking => {
+            const index = state.bookings.findIndex(item => String(item.id) === String(booking.id));
+            if (index >= 0) state.bookings[index] = booking;
+            else state.bookings.unshift(booking);
+          });
+        }
+        if (result.auditEntry && !state.audit.some(item => String(item.id || "") === String(result.auditEntry.id || ""))) {
+          state.audit.unshift(result.auditEntry);
+        }
+        invalidatePersistedStateCache();
+        invalidatePerformanceData();
+        return result;
+      } catch (error) {
+        lastError = error;
+        const retryable = error.status === undefined || error.payload?.retryable === true;
+        if (!retryable || attempt === 2) break;
+        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
       }
-      if (result.auditEntry && !state.audit.some(item => String(item.id || "") === String(result.auditEntry.id || ""))) {
-        state.audit.unshift(result.auditEntry);
-      }
-      invalidatePersistedStateCache();
-      invalidatePerformanceData();
-      return result;
-    } catch (error) {
-      lastError = error;
-      const retryable = error.status === undefined || error.payload?.retryable === true;
-      if (!retryable || attempt === 2) break;
-      await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
     }
+  } finally {
+    bookingMutationInFlight = Math.max(0, bookingMutationInFlight - 1);
   }
   if (lastError?.status === 409 && lastError.payload?.conflict) {
     await refreshServerStateForView("bookings");
@@ -16009,7 +16036,7 @@ async function submitBookingOperation(action, payload = {}) {
 }
 
 async function updateBookingStatus(id, status) {
-  const booking = state.bookings.find(item => Number(item.id) === Number(id));
+  const booking = state.bookings.find(item => String(item.id) === String(id));
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг өөрчлөх эрхгүй");
   try {
     await submitBookingOperation("status", { id: booking.id, status, expected: structuredClone(booking) });
@@ -16085,7 +16112,7 @@ function requireEditCodeValue() {
 }
 
 async function deleteBooking(id) {
-  const booking = state.bookings.find(item => Number(item.id) === Number(id));
+  const booking = state.bookings.find(item => String(item.id) === String(id));
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг устгах эрхгүй");
   const code = await requestActionCode("delete", true);
   if (!code) return;
@@ -16408,7 +16435,7 @@ function bookedCountForSlot(salonName, date, time, editingId) {
     booking.date === date &&
     booking.time === time &&
     !["cancelled", "rejected"].includes(booking.status) &&
-    Number(booking.id) !== Number(editingId)
+    String(booking.id) !== String(editingId)
   ).length;
 }
 
@@ -16505,14 +16532,15 @@ function bindBookingSlotRow(row, editId) {
 
 function updateBookingSlotCount() {
   const count = document.getElementById("bookingSlotCount");
-  if (count) count.value = document.querySelectorAll(".booking-slot-row").length;
+  const slots = document.getElementById("bookingSlots");
+  if (count) count.value = slots?.querySelectorAll(".booking-slot-row").length || 0;
 }
 
 function setBookingSlotCount(targetCount, editId) {
   const slots = document.getElementById("bookingSlots");
   if (!slots) return;
   const safeCount = Math.max(1, Math.min(4, targetCount));
-  let rows = Array.from(document.querySelectorAll(".booking-slot-row"));
+  let rows = Array.from(slots.querySelectorAll(".booking-slot-row"));
   while (rows.length < safeCount) {
     const index = rows.length;
     const lastRow = rows[rows.length - 1];
@@ -16528,24 +16556,34 @@ function setBookingSlotCount(targetCount, editId) {
     setupInlineCustomSelects(newRow);
     bindBookingSlotRow(newRow, editId);
     renderBookingTimeOptions(editId, newRow);
-    rows = Array.from(document.querySelectorAll(".booking-slot-row"));
+    rows = Array.from(slots.querySelectorAll(".booking-slot-row"));
   }
   while (rows.length > safeCount) {
     rows[rows.length - 1].remove();
-    rows = Array.from(document.querySelectorAll(".booking-slot-row"));
+    rows = Array.from(slots.querySelectorAll(".booking-slot-row"));
   }
   updateBookingSlotCount();
 }
 
 function openBookingModal(editId, targetSlot = null, draft = null) {
-  const editing = state.bookings.find(item => Number(item.id) === Number(editId));
+  const requestedEdit = editId !== null && editId !== undefined && String(editId) !== "";
+  const editing = requestedEdit
+    ? state.bookings.find(item => String(item.id) === String(editId))
+    : null;
+  const slot = targetSlot || document.getElementById("bookingInlineSlot");
+  if (!slot) return;
+  if (requestedEdit && !editing) {
+    bookingInlineEditingId = null;
+    slot.innerHTML = '<div class="empty-state">Засах цагийн мэдээлэл шинэчлэгдсэн байна. Жагсаалтаас дахин сонгоно уу.</div>';
+    showToast("Засах цаг олдсонгүй. Шинэ цаг болгон бүртгээгүй.", "error");
+    void refreshServerStateForView("bookings");
+    return;
+  }
   if (editing && !canAccessSalon(editing.salon)) return showToast("Өөр салбарын цагийг засах эрхгүй");
   const minDate = todayText();
   const selectedDate = draft?.date || (editing && !isPastDate(editing.date) ? editing.date : minDate);
   const selectedSalon = isSalonAccount() ? activeAccount.salon : (draft?.salon || editing?.salon || state.salons[0]?.name || "");
   const selectedTime = draft?.time || editing?.time || bookingOptionsForSalon(selectedSalon, selectedDate)[0] || "";
-  const slot = targetSlot || document.getElementById("bookingInlineSlot");
-  if (!slot) return;
   const salonSignature = accountSalons().map(salon => salon.name).join("|");
   slot.innerHTML = `
     <form id="bookingForm" class="clean-form inline-booking-form${editing ? " is-editing" : ""}" data-salon-signature="${htmlSafe(salonSignature)}">
@@ -16589,17 +16627,19 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
     bookingDropdownCloseBound = true;
   }
   document.getElementById("bookingSlotMinus")?.addEventListener("click", () => {
-    setBookingSlotCount(document.querySelectorAll(".booking-slot-row").length - 1, editId);
+    setBookingSlotCount(slot.querySelectorAll(".booking-slot-row").length - 1, editId);
   });
   document.getElementById("bookingSlotPlus")?.addEventListener("click", () => {
-    const currentCount = document.querySelectorAll(".booking-slot-row").length;
+    const currentCount = slot.querySelectorAll(".booking-slot-row").length;
     if (currentCount >= 4) {
       showToast("Нэг дуудлагаар 4 хүртэл цаг захиална");
       return;
     }
     setBookingSlotCount(currentCount + 1, editId);
   });
-  document.getElementById("bookingPhone").addEventListener("input", event => {
+  const form = slot.querySelector("#bookingForm");
+  const phoneInput = form.querySelector("#bookingPhone");
+  phoneInput.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
   document.getElementById("bookingEditCancel")?.addEventListener("click", () => {
@@ -16607,16 +16647,16 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
     renderBookings();
     openBookingModal();
   });
-  document.getElementById("bookingForm").addEventListener("submit", async event => {
+  form.addEventListener("submit", async event => {
     event.preventDefault();
     const submitButton = event.currentTarget.querySelector("button[type='submit']");
-    const phone = document.getElementById("bookingPhone").value.trim();
+    const phone = phoneInput.value.trim();
     if (!/^\d{8}$/.test(phone)) {
       showToast("Утасны 8 оронтой дугаар оруулна уу");
-      document.getElementById("bookingPhone").focus();
+      phoneInput.focus();
       return;
     }
-    const slotValues = Array.from(document.querySelectorAll(".booking-slot-row")).map(row => ({
+    const slotValues = Array.from(form.querySelectorAll(".booking-slot-row")).map(row => ({
       salon: row.querySelector(".booking-salon").value,
       date: row.querySelector(".booking-date").value,
       time: row.querySelector(".booking-time").value,
@@ -16671,8 +16711,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
           }
         });
       } else {
-        const bookings = slotValues.map((item, index) => ({
-          id: Date.now() + index,
+        const bookings = slotValues.map(item => ({
           salon: item.salon,
           date: item.date,
           time: item.time,
