@@ -6,7 +6,20 @@ const publicApi = fs.readFileSync(new URL("../api/public.php", import.meta.url),
 const deleteUpload = fs.readFileSync(new URL("../api/delete-upload.php", import.meta.url), "utf8");
 const rollingBackups = fs.readFileSync(new URL("../api/rolling-backups.php", import.meta.url), "utf8");
 const fullBackups = fs.readFileSync(new URL("../api/full-backups.php", import.meta.url), "utf8");
+const bootstrap = fs.readFileSync(new URL("../api/bootstrap.php", import.meta.url), "utf8");
+const usersApi = fs.readFileSync(new URL("../api/users.php", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+
+assert.match(
+  bootstrap,
+  /function require_auth\(bool \$keepSessionOpen = false\)[\s\S]*session_write_close\(\);/,
+  "Authenticated API requests must release the PHP session lock before long database or backup work"
+);
+assert.match(
+  usersApi,
+  /require_admin\(true\)/,
+  "The user-management endpoint must keep its session open when updating the signed-in user"
+);
 
 const serverInitializer = app.slice(
   app.indexOf("async function initializeServerStorage("),

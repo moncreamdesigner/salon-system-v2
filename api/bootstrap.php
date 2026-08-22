@@ -340,7 +340,7 @@ function session_user_from_row(array $row): array
     ];
 }
 
-function require_auth(): array
+function require_auth(bool $keepSessionOpen = false): array
 {
     start_secure_session();
     if (empty($_SESSION['khalgai_user'])) {
@@ -359,12 +359,16 @@ function require_auth(): array
         }
         $_SESSION['khalgai_user'] = session_user_from_row($row);
     }
-    return $_SESSION['khalgai_user'];
+    $authenticatedUser = $_SESSION['khalgai_user'];
+    if (!$keepSessionOpen && session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+    return $authenticatedUser;
 }
 
-function require_admin(): array
+function require_admin(bool $keepSessionOpen = false): array
 {
-    $user = require_auth();
+    $user = require_auth($keepSessionOpen);
     if (($user['role'] ?? '') !== 'admin') {
         json_response(['ok' => false, 'message' => 'Энэ үйлдлийг зөвхөн админ хийх эрхтэй.'], 403);
     }

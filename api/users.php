@@ -3,7 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 
 verify_same_origin();
-$currentUser = require_admin();
+$currentUser = require_admin(true);
 $pdo = db();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
