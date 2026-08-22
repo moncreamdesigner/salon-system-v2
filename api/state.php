@@ -263,6 +263,14 @@ function item_belongs_to_salon(array $item, string $salon, string $section): boo
     return ($item['salon'] ?? '') === $salon;
 }
 
+function item_can_be_managed_by_salon(array $item, string $salon, string $section): bool
+{
+    // A destination salon needs to see a temporary assignment so it can plan
+    // its staffing, but only the employee's home salon can change or remove it.
+    if ($section === 'assignments') return ($item['from'] ?? '') === $salon;
+    return item_belongs_to_salon($item, $salon, $section);
+}
+
 function scope_sections_for_user(array $data, array $user): array
 {
     if (($user['role'] ?? '') !== 'salon') return $data;
@@ -280,18 +288,18 @@ function merge_salon_sections(array $current, array $incoming, array $user, bool
 {
     if (($user['role'] ?? '') !== 'salon') return $incoming;
     $salon = (string)($user['salon'] ?? '');
-    $restricted = ['salons', 'staff', 'assignments', 'generalSettings', 'homepageSettings', 'pricePolicy', 'discounts', 'voucherRoles', 'catalog', '_serviceSettings', 'diagnosisTypes', 'customerTypes', 'customerTypeRules'];
+    $restricted = ['salons', 'staff', 'generalSettings', 'homepageSettings', 'pricePolicy', 'discounts', 'voucherRoles', 'catalog', '_serviceSettings', 'diagnosisTypes', 'customerTypes', 'customerTypeRules'];
     foreach ($restricted as $section) {
         if ($partial) unset($incoming[$section]);
         elseif (array_key_exists($section, $current)) $incoming[$section] = $current[$section];
         else unset($incoming[$section]);
     }
-    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
+    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
         if ($partial && !array_key_exists($section, $incoming)) continue;
         $oldRows = is_array($current[$section] ?? null) ? $current[$section] : [];
         $newRows = is_array($incoming[$section] ?? null) ? $incoming[$section] : [];
-        $preserved = array_filter($oldRows, static fn($item): bool => !is_array($item) || !item_belongs_to_salon($item, $salon, $section));
-        $owned = array_filter($newRows, static fn($item): bool => is_array($item) && item_belongs_to_salon($item, $salon, $section));
+        $preserved = array_filter($oldRows, static fn($item): bool => !is_array($item) || !item_can_be_managed_by_salon($item, $salon, $section));
+        $owned = array_filter($newRows, static fn($item): bool => is_array($item) && item_can_be_managed_by_salon($item, $salon, $section));
         $incoming[$section] = array_values(array_merge($owned, $preserved));
     }
     return $incoming;

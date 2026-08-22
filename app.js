@@ -13806,6 +13806,12 @@ function assignmentCanBeManaged(assignment) {
   return !isSalonAccount() || assignment.from === activeAccount.salon;
 }
 
+function assignmentIsVisibleToAccount(assignment) {
+  return !isSalonAccount()
+    || assignment.from === activeAccount.salon
+    || assignment.to === activeAccount.salon;
+}
+
 function canEditAssignment(assignment) {
   return assignmentCanBeManaged(assignment) && canEditKassSchedule({ date: assignment.startDate });
 }
@@ -13836,7 +13842,7 @@ function renderHumanResourceAssignments() {
   const fromSearch = submittedListSearchValue("hrAssignmentFromSearch");
   const toSearch = submittedListSearchValue("hrAssignmentToSearch");
   const filteredAssignments = state.assignments
-    .filter(assignmentCanBeManaged)
+    .filter(assignmentIsVisibleToAccount)
     .filter(assignment => !nameSearch || String(assignment.staff || "").toLowerCase().includes(nameSearch))
     .filter(assignment => !fromSearch || assignment.endDate >= fromSearch)
     .filter(assignment => !toSearch || assignment.startDate <= toSearch)
