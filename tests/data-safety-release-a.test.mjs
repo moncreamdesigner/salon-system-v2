@@ -8,6 +8,21 @@ const rollingBackups = fs.readFileSync(new URL("../api/rolling-backups.php", imp
 const fullBackups = fs.readFileSync(new URL("../api/full-backups.php", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
+const serverInitializer = app.slice(
+  app.indexOf("async function initializeServerStorage("),
+  app.indexOf("const AUTO_REFRESH_VIEWS")
+);
+assert.match(
+  serverInitializer,
+  /await synchronizeServerState\(\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);[\s\S]*void loadAdministrativeRecoveryData\(\);/,
+  "Daily operational data must render before slower backup and recovery metadata loads"
+);
+assert.doesNotMatch(
+  serverInitializer.slice(serverInitializer.indexOf("async function initializeServerStorage(")),
+  /await load(?:Database|Rolling|Full)Backups/,
+  "Backup metadata must not block the initial operational screen"
+);
+
 assert.doesNotMatch(
   publicApi,
   /count\(\$bookings\)\s*>\s*5000|array_slice\(\$bookings,\s*0,\s*5000\)/,

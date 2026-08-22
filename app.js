@@ -308,7 +308,6 @@ if (initialRememberedCustomerId) state.selectedCustomerId = initialRememberedCus
 state.audit = (Array.isArray(state.audit) ? state.audit : []).map(item =>
   Object.prototype.hasOwnProperty.call(item, "createdAt") ? item : { ...item, createdAt: "" }
 );
-state.bookings = state.bookings.filter(booking => booking.status !== "cancelled");
 state.holidays = Array.isArray(state.holidays) ? state.holidays : [];
 state.kassSchedules = Array.isArray(state.kassSchedules) ? state.kassSchedules : [];
 state.customerTypes = Array.isArray(state.customerTypes) && state.customerTypes.length ? state.customerTypes : [...defaultState.customerTypes];
@@ -2114,13 +2113,9 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         hideServerLogin();
         await synchronizeServerState();
         ensureAutomaticPerformanceSnapshot();
-        await loadDatabaseBackups({ silent: true });
-        await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true }), loadChangeEvents({ silent: true })]);
-        void ensureScheduledRollingBackup();
-        await loadFullBackups({ silent: true });
-        void ensureScheduledFullBackup();
         rerenderAll();
         setView(activeView);
+        void loadAdministrativeRecoveryData();
       } catch (error) {
         overlay.querySelector("#serverLoginMessage").textContent = error.message;
       } finally {
@@ -2175,6 +2170,23 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
   return true;
 }
 
+async function loadAdministrativeRecoveryData() {
+  if (!isAdminAccount()) return;
+  try {
+    await Promise.all([
+      loadDatabaseBackups({ silent: true }),
+      loadRollingBackups({ silent: true }),
+      loadRecoveryJournal({ silent: true }),
+      loadChangeEvents({ silent: true }),
+      loadFullBackups({ silent: true })
+    ]);
+    void ensureScheduledRollingBackup();
+    void ensureScheduledFullBackup();
+  } catch (error) {
+    console.warn("Administrative recovery data load failed", error);
+  }
+}
+
 async function initializeServerStorage() {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
     hideServerLogin();
@@ -2191,12 +2203,8 @@ async function initializeServerStorage() {
     applyActiveAccount(status.user);
     await synchronizeServerState();
     ensureAutomaticPerformanceSnapshot();
-    await loadDatabaseBackups({ silent: true });
-    await Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true }), loadChangeEvents({ silent: true })]);
-    void ensureScheduledRollingBackup();
-    await loadFullBackups({ silent: true });
-    void ensureScheduledFullBackup();
     renderActiveView(activeView, { force: true });
+    void loadAdministrativeRecoveryData();
   } catch (error) {
     if (error.status === 401) {
       showServerLogin(error.message);
@@ -5248,12 +5256,14 @@ function renderSettingsServices() {
 
 function bookingStatusText(status) {
   if (status === "confirmed") return "Баталгаажсан";
+  if (status === "cancelled") return "Цуцлагдсан";
   if (status === "rejected") return "Татгалзсан";
   return "Хүлээгдэж буй";
 }
 
 function bookingStatusTone(status) {
   if (status === "confirmed") return "green";
+  if (status === "cancelled") return "red";
   if (status === "rejected") return "gray";
   return "pink";
 }

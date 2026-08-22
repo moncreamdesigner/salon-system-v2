@@ -24,6 +24,9 @@ assert.match(app, /submitBookingOperation\("status"/, "Booking status must use t
 assert.match(app, /submitBookingOperation\("delete"/, "Booking deletion must use the entity endpoint");
 assert.match(app, /booking-cancel[\s\S]*Цуцлах/, "Active bookings must expose a dedicated cancel action");
 assert.match(app, /updateBookingStatus\(booking\.id, "cancelled"\)/, "The cancel action must use the server-owned status flow");
+assert.match(app, /status === "cancelled"\) return "Цуцлагдсан"/, "Cancelled bookings must render their actual status");
+assert.doesNotMatch(app, /state\.bookings\s*=\s*state\.bookings\.filter\(booking\s*=>\s*booking\.status\s*!==\s*"cancelled"\)/, "Cancelled bookings must remain available for status history and filtering");
+assert.match(api, /\['pending', 'confirmed', 'cancelled', 'rejected'\]/, "The server must preserve the cancelled booking status");
 
 const statusFunction = app.slice(app.indexOf("async function updateBookingStatus"), app.indexOf("let actionCodeDialogOpen"));
 assert.doesNotMatch(statusFunction, /saveState\(/, "Booking status must not write the full section");
