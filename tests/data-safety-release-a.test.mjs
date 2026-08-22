@@ -27,13 +27,22 @@ const serverInitializer = app.slice(
 );
 assert.match(
   serverInitializer,
-  /await synchronizeServerState\(\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);[\s\S]*void loadAdministrativeRecoveryData\(\);/,
-  "Daily operational data must render before slower backup and recovery metadata loads"
+  /await synchronizeServerState\(\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);/,
+  "Daily operational data must render immediately after the server state loads"
 );
 assert.doesNotMatch(
   serverInitializer.slice(serverInitializer.indexOf("async function initializeServerStorage(")),
-  /await load(?:Database|Rolling|Full)Backups/,
+  /load(?:Database|Rolling|Full)Backups|loadRecoveryJournal|loadChangeEvents/,
   "Backup metadata must not block the initial operational screen"
+);
+const databaseTabSetter = app.slice(
+  app.indexOf("function setDatabaseTab("),
+  app.indexOf("function formatBackupCreatedAt(")
+);
+assert.match(
+  databaseTabSetter,
+  /activeDatabaseTab === "backup"[\s\S]*loadDatabaseBackups[\s\S]*loadRollingBackups[\s\S]*loadRecoveryJournal[\s\S]*loadChangeEvents[\s\S]*loadFullBackups/,
+  "Backup and recovery metadata must load lazily only when the backup tab opens"
 );
 
 assert.doesNotMatch(

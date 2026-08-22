@@ -2115,7 +2115,6 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         ensureAutomaticPerformanceSnapshot();
         rerenderAll();
         setView(activeView);
-        void loadAdministrativeRecoveryData();
       } catch (error) {
         overlay.querySelector("#serverLoginMessage").textContent = error.message;
       } finally {
@@ -2170,23 +2169,6 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
   return true;
 }
 
-async function loadAdministrativeRecoveryData() {
-  if (!isAdminAccount()) return;
-  try {
-    await Promise.all([
-      loadDatabaseBackups({ silent: true }),
-      loadRollingBackups({ silent: true }),
-      loadRecoveryJournal({ silent: true }),
-      loadChangeEvents({ silent: true }),
-      loadFullBackups({ silent: true })
-    ]);
-    void ensureScheduledRollingBackup();
-    void ensureScheduledFullBackup();
-  } catch (error) {
-    console.warn("Administrative recovery data load failed", error);
-  }
-}
-
 async function initializeServerStorage() {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
     hideServerLogin();
@@ -2204,7 +2186,6 @@ async function initializeServerStorage() {
     await synchronizeServerState();
     ensureAutomaticPerformanceSnapshot();
     renderActiveView(activeView, { force: true });
-    void loadAdministrativeRecoveryData();
   } catch (error) {
     if (error.status === 401) {
       showServerLogin(error.message);
@@ -15509,7 +15490,13 @@ function setDatabaseTab(name = "import") {
   document.getElementById("databaseScopeBar")?.classList.toggle("hidden", activeDatabaseTab === "cleanup");
   if (activeDatabaseTab === "backup") {
     renderDatabaseBackups();
-    void Promise.all([loadRollingBackups({ silent: true }), loadRecoveryJournal({ silent: true }), loadChangeEvents({ silent: true })]);
+    void Promise.all([
+      loadDatabaseBackups({ silent: true }),
+      loadRollingBackups({ silent: true }),
+      loadRecoveryJournal({ silent: true }),
+      loadChangeEvents({ silent: true }),
+      loadFullBackups({ silent: true })
+    ]);
   }
 }
 
@@ -15835,9 +15822,6 @@ function renderDatabaseSettings() {
   if (summary) summary.textContent = databaseCategorySummaryText(category);
   enhanceNativeSelects(["databaseCategory", "databaseImportMode"]);
   renderDatabaseBackups();
-  loadDatabaseBackups({ silent: true });
-  loadFullBackups({ silent: true });
-  void ensureScheduledFullBackup();
 }
 
 async function importDatabaseFile(event) {
