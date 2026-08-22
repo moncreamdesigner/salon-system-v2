@@ -37,6 +37,8 @@ test("all booking lifecycle events have independent controls and templates", () 
   assert.match(html, /id="smsApiUrl"/);
   assert.match(html, /id="smsToken"[^>]+type="password"/);
   assert.match(html, /id="smsCharacterLimit"[^>]+max="70"/);
+  assert.doesNotMatch(html, /Шинэ token оруулаагүй бол хадгалсныг хэвээр ашиглана/);
+  assert.ok(html.indexOf('id="smsTestButton"') < html.indexOf('id="smsCharacterLimit"'), "SMS limit controls must follow the test SMS action");
   assert.match(html, /id="smsHistoryRows"/);
 });
 

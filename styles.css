@@ -9088,6 +9088,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-top: 1px solid var(--line);
 }
 
+.sms-settings-tools {
+  min-width: 0;
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
 .sms-test-controls {
   display: flex;
   align-items: center;
@@ -9161,6 +9169,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     flex-direction: column;
   }
 
+  .sms-settings-tools {
+    justify-content: space-between;
+  }
+
   .sms-test-controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -9185,6 +9197,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 @media (max-width: 650px) {
+  .sms-settings-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sms-rule-settings {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .sms-history-filter-form {
     grid-template-columns: minmax(0, 1fr);
   }
