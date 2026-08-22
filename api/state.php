@@ -275,11 +275,33 @@ function scope_sections_for_user(array $data, array $user): array
 {
     if (($user['role'] ?? '') !== 'salon') return $data;
     $salon = (string)($user['salon'] ?? '');
-    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'staff', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
+    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'staff', 'voucherLogs', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
         if (!is_array($data[$section] ?? null)) continue;
         $data[$section] = array_values(array_filter($data[$section], static fn($item): bool =>
             is_array($item) && item_belongs_to_salon($item, $salon, $section)
         ));
+    }
+    if (is_array($data['customers'] ?? null)) {
+        $scopedCustomers = [];
+        foreach ($data['customers'] as $customer) {
+            if (!is_array($customer)) continue;
+            $history = is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : [];
+            $scopedHistory = array_values(array_filter($history, static function ($item) use ($salon): bool {
+                if (!is_array($item)) return false;
+                return trim((string)($item['salon'] ?? $item['branch'] ?? '')) === $salon;
+            }));
+            $registeredSalon = trim((string)($customer['registeredSalon'] ?? $customer['salon'] ?? ''));
+            $queueSalon = trim((string)($customer['dailyQueueSalon'] ?? ''));
+            if ($registeredSalon !== $salon && $queueSalon !== $salon && $scopedHistory === []) continue;
+            $copy = $customer;
+            $copy['serviceHistory'] = $scopedHistory;
+            // Credit entries can refer to services from another branch. Keep
+            // them out of a branch-wide report payload; the selected profile
+            // endpoint remains the authoritative place for customer actions.
+            $copy['creditLedger'] = [];
+            $scopedCustomers[] = $copy;
+        }
+        $data['customers'] = $scopedCustomers;
     }
     return $data;
 }
@@ -390,6 +412,23 @@ function service_core_for_lock(array $service): array
         unset($service[$key]);
     }
     return $service;
+}
+
+function assert_sections_readable_by_user(array $keys, array $user): void
+{
+    if (($user['role'] ?? '') !== 'salon') return;
+    // These sections belong to global administration. Hiding their menus in
+    // the browser is not an authorization boundary, so reject direct API
+    // requests as well.
+    $adminOnly = [
+        'audit',
+        'homepageSettings',
+        'performanceStatementHistory',
+    ];
+    $blocked = array_values(array_intersect($keys, $adminOnly));
+    if ($blocked !== []) {
+        json_response(['ok' => false, 'message' => 'Энэ мэдээллийг харах эрхгүй байна.'], 403);
+    }
 }
 
 function assert_branch_customer_type_permissions(array $current, array $proposed, array $user): void
@@ -512,6 +551,7 @@ function assert_operational_lock(array $current, array $incoming): void
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $revision = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'revision'")->fetchColumn();
     $requestedSections = array_values(array_filter(array_map('trim', explode(',', (string)($_GET['sections'] ?? ''))), static fn(string $key): bool => preg_match('/^[A-Za-z0-9_:-]{1,80}$/', $key) === 1));
+    assert_sections_readable_by_user($requestedSections, $user);
     $data = scope_sections_for_user(load_all_sections($pdo, $requestedSections), $user);
     json_response([
         'ok' => true,

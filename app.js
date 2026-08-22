@@ -106,7 +106,7 @@ const defaultState = {
   audit: [],
   voucherRoles: [],
   voucherLogs: [],
-  giftCards: [],
+  giftCards: ["generalSettings"],
   performanceStatements: [],
   performanceStatementHistory: [],
   performanceAdjustments: [],
@@ -510,6 +510,10 @@ let customerTypeEditingName = null;
 let kassInlineEditingId = null;
 let kassPage = 1;
 let kassRevenuePage = 1;
+let kassRevenueDirectoryLoading = null;
+let kassRevenueDirectoryLoadingKey = "";
+let kassRevenueDirectoryRequestSequence = 0;
+let kassRevenueDirectorySummary = null;
 let activePerformanceTab = "revenue";
 let auditPage = 1;
 let auditDirectoryRows = [];
@@ -533,8 +537,27 @@ let bookingInlineEditingId = null;
 let bookingInlineEditingRecord = null;
 let bookingEditRequestSequence = 0;
 let voucherPage = 1;
+let voucherDirectoryRows = [];
+let voucherDirectoryRoleEntries = [];
+let voucherDirectoryMaxRoleId = 0;
+let voucherDirectoryLoading = null;
+let voucherDirectoryLoadingKey = "";
+let voucherDirectoryRequestSequence = 0;
+let voucherDirectoryPageCount = 1;
+let voucherDirectoryTotal = 0;
+let voucherDirectoryAmount = 0;
 let giftCardPage = 1;
 let giftCardEditingId = null;
+let giftCardDirectoryRows = [];
+let giftCardDirectoryLoading = null;
+let giftCardDirectoryLoadingKey = "";
+let giftCardDirectoryRequestSequence = 0;
+let giftCardDirectoryPageCount = 1;
+let giftCardDirectoryTotal = 0;
+let giftCardDirectorySummary = { total: 0, statuses: {} };
+let groupDirectorySummary = { groups: 0, deletedCustomers: 0 };
+let groupDirectorySummaryLoading = null;
+let groupDirectorySummaryLoaded = IS_LOCAL_RUNTIME;
 let customerSortMode = "date";
 let discountEditingId = null;
 let performanceRecalculatePreviewData = null;
@@ -909,7 +932,8 @@ function dirtySectionsForView(viewName = "") {
     customers: ["customers"],
     profile: ["customers", "customerGroups", "giftCards", "voucherLogs", "services"],
     kass: ["kassSchedules"],
-    vouchers: ["voucherRoles", "voucherLogs"],
+    // Voucher history is a paged read model. This screen only owns role rules.
+    vouchers: ["voucherRoles"],
     giftCards: ["giftCards"],
     settingsDiscounts: ["discounts"],
     settingsHumanResources: ["staff", "assignments"],
@@ -918,10 +942,10 @@ function dirtySectionsForView(viewName = "") {
     branches: ["salons", "homepageSettings"],
     settingsResults: ["homepageSettings"],
     settingsServices: ["_serviceSettings"],
-    settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules", "customers", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
+    settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules"],
     groups: ["customers", "customerGroups"],
     settingsGeneral: ["generalSettings", "diagnosisTypes"],
-    settingsUsers: ["audit"],
+    settingsUsers: [],
     settingsSms: [],
     staff: ["staff"],
     catalog: ["catalog"],
@@ -2187,7 +2211,7 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         showServerViewLoader(activeView);
         const initialSections = serverSectionsForView(activeView);
         await synchronizeServerState(null, initialSections, initialSections ? activeView : null);
-        if (serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
+        if (performanceStaffSectionsLoaded()) ensureAutomaticPerformanceSnapshot();
         rerenderAll();
         setView(activeView);
       } catch (error) {
@@ -2206,28 +2230,34 @@ const VIEW_SERVER_SECTIONS = {
   customers: ["customerGroups", "salons", "customerTypes", "customerTypeRules", "generalSettings"],
   profile: ["giftCards", "voucherRoles", "voucherLogs", "services", "staff", "salons", "pricePolicy", "discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings"],
   kass: ["kassSchedules", "staff", "assignments", "salons", "generalSettings"],
-  performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments", "generalSettings"],
-  vouchers: ["voucherRoles", "voucherLogs"],
-  giftCards: ["giftCards"],
+  performance: ["salons", "generalSettings"],
+  vouchers: ["voucherRoles"],
+  giftCards: [],
   settingsServices: ["_serviceSettings"],
-  settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules", "customers", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
+  settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules"],
   settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings"],
   settingsHumanResources: ["staff", "assignments", "salons", "generalSettings"],
   settingsSchedule: ["salons", "holidays", "assignments", "staff", "generalSettings"],
   settingsCatalog: ["homepageSettings"],
-  branches: ["salons", "homepageSettings", "bookings"],
+  branches: ["salons", "homepageSettings"],
   settingsResults: ["homepageSettings"],
-  settingsUsers: ["audit", "salons"],
+  settingsUsers: ["salons"],
   settingsDatabase: ["generalSettings"],
   settingsSms: ["generalSettings"],
   settingsGeneral: ["generalSettings", "diagnosisTypes", "customerTypes", "customerTypeRules"],
-  groups: ["customers", "customerGroups", "customerTypes", "customerTypeRules", "pricePolicy"],
+  groups: ["customerTypes", "customerTypeRules", "pricePolicy"],
   audit: ["generalSettings"],
   dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"],
   catalog: ["catalog"],
   staff: ["staff", "salons"],
   services: ["services"]
 };
+
+const PERFORMANCE_STAFF_SECTIONS = ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments", "generalSettings"];
+
+function performanceStaffSectionsLoaded() {
+  return IS_LOCAL_RUNTIME || fullServerStateLoaded || PERFORMANCE_STAFF_SECTIONS.every(key => loadedServerSections.has(key));
+}
 
 function serverSectionsForView(viewName = activeView) {
   const sections = VIEW_SERVER_SECTIONS[viewName];
@@ -2296,7 +2326,7 @@ async function initializeServerStorage() {
     applyActiveAccount(status.user);
     const initialSections = serverSectionsForView(activeView);
     await synchronizeServerState(null, initialSections, initialSections ? activeView : null);
-    if (serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
+    if (performanceStaffSectionsLoaded()) ensureAutomaticPerformanceSnapshot();
     renderActiveView(activeView, { force: true });
   } catch (error) {
     if (error.status === 401) {
@@ -2401,7 +2431,7 @@ async function refreshServerStateForView(viewName = activeView) {
         if (!relevantSectionChanged) return changed;
         changed = (await synchronizeServerState(refreshVersion, sections, sections ? viewName : null)) || changed;
       }
-      if (viewName === "performance" && serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
+      if (viewName === "performance" && performanceStaffSectionsLoaded()) ensureAutomaticPerformanceSnapshot();
       if (!changed || activeView !== viewName) return changed;
       renderActiveView(activeView, { force: true });
       if (activeView !== "performance") renderInfoHeader(activeView);
@@ -3094,6 +3124,20 @@ function setPerformanceTab(name = "revenue") {
     renderKassRevenue();
     renderInfoHeader("kassRevenue");
   } else {
+    if (!performanceStaffSectionsLoaded()) {
+      showServerViewLoader("performance");
+      void synchronizeServerState(localStateMutationVersion, PERFORMANCE_STAFF_SECTIONS).then(() => {
+        if (activePerformanceTab !== "staff") return;
+        ensureAutomaticPerformanceSnapshot();
+        renderPerformance();
+        renderInfoHeader("performance");
+      }).catch(error => {
+        showToast(error?.message || "Гүйцэтгэлийн мэдээлэл ачаалсангүй", "error");
+      }).finally(() => {
+        hideServerViewLoader("performance");
+      });
+      return;
+    }
     renderPerformance();
     renderInfoHeader("performance");
   }
@@ -4795,6 +4839,81 @@ function initializeKassRevenueFilters() {
 }
 
 function renderKassRevenue() {
+  if (!IS_LOCAL_RUNTIME) {
+    void loadKassRevenueDirectory();
+    return;
+  }
+  renderKassRevenueLocal();
+}
+
+async function loadKassRevenueDirectory() {
+  const rowsBox = document.getElementById("kassRevenueRows");
+  if (!rowsBox) return;
+  initializeKassRevenueFilters();
+  const from = document.getElementById("kassRevenueFrom")?.value || "";
+  const to = document.getElementById("kassRevenueTo")?.value || "";
+  const salon = isSalonAccount() ? activeAccount.salon : (document.getElementById("kassRevenueSalon")?.value || "");
+  const params = new URLSearchParams({ from, to, salon, page: String(kassRevenuePage), pageSize: "100" });
+  const requestKey = params.toString();
+  if (kassRevenueDirectoryLoading && kassRevenueDirectoryLoadingKey === requestKey) return kassRevenueDirectoryLoading;
+  const requestSequence = ++kassRevenueDirectoryRequestSequence;
+  kassRevenueDirectoryLoadingKey = requestKey;
+  rowsBox.innerHTML = `<tr><td colspan="8" class="empty-state">Уншиж байна…</td></tr>`;
+  const task = (async () => {
+    try {
+      const result = await serverApi(`revenue-list.php?${requestKey}`);
+      if (requestSequence !== kassRevenueDirectoryRequestSequence || kassRevenueDirectoryLoadingKey !== requestKey || activeView !== "performance") return;
+      paintKassRevenueDirectory(result);
+    } catch (error) {
+      if (requestSequence !== kassRevenueDirectoryRequestSequence || kassRevenueDirectoryLoadingKey !== requestKey) return;
+      rowsBox.innerHTML = `<tr><td colspan="8" class="empty-state">${htmlSafe(error?.message || "Орлогын мэдээлэл ачаалсангүй")}</td></tr>`;
+    } finally {
+      if (kassRevenueDirectoryLoadingKey === requestKey) {
+        kassRevenueDirectoryLoading = null;
+        kassRevenueDirectoryLoadingKey = "";
+      }
+    }
+  })();
+  kassRevenueDirectoryLoading = task;
+  return task;
+}
+
+function paintKassRevenueDirectory(result = {}) {
+  const rowsBox = document.getElementById("kassRevenueRows");
+  if (!rowsBox) return;
+  const showSalonColumn = ["admin", "manager"].includes(activeAccount.role);
+  rowsBox.closest(".kass-revenue-table")?.classList.toggle("kass-revenue-own-salon", !showSalonColumn);
+  const headRow = document.getElementById("kassRevenueHeadRow");
+  if (headRow) headRow.innerHTML = `<th>Огноо</th><th>Цаг</th><th>Овог нэр</th><th>Утас</th><th>Авсан үйлчилгээ</th>${showSalonColumn ? "<th>Салбар</th>" : ""}<th>Төлбөр</th><th>Үнийн дүн</th>`;
+  const summary = result.summary || {};
+  kassRevenueDirectorySummary = summary;
+  document.getElementById("kassRevenueTotal").textContent = money(summary.actualTotal || 0);
+  document.getElementById("kassRevenueCount").textContent = `${Number(summary.actualCount || 0)} бодит төлбөр`;
+  const methodTotals = summary.methodTotals || {};
+  document.getElementById("kassRevenueMethods").innerHTML = Object.entries(methodTotals).map(([method, amount]) => `
+    <div class="kass-revenue-method"><span>${htmlSafe(paymentMethodOptionsLabel(method) || method)}</span><strong>${money(amount)}</strong></div>
+  `).join("") || `<span class="muted">Төлбөрийн мэдээлэл алга</span>`;
+  const typeLabels = { single: "Нэг удаа", course: "Курс", kass: "Касс" };
+  const typeTotals = summary.typeTotals || {};
+  const typeBox = document.getElementById("kassRevenueTypes");
+  if (typeBox) typeBox.innerHTML = Object.entries(typeLabels).map(([type, label]) => `
+    <div class="kass-revenue-type"><span>${label}</span><strong>${money(typeTotals[type] || 0)}</strong></div>
+  `).join("");
+  const rows = Array.isArray(result.rows) ? result.rows : [];
+  rowsBox.innerHTML = rows.map(row => `
+    <tr><td>${htmlSafe(row.date)}</td><td class="kass-revenue-time">${htmlSafe(row.time || "—")}</td><td>${htmlSafe(row.customer)}</td><td>${htmlSafe(row.phone)}</td><td class="kass-revenue-service-cell">${htmlSafe(row.service)}</td>${showSalonColumn ? `<td>${htmlSafe(row.salon)}</td>` : ""}<td class="kass-revenue-payment-method">${htmlSafe(paymentMethodOptionsLabel(row.method) || row.method)}</td><td><strong class="kass-revenue-amount">${money(row.amount)}</strong></td></tr>
+  `).join("") || `<tr><td colspan="${showSalonColumn ? 8 : 7}" class="empty-state">Сонгосон хугацаанд орлого бүртгэгдээгүй</td></tr>`;
+  const page = Number(result.pagination?.page || 1);
+  const pageCount = Number(result.pagination?.pageCount || 1);
+  kassRevenuePage = page;
+  const pagination = document.getElementById("kassRevenuePagination");
+  if (pagination) pagination.innerHTML = pageCount > 1 ? `<button class="secondary-btn" type="button" id="kassRevenuePrev" ${page <= 1 ? "disabled" : ""}>Өмнөх</button><span>${page} / ${pageCount} · ${Number(result.pagination?.total || 0)}</span><button class="secondary-btn" type="button" id="kassRevenueNext" ${page >= pageCount ? "disabled" : ""}>Дараах</button>` : "";
+  document.getElementById("kassRevenuePrev")?.addEventListener("click", () => { kassRevenuePage -= 1; renderKassRevenue(); });
+  document.getElementById("kassRevenueNext")?.addEventListener("click", () => { kassRevenuePage += 1; renderKassRevenue(); });
+  if (activeView === "performance" && activePerformanceTab === "revenue") renderInfoHeader("kassRevenue");
+}
+
+function renderKassRevenueLocal() {
   const rowsBox = document.getElementById("kassRevenueRows");
   if (!rowsBox) return;
   initializeKassRevenueFilters();
@@ -5701,13 +5820,15 @@ function infoForView(name) {
     customers: name === "customers" ? ["ӨНӨӨДРИЙН ХЭРЭГЛЭГЧ", customerTodayHeaderStats()] : null,
     kass: ["ЭНЭ САРЫН КАСС", currentMonthKassStats.length ? currentMonthKassStats : [["Бүртгэл", "алга"]]],
     kassRevenue: name === "kassRevenue" ? (() => {
-      const rows = kassRevenueSourceRows()
+      const rows = IS_LOCAL_RUNTIME ? kassRevenueSourceRows()
         .filter(row => !isSalonAccount() || row.salon === activeAccount.salon)
-        .filter(isActualKassRevenueRow);
+        .filter(isActualKassRevenueRow) : [];
+      const remoteTotal = Number(kassRevenueDirectorySummary?.actualTotal || 0);
+      const remoteCount = Number(kassRevenueDirectorySummary?.actualCount || 0);
       return ["КАСС ОРЛОГО", [
-        ["Бодит орлого", money(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0))],
-        ["Бодит төлбөр", rows.length],
-        ["Салбар", isSalonAccount() ? activeAccount.salon : new Set(rows.map(row => row.salon)).size]
+        ["Бодит орлого", money(IS_LOCAL_RUNTIME ? rows.reduce((sum, row) => sum + Number(row.amount || 0), 0) : remoteTotal)],
+        ["Бодит төлбөр", IS_LOCAL_RUNTIME ? rows.length : remoteCount],
+        ["Хамрах хүрээ", isSalonAccount() ? activeAccount.salon : "Сонгосон шүүлтүүр"]
       ]];
     })() : null,
     services: name === "services" ? ["ҮЙЛЧИЛГЭЭНИЙ БҮРТГЭЛ", [
@@ -5776,14 +5897,14 @@ function infoForView(name) {
     ]] : null,
     vouchers: name === "vouchers" ? ["ВАУЧЕР", [
       ["Роль", state.voucherRoles.length],
-      ["Нийт ашиглалт", state.voucherLogs.length],
-      ["Нийт дүн", money(state.voucherLogs.reduce((sum, item) => sum + Number(item.amount || 0), 0))]
+      ["Сонгосон ашиглалт", IS_LOCAL_RUNTIME ? state.voucherLogs.length : voucherDirectoryTotal],
+      ["Сонгосон дүн", money(IS_LOCAL_RUNTIME ? state.voucherLogs.reduce((sum, item) => sum + Number(item.amount || 0), 0) : voucherDirectoryAmount)]
     ]] : null,
     giftCards: name === "giftCards" ? ["БЭЛГИЙН КАРТ", [
-      ["Нийт", state.giftCards.length],
-      ["Идэвхтэй", state.giftCards.filter(card => giftCardStatus(card) === "fresh").length],
-      ["Ашиглаж байгаа", state.giftCards.filter(card => giftCardStatus(card) === "partial").length],
-      ["Дууссан", state.giftCards.filter(card => ["used", "expired"].includes(giftCardStatus(card))).length]
+      ["Нийт", giftCardDirectorySectionsLoaded() ? state.giftCards.length : giftCardDirectorySummary.total],
+      ["Идэвхтэй", giftCardDirectorySectionsLoaded() ? state.giftCards.filter(card => giftCardStatus(card) === "fresh").length : Number(giftCardDirectorySummary.statuses?.fresh || 0)],
+      ["Ашиглаж байгаа", giftCardDirectorySectionsLoaded() ? state.giftCards.filter(card => giftCardStatus(card) === "partial").length : Number(giftCardDirectorySummary.statuses?.partial || 0)],
+      ["Дууссан", giftCardDirectorySectionsLoaded() ? state.giftCards.filter(card => ["used", "expired"].includes(giftCardStatus(card))).length : Number(giftCardDirectorySummary.statuses?.used || 0) + Number(giftCardDirectorySummary.statuses?.expired || 0)]
     ]] : null,
     settings: ["ТОХИРГОО", [
       ["Зургийн тоо", 5],
@@ -5869,11 +5990,14 @@ function infoForView(name) {
       ["Чухал үйлдэл", 4],
       ["Excel таталт", 1]
     ]],
-    groups: name === "groups" ? ["ГРУПП", [
+    groups: name === "groups" ? ["ГРУПП", groupDirectorySectionsLoaded() ? [
       ["Нийт групп", state.customerGroups.length],
       ["Нийт гишүүн", state.customerGroups.reduce((sum, group) => sum + (group.members || []).length, 0)],
       ["Нийт хэрэглээ", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.spent || 0), 0))],
       ["Бонус үлдэгдэл", money(state.customerGroups.reduce((sum, group) => sum + Number(groupBonusInfo(group)?.balance || 0), 0))]
+    ] : [
+      ["Нийт групп", groupDirectorySummary.groups],
+      ["Устгасан хэрэглэгч", groupDirectorySummary.deletedCustomers]
     ]] : null,
     profile: name === "profile" ? (() => {
       const customer = state.customers.find(item =>
@@ -9793,7 +9917,7 @@ function previousCalendarMonth(date = new Date()) {
 }
 
 function ensureAutomaticPerformanceSnapshot() {
-  if (!IS_LOCAL_RUNTIME && (!serverStorageReady || !serverViewSectionsLoaded("performance"))) return false;
+  if (!IS_LOCAL_RUNTIME && (!serverStorageReady || !serverViewSectionsLoaded("performance") || !performanceStaffSectionsLoaded())) return false;
   const now = new Date();
   const checkDate = localDateText(now);
   if (automaticPerformanceSnapshotCheckedDate === checkDate) return false;
@@ -10065,7 +10189,7 @@ function renderPerformanceMonthWorkflow() {
   });
 }
 
-function previewPerformanceRecalculation() {
+async function previewPerformanceRecalculation() {
   if (!isAdminAccount()) return showToast("Зөвхөн админ өмнөх тайлан дахин тооцно", "error");
   const requestedFrom = formValue("performanceRecalculateFrom");
   const requestedTo = formValue("performanceRecalculateTo");
@@ -10076,6 +10200,17 @@ function previewPerformanceRecalculation() {
   document.getElementById("performanceRecalculateTo").value = to;
   const policy = currentPerformancePolicy();
   if (!policy.configured) return showToast("Эхлээд гүйцэтгэлийн бодлогоо хадгална уу", "error");
+  if (!performanceStaffSectionsLoaded()) {
+    showServerViewLoader("settingsPricing");
+    try {
+      await synchronizeServerState(localStateMutationVersion, PERFORMANCE_STAFF_SECTIONS);
+    } catch (error) {
+      showToast(error?.message || "Дахин тооцох мэдээлэл ачаалсангүй", "error");
+      return;
+    } finally {
+      hideServerViewLoader("settingsPricing");
+    }
+  }
   const recalculated = calculatePerformanceTransactions({ policyOverride: policy })
     .filter(item => item.date >= from && item.date <= to);
   const current = performanceTransactions().filter(item => item.date >= from && item.date <= to);
@@ -10618,6 +10753,45 @@ function renderDeletedCustomerDirectory() {
   }).join("") || `<tr><td colspan="7" class="empty-state">Устгасан хэрэглэгч байхгүй</td></tr>`;
 }
 
+function groupDirectorySectionsLoaded() {
+  return IS_LOCAL_RUNTIME || fullServerStateLoaded || (loadedServerSections.has("customers") && loadedServerSections.has("customerGroups"));
+}
+
+async function loadGroupDirectorySummary() {
+  if (IS_LOCAL_RUNTIME || groupDirectorySummaryLoading) return groupDirectorySummaryLoading;
+  groupDirectorySummaryLoading = serverApi("group-summary.php")
+    .then(payload => {
+      groupDirectorySummary = {
+        groups: Math.max(0, Number(payload.summary?.groups || 0)),
+        deletedCustomers: Math.max(0, Number(payload.summary?.deletedCustomers || 0))
+      };
+      groupDirectorySummaryLoaded = true;
+    })
+    .catch(error => {
+      groupDirectorySummaryLoaded = true;
+      showToast(error.message || "Группийн товч мэдээлэл ачаалсангүй", "error");
+    })
+    .finally(() => {
+      groupDirectorySummaryLoading = null;
+      if (activeView === "groups") renderGroupDirectory();
+    });
+  return groupDirectorySummaryLoading;
+}
+
+async function ensureGroupDirectorySections() {
+  if (groupDirectorySectionsLoaded()) return true;
+  showServerViewLoader("groups", "Уншиж байна...");
+  try {
+    await synchronizeServerState(null, ["customers", "customerGroups"], "groupsDirectory");
+    return true;
+  } catch (error) {
+    showToast(error.message || "Группийн мэдээлэл ачаалсангүй", "error");
+    return false;
+  } finally {
+    hideServerViewLoader("groups");
+  }
+}
+
 function renderGroupDirectory() {
   if (!document.getElementById("groupsView")?.isConnected) return;
   const view = document.getElementById("groupsView");
@@ -10664,11 +10838,15 @@ function renderGroupDirectory() {
         });
         document.getElementById("groupDirectoryTabPanel")?.classList.toggle("hidden", tab !== "directory");
         document.getElementById("groupDeletedTabPanel")?.classList.toggle("hidden", tab !== "deleted");
-        if (tab === "deleted") renderDeletedCustomerDirectory();
+        if (tab === "deleted") {
+          void ensureGroupDirectorySections().then(loaded => {
+            if (loaded) renderDeletedCustomerDirectory();
+          });
+        }
       });
     });
-    bindListSearchSubmit("groupDirectorySearchBtn", ["groupDirectorySearch", "groupDirectoryStatusFilter"], () => {
-      renderGroupDirectory();
+    bindListSearchSubmit("groupDirectorySearchBtn", ["groupDirectorySearch", "groupDirectoryStatusFilter"], async () => {
+      if (await ensureGroupDirectorySections()) renderGroupDirectory();
     });
     document.getElementById("groupDirectorySearchClear")?.addEventListener("click", () => {
       const input = document.getElementById("groupDirectorySearch");
@@ -10689,6 +10867,7 @@ function renderGroupDirectory() {
   const search = submittedListSearchValue("groupDirectorySearch").trim().toLowerCase();
   const memberStatus = submittedListSearchValue("groupDirectoryStatusFilter") || "all";
   const hasDirectorySearch = Boolean(search || memberStatus !== "all");
+  if (!groupDirectorySectionsLoaded() && !groupDirectorySummaryLoaded) void loadGroupDirectorySummary();
   const groups = (hasDirectorySearch ? state.customerGroups : [])
     .map(group => ({ group, members: orderedGroupMembers(group) }))
     .filter(({ group, members }) => {
@@ -10702,9 +10881,9 @@ function renderGroupDirectory() {
     ].some(value => String(value || "").toLowerCase().includes(search)))
     .sort((a, b) => Number(groupBonusInfo(b.group)?.spent || 0) - Number(groupBonusInfo(a.group)?.spent || 0));
   const groupCount = document.getElementById("groupDirectoryTabCount");
-  if (groupCount) groupCount.textContent = state.customerGroups.length;
+  if (groupCount) groupCount.textContent = groupDirectorySectionsLoaded() ? state.customerGroups.length : groupDirectorySummary.groups;
   const deletedCount = document.getElementById("groupDeletedTabCount");
-  if (deletedCount) deletedCount.textContent = deletedCustomers().length;
+  if (deletedCount) deletedCount.textContent = groupDirectorySectionsLoaded() ? deletedCustomers().length : groupDirectorySummary.deletedCustomers;
 
   list.innerHTML = groups.length ? `
     <div class="table-wrap group-list-table-wrap">
@@ -15048,25 +15227,99 @@ function voucherRoleFilterEntries() {
     label: `${role.name}${role.position ? ` · ${role.position}` : ""}`
   }));
   const seen = new Set(entries.map(entry => entry.value));
-  state.voucherLogs
-    .slice()
-    .sort((a, b) => `${b.date || ""}${b.time || ""}`.localeCompare(`${a.date || ""}${a.time || ""}`))
-    .forEach(log => {
-      const value = voucherLogRoleKey(log);
-      if (seen.has(value)) return;
-      const baseLabel = `${log.roleName || "Нэргүй эрх"}${log.rolePosition ? ` · ${log.rolePosition}` : ""}`;
-      entries.push({ value, label: `${baseLabel} · ${value.startsWith("id:") ? "Устгасан" : "Түүхэн"}` });
-      seen.add(value);
+  if (!IS_LOCAL_RUNTIME) {
+    voucherDirectoryRoleEntries.forEach(entry => {
+      if (!entry?.value || seen.has(entry.value)) return;
+      entries.push(entry);
+      seen.add(entry.value);
     });
+  } else {
+    state.voucherLogs
+      .slice()
+      .sort((a, b) => `${b.date || ""}${b.time || ""}`.localeCompare(`${a.date || ""}${a.time || ""}`))
+      .forEach(log => {
+        const value = voucherLogRoleKey(log);
+        if (seen.has(value)) return;
+        const baseLabel = `${log.roleName || "Нэргүй эрх"}${log.rolePosition ? ` · ${log.rolePosition}` : ""}`;
+        entries.push({ value, label: `${baseLabel} · ${value.startsWith("id:") ? "Устгасан" : "Түүхэн"}` });
+        seen.add(value);
+      });
+  }
   return entries;
 }
 
 function nextVoucherRoleId() {
   const ids = [
     ...state.voucherRoles.map(role => Number(role.id) || 0),
-    ...state.voucherLogs.map(log => Number(log.roleId) || 0)
+    ...(IS_LOCAL_RUNTIME ? state.voucherLogs.map(log => Number(log.roleId) || 0) : [voucherDirectoryMaxRoleId])
   ];
   return Math.max(0, ...ids) + 1;
+}
+
+function voucherDirectoryQuery() {
+  const defaultRange = currentMonthDateRange();
+  const params = new URLSearchParams({
+    page: String(voucherPage),
+    pageSize: "100",
+    from: submittedListSearchValue("voucherFromFilter") || defaultRange.from,
+    to: submittedListSearchValue("voucherToFilter") || defaultRange.to
+  });
+  const customer = submittedListSearchValue("voucherCustomerFilter").trim();
+  const phone = submittedListSearchValue("voucherPhoneFilter").trim();
+  const selectedRole = submittedListSearchValue("voucherRoleFilter");
+  const role = selectedRole === "all" ? "" : selectedRole;
+  if (customer) params.set("customer", customer);
+  if (phone) params.set("phone", phone);
+  if (role) params.set("role", role);
+  return params;
+}
+
+async function loadVoucherDirectory() {
+  if (IS_LOCAL_RUNTIME) return;
+  const params = voucherDirectoryQuery();
+  const key = params.toString();
+  if (voucherDirectoryLoading && voucherDirectoryLoadingKey === key) return voucherDirectoryLoading;
+  const requestSequence = ++voucherDirectoryRequestSequence;
+  voucherDirectoryLoadingKey = key;
+  voucherDirectoryLoading = serverApi(`voucher-list.php?${key}`)
+    .then(payload => {
+      if (requestSequence !== voucherDirectoryRequestSequence) return;
+      voucherDirectoryRows = Array.isArray(payload.logs) ? payload.logs : [];
+      voucherDirectoryRoleEntries = Array.isArray(payload.roleEntries) ? payload.roleEntries : [];
+      voucherDirectoryMaxRoleId = Number(payload.maxRoleId || 0);
+      voucherDirectoryPageCount = Math.max(1, Number(payload.pagination?.pageCount || 1));
+      voucherDirectoryTotal = Math.max(0, Number(payload.pagination?.total || 0));
+      voucherDirectoryAmount = Math.max(0, Number(payload.summary?.amount || 0));
+      voucherPage = Math.max(1, Number(payload.pagination?.page || voucherPage));
+    })
+    .catch(error => {
+      if (requestSequence !== voucherDirectoryRequestSequence) return;
+      voucherDirectoryLoadingKey = "";
+      voucherDirectoryRows = [];
+      voucherDirectoryTotal = 0;
+      voucherDirectoryAmount = 0;
+      showToast(error.message || "Ваучерийн түүх ачаалсангүй", "error");
+    })
+    .finally(() => {
+      if (requestSequence !== voucherDirectoryRequestSequence) return;
+      voucherDirectoryLoading = null;
+      if (activeView === "vouchers") renderVouchers();
+    });
+  return voucherDirectoryLoading;
+}
+
+function voucherLogRowsHtml(logs = []) {
+  return logs.map(log => `
+    <tr>
+      <td>${htmlSafe(log.date || "")}</td>
+      <td>${htmlSafe(log.time || "")}</td>
+      <td>${htmlSafe(log.customer || "")}</td>
+      <td>${htmlSafe(log.phone || "")}</td>
+      <td><span class="voucher-log-role"><strong>${htmlSafe(log.roleName || "")}</strong><em>${htmlSafe(log.rolePosition || "")}</em></span></td>
+      <td><strong>${money(log.amount)}</strong></td>
+      <td>${htmlSafe(log.note || "")}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="7" class="empty-state">Сонгосон хугацаанд ваучер ашиглаагүй</td></tr>`;
 }
 
 function renderVouchers() {
@@ -15110,24 +15363,42 @@ function renderVouchers() {
   const customerFilter = submittedListSearchValue("voucherCustomerFilter").trim().toLowerCase();
   const phoneFilter = submittedListSearchValue("voucherPhoneFilter").trim();
   const roleFilter = submittedListSearchValue("voucherRoleFilter");
-  const logs = state.voucherLogs
-    .filter(item => !fromDate || item.date >= fromDate)
-    .filter(item => !toDate || item.date <= toDate)
-    .filter(item => !customerFilter || item.customer.toLowerCase().includes(customerFilter))
-    .filter(item => !phoneFilter || item.phone.includes(phoneFilter))
-    .filter(item => !roleFilter || voucherLogRoleKey(item) === roleFilter)
-    .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
-  logRows.innerHTML = logs.map(log => `
-    <tr>
-      <td>${log.date}</td>
-      <td>${log.time || ""}</td>
-      <td>${log.customer}</td>
-      <td>${log.phone}</td>
-      <td><span class="voucher-log-role"><strong>${log.roleName}</strong><em>${log.rolePosition || ""}</em></span></td>
-      <td><strong>${money(log.amount)}</strong></td>
-      <td>${log.note || ""}</td>
-    </tr>
-  `).join("") || `<tr><td colspan="7" class="empty-state">Сонгосон хугацаанд ваучер ашиглаагүй</td></tr>`;
+  if (IS_LOCAL_RUNTIME) {
+    const normalizedRoleFilter = roleFilter === "all" ? "" : roleFilter;
+    const logs = state.voucherLogs
+      .filter(item => !fromDate || item.date >= fromDate)
+      .filter(item => !toDate || item.date <= toDate)
+      .filter(item => !customerFilter || String(item.customer || "").toLowerCase().includes(customerFilter))
+      .filter(item => !phoneFilter || String(item.phone || "").includes(phoneFilter))
+      .filter(item => !normalizedRoleFilter || voucherLogRoleKey(item) === normalizedRoleFilter)
+      .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
+    logRows.innerHTML = voucherLogRowsHtml(logs);
+    if (pagination) pagination.innerHTML = "";
+  } else {
+    const requestedKey = voucherDirectoryQuery().toString();
+    if (voucherDirectoryLoadingKey !== requestedKey) {
+      logRows.innerHTML = `<tr><td colspan="7" class="empty-state">Уншиж байна...</td></tr>`;
+      if (pagination) pagination.innerHTML = "";
+      void loadVoucherDirectory();
+    } else {
+      logRows.innerHTML = voucherLogRowsHtml(voucherDirectoryRows);
+      if (pagination) {
+        pagination.innerHTML = voucherDirectoryTotal > 100 ? `
+          <button class="secondary-btn" type="button" id="voucherPrevPage" ${voucherPage <= 1 ? "disabled" : ""}>Өмнөх</button>
+          <span>${voucherPage} / ${voucherDirectoryPageCount}</span>
+          <button class="secondary-btn" type="button" id="voucherNextPage" ${voucherPage >= voucherDirectoryPageCount ? "disabled" : ""}>Дараах</button>
+        ` : "";
+        document.getElementById("voucherPrevPage")?.addEventListener("click", () => {
+          voucherPage = Math.max(1, voucherPage - 1);
+          renderVouchers();
+        });
+        document.getElementById("voucherNextPage")?.addEventListener("click", () => {
+          voucherPage = Math.min(voucherDirectoryPageCount, voucherPage + 1);
+          renderVouchers();
+        });
+      }
+    }
+  }
 
   roleRows.querySelectorAll(".voucher-role-delete").forEach(button => {
     button.addEventListener("click", async () => {
@@ -15172,7 +15443,6 @@ function renderVouchers() {
       renderInfoHeader(activeView);
     });
   });
-  if (pagination) pagination.innerHTML = "";
 }
 
 function resetGiftCardForm() {
@@ -15180,6 +15450,72 @@ function resetGiftCardForm() {
   document.getElementById("giftCardForm")?.reset();
   const submit = document.getElementById("giftCardSubmit");
   if (submit) submit.textContent = "Нэмэх";
+}
+
+function giftCardDirectorySectionsLoaded() {
+  return IS_LOCAL_RUNTIME || fullServerStateLoaded || loadedServerSections.has("giftCards");
+}
+
+function giftCardDirectoryQuery() {
+  const params = new URLSearchParams({
+    page: String(giftCardPage),
+    pageSize: "100",
+    status: submittedListSearchValue("giftCardStatusFilter") || "all"
+  });
+  const number = submittedListSearchValue("giftCardNumberFilter").trim();
+  const from = submittedListSearchValue("giftCardFromFilter");
+  const to = submittedListSearchValue("giftCardToFilter");
+  if (number) params.set("number", number);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  return params;
+}
+
+async function loadGiftCardDirectory() {
+  if (giftCardDirectorySectionsLoaded()) return;
+  const key = giftCardDirectoryQuery().toString();
+  if (giftCardDirectoryLoading && giftCardDirectoryLoadingKey === key) return giftCardDirectoryLoading;
+  const requestSequence = ++giftCardDirectoryRequestSequence;
+  giftCardDirectoryLoadingKey = key;
+  giftCardDirectoryLoading = serverApi(`gift-card-list.php?${key}`)
+    .then(payload => {
+      if (requestSequence !== giftCardDirectoryRequestSequence) return;
+      giftCardDirectoryRows = Array.isArray(payload.cards) ? payload.cards : [];
+      giftCardDirectoryPageCount = Math.max(1, Number(payload.pagination?.pageCount || 1));
+      giftCardDirectoryTotal = Math.max(0, Number(payload.pagination?.total || 0));
+      giftCardDirectorySummary = {
+        total: Math.max(0, Number(payload.summary?.total || 0)),
+        statuses: payload.summary?.statuses && typeof payload.summary.statuses === "object" ? payload.summary.statuses : {}
+      };
+      giftCardPage = Math.max(1, Number(payload.pagination?.page || giftCardPage));
+    })
+    .catch(error => {
+      if (requestSequence !== giftCardDirectoryRequestSequence) return;
+      giftCardDirectoryLoadingKey = "";
+      giftCardDirectoryRows = [];
+      giftCardDirectoryTotal = 0;
+      showToast(error.message || "Бэлгийн картын жагсаалт ачаалсангүй", "error");
+    })
+    .finally(() => {
+      if (requestSequence !== giftCardDirectoryRequestSequence) return;
+      giftCardDirectoryLoading = null;
+      if (activeView === "giftCards") renderGiftCards();
+    });
+  return giftCardDirectoryLoading;
+}
+
+async function ensureGiftCardDirectorySections() {
+  if (giftCardDirectorySectionsLoaded()) return true;
+  showServerViewLoader("giftCards", "Уншиж байна...");
+  try {
+    await synchronizeServerState(null, ["giftCards"], "giftCardMutation");
+    return true;
+  } catch (error) {
+    showToast(error.message || "Бэлгийн картын мэдээлэл ачаалсангүй", "error");
+    return false;
+  } finally {
+    hideServerViewLoader("giftCards");
+  }
 }
 
 function renderGiftCards() {
@@ -15193,16 +15529,24 @@ function renderGiftCards() {
   const statusFilter = submittedListSearchValue("giftCardStatusFilter") || "all";
   const fromDate = submittedListSearchValue("giftCardFromFilter");
   const toDate = submittedListSearchValue("giftCardToFilter");
-  const cards = [...state.giftCards]
-    .filter(card => !numberFilter || card.cardNumber.toLowerCase().includes(numberFilter))
+  const pageSize = 100;
+  const hasFullDirectory = giftCardDirectorySectionsLoaded();
+  const cards = hasFullDirectory ? [...state.giftCards]
+    .filter(card => !numberFilter || String(card.cardNumber || "").toLowerCase().includes(numberFilter))
     .filter(card => statusFilter === "all" || giftCardStatus(card) === statusFilter)
     .filter(card => !fromDate || card.createdAt >= fromDate)
     .filter(card => !toDate || card.createdAt <= toDate)
-    .sort((a, b) => `${b.createdAt}${b.id}`.localeCompare(`${a.createdAt}${a.id}`));
-  const pageSize = 100;
-  const pageCount = Math.max(1, Math.ceil(cards.length / pageSize));
+    .sort((a, b) => `${b.createdAt}${b.id}`.localeCompare(`${a.createdAt}${a.id}`)) : giftCardDirectoryRows;
+  const requestedKey = hasFullDirectory ? "" : giftCardDirectoryQuery().toString();
+  if (!hasFullDirectory && giftCardDirectoryLoadingKey !== requestedKey) {
+    rows.innerHTML = `<tr><td colspan="8" class="empty-state">Уншиж байна...</td></tr>`;
+    if (pagination) pagination.innerHTML = "";
+    void loadGiftCardDirectory();
+    return;
+  }
+  const pageCount = hasFullDirectory ? Math.max(1, Math.ceil(cards.length / pageSize)) : giftCardDirectoryPageCount;
   giftCardPage = Math.min(Math.max(giftCardPage, 1), pageCount);
-  const pageRows = cards.slice((giftCardPage - 1) * pageSize, giftCardPage * pageSize);
+  const pageRows = hasFullDirectory ? cards.slice((giftCardPage - 1) * pageSize, giftCardPage * pageSize) : cards;
 
   rows.innerHTML = pageRows.map(card => {
     const status = giftCardStatus(card);
@@ -15242,7 +15586,8 @@ function renderGiftCards() {
   });
 
   if (pagination) {
-    pagination.innerHTML = cards.length > pageSize ? `
+    const resultTotal = hasFullDirectory ? cards.length : giftCardDirectoryTotal;
+    pagination.innerHTML = resultTotal > pageSize ? `
       <button class="secondary-btn" type="button" id="giftCardPrevPage" ${giftCardPage <= 1 ? "disabled" : ""}>Өмнөх</button>
       <span>${giftCardPage} / ${pageCount}</span>
       <button class="secondary-btn" type="button" id="giftCardNextPage" ${giftCardPage >= pageCount ? "disabled" : ""}>Дараах</button>
@@ -15258,8 +15603,9 @@ function renderGiftCards() {
   }
 }
 
-function saveGiftCard(event) {
+async function saveGiftCard(event) {
   event.preventDefault();
+  if (!await ensureGiftCardDirectorySections()) return;
   const numbers = document.getElementById("giftCardNumbers").value
     .split(/\r?\n/)
     .map(item => item.trim())
@@ -15319,6 +15665,7 @@ function saveGiftCard(event) {
 }
 
 async function editGiftCard(id) {
+  if (!await ensureGiftCardDirectorySections()) return;
   const card = state.giftCards.find(item => String(item.id) === String(id));
   if (!card || !giftCardCanEdit(card)) return;
   if (!await requireEditCode()) return;
@@ -15331,6 +15678,7 @@ async function editGiftCard(id) {
 }
 
 async function toggleGiftCard(id) {
+  if (!await ensureGiftCardDirectorySections()) return;
   const card = state.giftCards.find(item => String(item.id) === String(id));
   if (!card || giftCardStatus(card) === "used") return;
   if (!await requireEditCode()) return;
@@ -15344,6 +15692,7 @@ async function toggleGiftCard(id) {
 }
 
 async function deleteGiftCard(id) {
+  if (!await ensureGiftCardDirectorySections()) return;
   const card = state.giftCards.find(item => String(item.id) === String(id));
   if (!card || !giftCardCanEdit(card)) return;
   if (!await requireDeleteCode()) return;
