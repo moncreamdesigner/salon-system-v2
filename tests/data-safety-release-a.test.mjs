@@ -76,7 +76,7 @@ const viewSetter = app.slice(
 );
 assert.match(
   viewSetter,
-  /!serverViewSectionsLoaded\(name\)[\s\S]*showServerSyncOverlay[\s\S]*refreshServerStateForView\(name\)/,
+  /!serverViewSectionsLoaded\(name\)[\s\S]*showServerViewLoader[\s\S]*refreshServerStateForView\(name\)/,
   "An unopened partial view must block edits until its authoritative sections load"
 );
 const automaticSnapshot = app.slice(

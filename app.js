@@ -34,7 +34,7 @@ let serverSaveTimer = null;
 let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
-let serverRefreshPromise = null;
+const serverViewRefreshPromises = new Map();
 let bookingMutationInFlight = 0;
 let smsSettingsCache = null;
 let smsHistoryCache = [];
@@ -1370,15 +1370,29 @@ function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) 
     lastSyncedGroupFingerprints.clear();
   }
   if (Array.isArray(data.customers)) {
-    data.customers.forEach(customer => {
-      if (customer?.id) lastSyncedCustomerFingerprints.set(Number(customer.id), syncedCustomerFingerprint(customer));
+    if (!replace) lastSyncedCustomerFingerprints.clear();
+    const snapshots = structuredClone(data.customers);
+    snapshots.forEach(customer => {
+      if (!customer?.id) return;
+      clearCustomerUiState(customer);
+      lastSyncedCustomerFingerprints.set(Number(customer.id), customer);
     });
   }
   if (Array.isArray(data.customerGroups)) {
-    data.customerGroups.forEach(group => {
-      if (group?.id) lastSyncedGroupFingerprints.set(Number(group.id), syncedCustomerGroupFingerprint(group));
+    if (!replace) lastSyncedGroupFingerprints.clear();
+    const snapshots = structuredClone(data.customerGroups);
+    snapshots.forEach(group => {
+      if (!group?.id) return;
+      cleanCustomerGroupUiState(group);
+      lastSyncedGroupFingerprints.set(Number(group.id), group);
     });
   }
+}
+
+function storedSyncedFingerprint(store, id, fingerprint) {
+  const stored = store.get(Number(id));
+  if (typeof stored === "string") return stored;
+  return stored ? fingerprint(stored) : null;
 }
 
 function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0) {
@@ -1479,7 +1493,8 @@ function registerPendingCustomerMutation({
     pendingCustomerProfileUpdates.set(customerId, {
       ...snapshot,
       mutationVersion,
-      baseFingerprint: previous?.baseFingerprint ?? lastSyncedCustomerFingerprints.get(customerId) ?? null
+      baseFingerprint: previous?.baseFingerprint
+        ?? storedSyncedFingerprint(lastSyncedCustomerFingerprints, customerId, syncedCustomerFingerprint)
     });
     if (snapshot.groupId) groupIdSet.add(Number(snapshot.groupId));
   });
@@ -1492,7 +1507,8 @@ function registerPendingCustomerMutation({
     pendingCustomerGroupUpdates.set(groupId, {
       ...snapshot,
       mutationVersion,
-      baseFingerprint: previous?.baseFingerprint ?? lastSyncedGroupFingerprints.get(groupId) ?? null
+      baseFingerprint: previous?.baseFingerprint
+        ?? storedSyncedFingerprint(lastSyncedGroupFingerprints, groupId, syncedCustomerGroupFingerprint)
     });
   });
   auditEntries.forEach(entry => {
@@ -1743,6 +1759,31 @@ function hideServerSyncOverlay() {
   const overlay = document.getElementById("serverSyncOverlay");
   if (overlay) overlay.hidden = true;
   document.body.classList.remove("server-sync-active");
+}
+
+function showServerViewLoader(viewName = activeView, message = "Уншиж байна…") {
+  const view = document.getElementById(`${viewName}View`);
+  if (!view) return;
+  let loader = view.querySelector(":scope > .server-view-loader");
+  if (!loader) {
+    loader = document.createElement("div");
+    loader.className = "server-view-loader";
+    loader.setAttribute("role", "status");
+    loader.setAttribute("aria-live", "polite");
+    loader.innerHTML = `<span class="server-sync-spinner" aria-hidden="true"></span><strong></strong>`;
+    view.appendChild(loader);
+  }
+  loader.querySelector("strong").textContent = message;
+  view.classList.add("server-view-reading");
+  view.inert = true;
+}
+
+function hideServerViewLoader(viewName = activeView) {
+  const view = document.getElementById(`${viewName}View`);
+  if (!view) return;
+  view.querySelector(":scope > .server-view-loader")?.remove();
+  view.classList.remove("server-view-reading");
+  view.inert = false;
 }
 
 function showServerProtectionNotice(message = "Мэдээллийг хамгаалж энэ үйлдлийг хадгалсангүй.") {
@@ -2112,7 +2153,7 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         });
         applyActiveAccount(loginResult.user);
         hideServerLogin();
-        showServerSyncOverlay("Эхний цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…");
+        showServerViewLoader(activeView);
         const initialSections = serverSectionsForView(activeView);
         await synchronizeServerState(null, initialSections, initialSections ? activeView : null);
         if (serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
@@ -2121,7 +2162,7 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
       } catch (error) {
         overlay.querySelector("#serverLoginMessage").textContent = error.message;
       } finally {
-        hideServerSyncOverlay();
+        hideServerViewLoader(activeView);
         button.disabled = false;
       }
     });
@@ -2213,11 +2254,11 @@ async function initializeServerStorage() {
     renderActiveView(activeView, { force: true });
     return;
   }
-  showServerSyncOverlay("Эхний цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…");
+  showServerViewLoader(activeView);
   try {
     const status = await serverApi("status.php");
     if (!status.authenticated) {
-      hideServerSyncOverlay();
+      hideServerViewLoader(activeView);
       showServerLogin("Server database-д нэвтэрч мэдээллээ ачаална уу");
       return;
     }
@@ -2228,15 +2269,15 @@ async function initializeServerStorage() {
     renderActiveView(activeView, { force: true });
   } catch (error) {
     if (error.status === 401) {
-      hideServerSyncOverlay();
+      hideServerViewLoader(activeView);
       showServerLogin(error.message);
       return;
     }
     console.error("Server storage unavailable", error);
-    hideServerSyncOverlay();
+    hideServerViewLoader(activeView);
     showServerLogin(error.message || "Server database тохиргоо хийгдээгүй байна");
   } finally {
-    if (serverStorageReady) hideServerSyncOverlay();
+    if (serverStorageReady) hideServerViewLoader(activeView);
   }
 }
 
@@ -2255,25 +2296,40 @@ async function refreshServerStateForView(viewName = activeView) {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return;
   if (!serverStorageReady) return false;
   if (!(await waitForServerWritesToSettle())) return false;
-  if (serverRefreshPromise) {
+  const existingRefresh = serverViewRefreshPromises.get(viewName);
+  if (existingRefresh) return existingRefresh;
+  const requestedSections = serverSectionsForView(viewName);
+  for (const [pendingView, pendingRefresh] of serverViewRefreshPromises.entries()) {
+    const pendingSections = serverSectionsForView(pendingView);
+    const overlaps = !Array.isArray(requestedSections)
+      || !Array.isArray(pendingSections)
+      || requestedSections.some(key => pendingSections.includes(key));
+    if (!overlaps) continue;
     try {
-      await serverRefreshPromise;
+      await pendingRefresh;
     } catch (error) {
-      // The next request below gets its own authoritative response.
+      // The revision check below still obtains an authoritative response.
     }
   }
+  const refreshStartedWhileWaiting = serverViewRefreshPromises.get(viewName);
+  if (refreshStartedWhileWaiting) return refreshStartedWhileWaiting;
   const refreshVersion = localStateMutationVersion;
   const refreshTask = (async () => {
     try {
-      const sections = serverSectionsForView(viewName);
+      const sections = requestedSections;
       let changed = false;
       if (!serverViewSectionsLoaded(viewName)) {
         changed = await synchronizeServerState(refreshVersion, sections, sections ? viewName : null);
       } else {
-        const revisionResult = await serverApi("revision.php");
-        const remoteScopeRevision = Number(revisionResult.scopeRevision ?? revisionResult.revision ?? 0);
-        const viewRevision = Number(viewServerRevisions.get(viewName) ?? 0);
-        if (remoteScopeRevision === viewRevision) return false;
+        const sectionQuery = Array.isArray(sections) && sections.length
+          ? `?sections=${encodeURIComponent(sections.join(","))}`
+          : "";
+        const revisionResult = await serverApi(`revision.php${sectionQuery}`);
+        const remoteSectionRevisions = revisionResult.sectionRevisions || {};
+        const relevantSectionChanged = Array.isArray(sections) && sections.length
+          ? sections.some(key => Number(remoteSectionRevisions[key] || 0) !== Number(serverSectionRevisions.get(key) || 0))
+          : Number(revisionResult.scopeRevision ?? revisionResult.revision ?? 0) !== Number(viewServerRevisions.get(viewName) ?? 0);
+        if (!relevantSectionChanged) return false;
         changed = await synchronizeServerState(refreshVersion, sections, sections ? viewName : null);
       }
       if (viewName === "performance" && serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
@@ -2287,12 +2343,12 @@ async function refreshServerStateForView(viewName = activeView) {
     }
   })();
   serverRefreshInFlight = true;
-  serverRefreshPromise = refreshTask;
+  serverViewRefreshPromises.set(viewName, refreshTask);
   try {
     return await refreshTask;
   } finally {
-    if (serverRefreshPromise === refreshTask) serverRefreshPromise = null;
-    serverRefreshInFlight = false;
+    if (serverViewRefreshPromises.get(viewName) === refreshTask) serverViewRefreshPromises.delete(viewName);
+    serverRefreshInFlight = serverViewRefreshPromises.size > 0;
   }
 }
 
@@ -6744,11 +6800,13 @@ function setView(name) {
 
   if (name === "settingsSchedule" && requestedScheduleSection) activeScheduleSection = requestedScheduleSection;
   document.getElementById("sidebar").classList.remove("open");
-  if (!IS_LOCAL_RUNTIME && serverStorageReady && !serverViewSectionsLoaded(name)) {
-    showServerSyncOverlay("Энэ цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…");
+  if (!IS_LOCAL_RUNTIME && (!serverStorageReady || !serverViewSectionsLoaded(name))) {
+    showServerViewLoader(name);
+    if (!serverStorageReady) return;
     void refreshServerStateForView(name).finally(() => {
-      hideServerSyncOverlay();
-      if (activeView === name && !serverViewSectionsLoaded(name)) {
+      if (serverViewSectionsLoaded(name)) hideServerViewLoader(name);
+      else if (activeView === name) {
+        showServerViewLoader(name, "Уншиж чадсангүй. Цэсийг дахин нээнэ үү.");
         showToast("Энэ цэсийн мэдээллийг ачаалж чадсангүй. Дахин нээнэ үү.", "error");
       }
     });
@@ -17849,5 +17907,5 @@ document.addEventListener("visibilitychange", () => {
 window.setInterval(() => {
   ensureAutomaticPerformanceSnapshot();
   if (!document.hidden && AUTO_REFRESH_VIEWS.has(activeView)) void refreshServerStateForView(activeView);
-}, 10000);
+}, 60000);
 window.addEventListener("pagehide", flushLocalStateSave);

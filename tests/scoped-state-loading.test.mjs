@@ -41,8 +41,8 @@ const initializer = app.slice(
   app.indexOf("async function initializeServerStorage("),
   app.indexOf("const AUTO_REFRESH_VIEWS")
 );
-assert.match(initializer, /showServerSyncOverlay\("Эхний цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…"\)/);
-assert.match(initializer, /finally \{[\s\S]*serverStorageReady[\s\S]*hideServerSyncOverlay/);
+assert.match(initializer, /showServerViewLoader\(activeView\)/);
+assert.match(initializer, /finally \{[\s\S]*serverStorageReady[\s\S]*hideServerViewLoader/);
 
 const viewSetter = app.slice(app.indexOf("function setView("), app.indexOf("function resetIncomingViewState("));
 assert.doesNotMatch(
@@ -50,5 +50,14 @@ assert.doesNotMatch(
   /!renderedViews\.has\(name\)\) renderActiveView/,
   "A failed first load must not expose an editable empty view"
 );
+
+const refresher = app.slice(
+  app.indexOf("async function refreshServerStateForView("),
+  app.indexOf("function auditNowText(")
+);
+assert.match(refresher, /revision\.php\$\{sectionQuery\}/, "Refresh checks only the active view's section revisions");
+assert.match(refresher, /serverViewRefreshPromises\.get\(viewName\)/, "Each view deduplicates only its own refresh request");
+assert.match(refresher, /requestedSections\.some\(key => pendingSections\.includes\(key\)\)/, "Only refreshes with overlapping data sections are serialized");
+assert.doesNotMatch(refresher, /serverRefreshPromise/, "A slow unrelated view must not serialize every refresh");
 
 console.log("scoped-state-loading.test: OK");

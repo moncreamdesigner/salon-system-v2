@@ -59,4 +59,18 @@ assert.equal(
   "Group UI-only state must not create a false conflict"
 );
 
+const captureStart = source.indexOf("function captureSyncedCustomerFingerprints(");
+const captureEnd = source.indexOf("function discardUnsafeCustomerReplays(", captureStart);
+const captureSource = source.slice(captureStart, captureEnd);
+assert.doesNotMatch(
+  captureSource,
+  /set\(Number\(customer\.id\), syncedCustomerFingerprint\(customer\)\)/,
+  "Loading the customer list must not stringify every full customer eagerly"
+);
+assert.match(
+  captureSource,
+  /storedSyncedFingerprint/,
+  "A full conflict fingerprint is calculated lazily when that customer is edited"
+);
+
 console.log("customer-fingerprint.test: OK");

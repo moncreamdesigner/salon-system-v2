@@ -488,6 +488,32 @@ body.sidebar-collapsed .sidebar-logout {
   display: block;
 }
 
+.view.server-view-reading {
+  position: relative;
+  min-height: 280px;
+}
+
+.view.server-view-reading > :not(.server-view-loader) {
+  visibility: hidden;
+}
+
+.server-view-loader {
+  min-height: 280px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.server-view-loader .server-sync-spinner {
+  width: 34px;
+  height: 34px;
+  border-width: 3px;
+}
+
 .info-strip {
   margin-bottom: 12px;
   border-radius: 8px;
