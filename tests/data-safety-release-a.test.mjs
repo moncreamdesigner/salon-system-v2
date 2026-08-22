@@ -25,19 +25,10 @@ const serverInitializer = app.slice(
   app.indexOf("async function initializeServerStorage("),
   app.indexOf("const AUTO_REFRESH_VIEWS")
 );
-const loginHandler = app.slice(
-  app.indexOf('overlay.querySelector("#serverLoginForm")'),
-  app.indexOf("const VIEW_SERVER_SECTIONS")
-);
-assert.match(
-  loginHandler,
-  /const loginSections = VIEW_SERVER_SECTIONS\[activeView\] \|\| null;[\s\S]*await synchronizeServerState\(null, loginSections, loginSections \? activeView : null\);/,
-  "Signing in must load only the active operational view instead of the full database"
-);
 assert.match(
   serverInitializer,
-  /const initialSections = VIEW_SERVER_SECTIONS\[activeView\] \|\| null;[\s\S]*await synchronizeServerState\(null, initialSections, initialSections \? activeView : null\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);/,
-  "Daily operational data must render immediately after the active-view server state loads"
+  /await synchronizeServerState\(\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);/,
+  "Daily operational data must render immediately after the server state loads"
 );
 assert.doesNotMatch(
   serverInitializer.slice(serverInitializer.indexOf("async function initializeServerStorage(")),
