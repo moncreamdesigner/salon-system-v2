@@ -14357,6 +14357,7 @@ function renderBookings() {
       <td>
         <div class="table-actions">
           ${booking.status === "pending" ? `<button class="primary-btn booking-confirm" data-id="${booking.id}">Батлах</button>` : ""}
+          ${!["cancelled", "rejected"].includes(booking.status) ? `<button class="danger-btn booking-cancel" data-id="${booking.id}">Цуцлах</button>` : ""}
           <button class="secondary-btn icon-action booking-edit" data-id="${booking.id}" aria-label="Засах">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 17.5V20h2.5L17.1 9.4l-2.5-2.5L4 17.5Zm12-12 2.5 2.5 1.1-1.1a1.8 1.8 0 0 0 0-2.5 1.8 1.8 0 0 0-2.5 0L16 5.5Z"></path>
@@ -14372,6 +14373,14 @@ function renderBookings() {
 
   document.querySelectorAll(".booking-confirm").forEach(button => {
     button.addEventListener("click", () => updateBookingStatus(button.dataset.id, "confirmed"));
+  });
+  document.querySelectorAll(".booking-cancel").forEach(button => {
+    button.addEventListener("click", async () => {
+      const booking = state.bookings.find(item => String(item.id) === String(button.dataset.id));
+      if (!booking) return;
+      if (!window.confirm(`${dateWithWeekday(booking.date)} ${booking.time} цагийг цуцлах уу?`)) return;
+      await updateBookingStatus(booking.id, "cancelled");
+    });
   });
   document.querySelectorAll(".booking-delete").forEach(button => {
     button.addEventListener("click", () => deleteBooking(button.dataset.id));

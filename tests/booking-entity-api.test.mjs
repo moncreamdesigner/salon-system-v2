@@ -22,6 +22,8 @@ assert.match(app, /submitBookingOperation\("create"/, "Admin booking creation mu
 assert.match(app, /submitBookingOperation\("update"/, "Admin booking editing must use the entity endpoint");
 assert.match(app, /submitBookingOperation\("status"/, "Booking status must use the entity endpoint");
 assert.match(app, /submitBookingOperation\("delete"/, "Booking deletion must use the entity endpoint");
+assert.match(app, /booking-cancel[\s\S]*Цуцлах/, "Active bookings must expose a dedicated cancel action");
+assert.match(app, /updateBookingStatus\(booking\.id, "cancelled"\)/, "The cancel action must use the server-owned status flow");
 
 const statusFunction = app.slice(app.indexOf("async function updateBookingStatus"), app.indexOf("let actionCodeDialogOpen"));
 assert.doesNotMatch(statusFunction, /saveState\(/, "Booking status must not write the full section");
