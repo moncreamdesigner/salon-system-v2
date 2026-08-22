@@ -21,6 +21,16 @@ assert.match(
 );
 assert.match(
   editor,
+  /loadedBookingById\(editId\)/,
+  "The inline editor must use the authoritative selected booking instead of the unloaded full-state section"
+);
+assert.doesNotMatch(
+  editor,
+  /state\.bookings\.find\(item => String\(item\.id\) === String\(editId\)\)/,
+  "The inline editor must not depend on the complete booking section being loaded"
+);
+assert.match(
+  editor,
   /form\.querySelectorAll\("\.booking-slot-row"\)/,
   "Booking submission must count only rows owned by the active form"
 );

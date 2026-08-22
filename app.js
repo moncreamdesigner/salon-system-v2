@@ -530,6 +530,8 @@ let bookingDirectoryTotal = 0;
 let bookingDirectoryRevision = 0;
 let bookingDirectorySummary = { total: 0, confirmed: 0, pending: 0, today: 0 };
 let bookingInlineEditingId = null;
+let bookingInlineEditingRecord = null;
+let bookingEditRequestSequence = 0;
 let voucherPage = 1;
 let giftCardPage = 1;
 let giftCardEditingId = null;
@@ -6935,6 +6937,8 @@ function resetIncomingViewState(name) {
     bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
     bookingDirectoryRows = [];
     bookingInlineEditingId = null;
+    bookingInlineEditingRecord = null;
+    bookingEditRequestSequence += 1;
   }
   if (name === "kass") {
     resetValues({ kassFromFilter: "", kassToFilter: "", kassSalonFilter: "all", kassStaffFilter: "all" });
@@ -14785,8 +14789,25 @@ function bookingDirectoryQuery() {
 }
 
 function loadedBookingById(id) {
-  return bookingDirectoryRows.find(item => String(item.id) === String(id))
+  return (bookingInlineEditingRecord && String(bookingInlineEditingRecord.id) === String(id) ? bookingInlineEditingRecord : null)
+    || bookingDirectoryRows.find(item => String(item.id) === String(id))
     || state.bookings.find(item => String(item.id) === String(id));
+}
+
+async function loadBookingForEdit(id) {
+  const requestedId = String(id || "");
+  if (!requestedId) throw new Error("Засах цаг олдсонгүй.");
+  if (IS_LOCAL_RUNTIME) {
+    const localBooking = loadedBookingById(requestedId);
+    if (!localBooking) throw new Error("Засах цаг олдсонгүй.");
+    return localBooking;
+  }
+  const result = await serverApi(`booking-detail.php?id=${encodeURIComponent(requestedId)}`);
+  if (!result?.booking || String(result.booking.id) !== requestedId) {
+    throw new Error("Засах цагийн мэдээлэл бүрэн ирсэнгүй.");
+  }
+  bookingDirectoryRevision = Math.max(bookingDirectoryRevision, Number(result.revision) || 0);
+  return result.booking;
 }
 
 async function loadBookingDirectory({ silent = false } = {}) {
@@ -14915,10 +14936,25 @@ function renderBookings() {
     button.addEventListener("click", () => deleteBooking(button.dataset.id));
   });
   document.querySelectorAll(".booking-edit").forEach(button => {
-    button.addEventListener("click", () => {
-      bookingInlineEditingId = String(button.dataset.id || "");
-      closeBookingForm();
-      renderBookings();
+    button.addEventListener("click", async () => {
+      const requestedId = String(button.dataset.id || "");
+      const requestSequence = ++bookingEditRequestSequence;
+      button.disabled = true;
+      try {
+        const booking = await loadBookingForEdit(requestedId);
+        if (requestSequence !== bookingEditRequestSequence || activeView !== "bookings") return;
+        bookingInlineEditingRecord = booking;
+        bookingInlineEditingId = requestedId;
+        closeBookingForm();
+        renderBookings();
+      } catch (error) {
+        if (requestSequence !== bookingEditRequestSequence) return;
+        bookingInlineEditingRecord = null;
+        bookingInlineEditingId = null;
+        showToast(error?.message || "Засах цагийн мэдээлэл ачаалсангүй", "error");
+      } finally {
+        if (button.isConnected) button.disabled = false;
+      }
     });
   });
   if (pagination) pagination.innerHTML = !IS_LOCAL_RUNTIME && bookingDirectoryPageCount > 1 ? `
@@ -14940,7 +14976,10 @@ function renderBookings() {
   if (bookingInlineEditingId) {
     const editSlot = document.getElementById("bookingRowEditSlot");
     if (editSlot) openBookingModal(bookingInlineEditingId, editSlot, editDraft);
-    else bookingInlineEditingId = null;
+    else {
+      bookingInlineEditingId = null;
+      bookingInlineEditingRecord = null;
+    }
   } else {
     const createSlot = document.getElementById("bookingInlineSlot");
     const createForm = createSlot?.querySelector("#bookingForm");
@@ -17438,12 +17477,13 @@ function setBookingSlotCount(targetCount, editId) {
 function openBookingModal(editId, targetSlot = null, draft = null) {
   const requestedEdit = editId !== null && editId !== undefined && String(editId) !== "";
   const editing = requestedEdit
-    ? state.bookings.find(item => String(item.id) === String(editId))
+    ? loadedBookingById(editId)
     : null;
   const slot = targetSlot || document.getElementById("bookingInlineSlot");
   if (!slot) return;
   if (requestedEdit && !editing) {
     bookingInlineEditingId = null;
+    bookingInlineEditingRecord = null;
     slot.innerHTML = '<div class="empty-state">Засах цагийн мэдээлэл шинэчлэгдсэн байна. Жагсаалтаас дахин сонгоно уу.</div>';
     showToast("Засах цаг олдсонгүй. Шинэ цаг болгон бүртгээгүй.", "error");
     void refreshServerStateForView("bookings");
@@ -17514,6 +17554,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
   });
   document.getElementById("bookingEditCancel")?.addEventListener("click", () => {
     bookingInlineEditingId = null;
+    bookingInlineEditingRecord = null;
     renderBookings();
     openBookingModal();
   });
@@ -17598,6 +17639,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
         await submitBookingOperation("create", { bookings });
       }
       bookingInlineEditingId = null;
+      bookingInlineEditingRecord = null;
       bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
       openBookingModal();
       renderBookings();

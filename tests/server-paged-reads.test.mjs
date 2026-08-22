@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const bookings = fs.readFileSync(new URL("../api/booking-list.php", import.meta.url), "utf8");
+const bookingDetail = fs.readFileSync(new URL("../api/booking-detail.php", import.meta.url), "utf8");
 const audit = fs.readFileSync(new URL("../api/audit-list.php", import.meta.url), "utf8");
 const customers = fs.readFileSync(new URL("../api/customer-list.php", import.meta.url), "utf8");
 const customerDetail = fs.readFileSync(new URL("../api/customer-detail.php", import.meta.url), "utf8");
@@ -27,6 +28,11 @@ assert.match(customerPhone, /!empty\(\$customer\['deleted'\]\)/, "Duplicate phon
 assert.match(app, /customer-phone\.php\?phone=/, "Partial customer views must verify duplicate phones against the server");
 assert.match(app, /customerDirectoryLoadingKey === requestKey/, "Customer filtering must reuse only an identical in-flight request");
 assert.match(app, /bookingDirectoryLoadingKey === requestKey/, "Booking filtering must reuse only an identical in-flight request");
+assert.match(app, /booking-detail\.php\?id=/, "Booking editing must load the authoritative selected booking from the server");
+assert.match(app, /bookingInlineEditingRecord/, "Booking editing must preserve its selected record across list refreshes");
+assert.match(app, /requestSequence !== bookingEditRequestSequence/, "A stale booking detail response must not open the wrong editor");
+assert.match(bookingDetail, /count\(\$matches\) > 1/, "Booking detail must refuse ambiguous legacy duplicate ids");
+assert.match(bookingDetail, /\$user\['role'\].*=== 'salon'/s, "Booking detail must enforce salon scope on the server");
 assert.match(app, /auditDirectoryLoadingKey === requestKey/, "Audit filtering must reuse only an identical in-flight request");
 assert.ok((app.match(/\.toString\(\) !== requestKey/g) || []).length >= 6, "Stale directory responses and errors must not overwrite the latest filter");
 
