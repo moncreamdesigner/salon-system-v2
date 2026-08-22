@@ -8992,6 +8992,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: var(--muted);
 }
 
+.sms-length-counter {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.sms-length-counter.is-over {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .sms-variable-note {
   display: flex;
   align-items: center;

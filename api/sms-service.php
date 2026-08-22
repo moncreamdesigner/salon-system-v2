@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 const SMS_TIMEZONE = 'Asia/Ulaanbaatar';
 const SMS_FIRST_CHECK_HOUR = 6;
+const SMS_UNICODE_LIMIT = 70;
+const SMS_LATIN_LIMIT = 160;
 
-function sms_default_templates(): array
+function sms_legacy_templates(): array
 {
     return [
         'created' => 'Халгай: Таны {date}-ны {time} цагийн захиалгыг хүлээн авлаа. Салбар: {branch}.',
@@ -12,6 +14,17 @@ function sms_default_templates(): array
         'changed' => 'Халгай: Таны цаг {old_date} {old_time}-аас {new_date} {new_time} болж өөрчлөгдлөө. Салбар: {branch}.',
         'cancelled' => 'Халгай: Таны {date}-ны {time} цагийн захиалга цуцлагдлаа. Холбоо барих: {branch_phone}.',
         'reminder' => 'Халгай: Таны {branch} салбар дахь цаг өнөөдөр {time}-т эхэлнэ. Товлосон цагтаа хүрэлцэн ирээрэй.',
+    ];
+}
+
+function sms_default_templates(): array
+{
+    return [
+        'created' => 'Халгай: {date} {time}, {branch}. Захиалга бүртгэгдлээ.',
+        'confirmed' => 'Халгай: {date} {time}, {branch}. Цаг баталгаажлаа.',
+        'changed' => 'Халгай: Цаг {new_date} {new_time} болж өөрчлөгдлөө. {branch}',
+        'cancelled' => 'Халгай: {date} {time}-ийн цаг цуцлагдлаа. {branch_phone}',
+        'reminder' => 'Халгай: {branch}, өнөөдөр {time}. Цагаа барина уу.',
     ];
 }
 
@@ -36,11 +49,13 @@ function sms_default_settings(): array
 function sms_normalize_settings(array $stored): array
 {
     $defaults = sms_default_settings();
+    $legacyTemplates = sms_legacy_templates();
     $events = is_array($stored['events'] ?? null) ? $stored['events'] : [];
     $templates = is_array($stored['templates'] ?? null) ? $stored['templates'] : [];
     foreach (array_keys($defaults['events']) as $event) {
         $defaults['events'][$event] = ($events[$event] ?? false) === true;
         $template = trim((string)($templates[$event] ?? $defaults['templates'][$event]));
+        if ($template === ($legacyTemplates[$event] ?? null)) $template = $defaults['templates'][$event];
         $defaults['templates'][$event] = mb_substr($template !== '' ? $template : $defaults['templates'][$event], 0, 1000);
     }
     $defaults['reminderHours'] = max(1, min(3, (int)($stored['reminderHours'] ?? 3)));
@@ -110,7 +125,34 @@ function sms_normalize_phone(string $value): string
 function sms_mn_date(string $date): string
 {
     $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date, new DateTimeZone(SMS_TIMEZONE));
-    return $parsed ? $parsed->format('Y оны n сарын j') : $date;
+    return $parsed ? $parsed->format('n/j') : $date;
+}
+
+function sms_message_limit(string $message): int
+{
+    return preg_match('/[^\x00-\x7F]/', $message) === 1 ? SMS_UNICODE_LIMIT : SMS_LATIN_LIMIT;
+}
+
+function sms_message_length_error(string $message): string
+{
+    $length = mb_strlen($message);
+    $limit = sms_message_limit($message);
+    return $length > $limit ? "SMS агуулга {$length}/{$limit} тэмдэгт байна. Загварыг богиносгоно уу." : '';
+}
+
+function sms_template_estimated_message(string $template): string
+{
+    return strtr($template, [
+        '{customer_name}' => 'Хэрэглэгч',
+        '{date}' => '12/31',
+        '{time}' => '18:00',
+        '{branch}' => 'Чингэлтэй салбар',
+        '{branch_phone}' => '99112233',
+        '{old_date}' => '12/31',
+        '{old_time}' => '18:00',
+        '{new_date}' => '12/31',
+        '{new_time}' => '18:00',
+    ]);
 }
 
 function sms_section_rows(PDO $pdo, string $section): array
@@ -287,6 +329,8 @@ function sms_provider_url(array $settings, string $phone, string $message): stri
 
 function sms_http_send(array $settings, string $phone, string $message): array
 {
+    $lengthError = sms_message_length_error($message);
+    if ($lengthError !== '') return ['ok' => false, 'retryable' => false, 'error' => $lengthError, 'response' => ''];
     $url = sms_provider_url($settings, $phone, $message);
     $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
     if (!in_array($scheme, ['http', 'https'], true)) return ['ok' => false, 'error' => 'API URL буруу байна.', 'response' => ''];
@@ -315,11 +359,24 @@ function sms_http_send(array $settings, string $phone, string $message): array
         if ($result === false) return ['ok' => false, 'error' => 'SMS сервертэй холбогдсонгүй.', 'response' => ''];
         $body = (string)$result;
     }
-    return [
-        'ok' => $status >= 200 && $status < 300,
-        'error' => $status >= 200 && $status < 300 ? '' : 'SMS сервер HTTP ' . $status . ' буцаалаа.',
-        'response' => mb_substr($body, 0, 1000),
-    ];
+    $httpOk = $status >= 200 && $status < 300;
+    $response = mb_substr($body, 0, 1000);
+    if (!$httpOk) return ['ok' => false, 'retryable' => true, 'error' => 'SMS сервер HTTP ' . $status . ' буцаалаа.', 'response' => $response];
+    $decoded = json_decode($body, true);
+    if (is_array($decoded) && array_key_exists('status', $decoded)) {
+        $providerOk = (int)$decoded['status'] === 1;
+        if (array_key_exists('sent_count', $decoded)) $providerOk = $providerOk && (int)$decoded['sent_count'] > 0;
+        if (!$providerOk) {
+            $providerMessage = trim((string)($decoded['message'] ?? ''));
+            return [
+                'ok' => false,
+                'retryable' => false,
+                'error' => $providerMessage !== '' ? $providerMessage : 'SMS provider илгээлтийг татгалзлаа.',
+                'response' => $response,
+            ];
+        }
+    }
+    return ['ok' => true, 'retryable' => false, 'error' => '', 'response' => $response];
 }
 
 function sms_dispatch_message(PDO $pdo, int $messageId): array
@@ -354,7 +411,7 @@ function sms_dispatch_message(PDO $pdo, int $messageId): array
         $update->execute([(new DateTimeImmutable('now', new DateTimeZone(SMS_TIMEZONE)))->format('Y-m-d H:i:s'), $result['response'], $messageId]);
     } else {
         $attempts = (int)$row['attempts'] + 1;
-        $final = $attempts >= (int)$row['max_attempts'];
+        $final = ($result['retryable'] ?? true) !== true || $attempts >= (int)$row['max_attempts'];
         $update = $pdo->prepare("UPDATE app_sms_messages SET status = ?, next_attempt_at = ?, last_error = ?, provider_response = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
         $retryAt = $final ? null : (new DateTimeImmutable('now', new DateTimeZone(SMS_TIMEZONE)))->modify('+1 hour')->format('Y-m-d H:i:s');
         $update->execute([$final ? 'permanent_failed' : 'failed', $retryAt, mb_substr((string)$result['error'], 0, 500), $result['response'], $messageId]);

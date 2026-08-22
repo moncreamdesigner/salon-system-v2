@@ -62,6 +62,12 @@ if ($method === 'PUT') {
         }
     }
     $normalized = sms_normalize_settings($incoming);
+    $eventLabels = ['created' => 'Шинэ захиалга', 'confirmed' => 'Цаг баталгаажуулалт', 'changed' => 'Цаг өөрчлөлт', 'cancelled' => 'Цаг цуцлалт', 'reminder' => 'Цагийн сануулга'];
+    foreach ($normalized['events'] as $event => $eventEnabled) {
+        if (!$eventEnabled) continue;
+        $lengthError = sms_message_length_error(sms_template_estimated_message((string)($normalized['templates'][$event] ?? '')));
+        if ($lengthError !== '') json_response(['ok' => false, 'message' => ($eventLabels[$event] ?? $event) . ': ' . $lengthError], 422);
+    }
     $token = trim((string)($incoming['token'] ?? ''));
     if ($token === '') $token = (string)($current['token'] ?? '');
     if ($enabled && ($apiUrl === '' || $token === '')) {

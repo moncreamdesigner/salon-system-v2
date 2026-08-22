@@ -4130,6 +4130,38 @@ const SMS_STATUS_LABELS = {
   cancelled: "Цуцлагдсан"
 };
 
+const SMS_TEMPLATE_SAMPLE_VALUES = {
+  "{customer_name}": "Хэрэглэгч",
+  "{date}": "12/31",
+  "{time}": "18:00",
+  "{branch}": "Чингэлтэй салбар",
+  "{branch_phone}": "99112233",
+  "{old_date}": "12/31",
+  "{old_time}": "18:00",
+  "{new_date}": "12/31",
+  "{new_time}": "18:00"
+};
+
+function smsEstimatedMessage(template) {
+  return Object.entries(SMS_TEMPLATE_SAMPLE_VALUES).reduce((value, [key, replacement]) => value.split(key).join(replacement), String(template || ""));
+}
+
+function smsMessageLimit(message) {
+  return /[^\x00-\x7F]/.test(message) ? 70 : 160;
+}
+
+function updateSmsLengthCounter(event) {
+  const field = SMS_EVENT_FIELDS[event];
+  if (!field) return;
+  const message = smsEstimatedMessage(formValue(field[1]));
+  const length = Array.from(message).length;
+  const limit = smsMessageLimit(message);
+  const counter = document.querySelector(`[data-sms-counter="${event}"]`);
+  if (!counter) return;
+  counter.textContent = `Тооцоолсон урт ${length}/${limit}`;
+  counter.classList.toggle("is-over", length > limit);
+}
+
 function renderSmsSettings() {
   const settings = smsSettingsCache;
   if (!settings || !document.getElementById("settingsSmsView")?.isConnected) return;
@@ -4149,6 +4181,7 @@ function renderSmsSettings() {
     const template = document.getElementById(templateId);
     if (checkbox) checkbox.checked = Boolean(settings.events?.[event]);
     if (template) template.value = settings.templates?.[event] || "";
+    updateSmsLengthCounter(event);
     document.querySelector(`[data-sms-event="${event}"]`)?.classList.toggle("is-enabled", Boolean(settings.events?.[event]));
   });
   const status = document.getElementById("smsConnectionStatus");
@@ -4218,6 +4251,12 @@ function smsSettingsFormPayload() {
 
 async function saveSmsSettings(event) {
   event.preventDefault();
+  const overLimitEvent = Object.keys(SMS_EVENT_FIELDS).find(smsEvent => {
+    const [checkboxId, templateId] = SMS_EVENT_FIELDS[smsEvent];
+    const message = smsEstimatedMessage(formValue(templateId));
+    return document.getElementById(checkboxId)?.checked && Array.from(message).length > smsMessageLimit(message);
+  });
+  if (overLimitEvent) return showToast(`${SMS_EVENT_LABELS[overLimitEvent]} SMS хэт урт байна`, "error");
   const code = await requireEditCodeValue();
   if (!code) return;
   const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
@@ -17149,10 +17188,11 @@ function bindEvents() {
   document.getElementById("smsTestPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });
-  Object.values(SMS_EVENT_FIELDS).forEach(([checkboxId]) => {
+  Object.entries(SMS_EVENT_FIELDS).forEach(([smsEvent, [checkboxId, templateId]]) => {
     document.getElementById(checkboxId)?.addEventListener("change", event => {
       event.target.closest(".sms-template-card")?.classList.toggle("is-enabled", event.target.checked);
     });
+    document.getElementById(templateId)?.addEventListener("input", () => updateSmsLengthCounter(smsEvent));
   });
   ["deleteActionCode", "actionCodeInput"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", event => {

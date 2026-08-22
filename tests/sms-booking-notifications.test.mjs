@@ -67,4 +67,16 @@ test("change and cancellation invalidate old reminders without duplicate sends",
   assert.match(bookings, /\['salon', 'date', 'time'\]/);
 });
 
+test("provider business failures and Unicode limits cannot be marked sent", () => {
+  assert.match(service, /const SMS_UNICODE_LIMIT = 70/);
+  assert.match(service, /sms_message_length_error/);
+  assert.match(service, /array_key_exists\('status', \$decoded\)/);
+  assert.match(service, /\(int\)\$decoded\['status'\] === 1/);
+  assert.match(service, /\(int\)\$decoded\['sent_count'\] > 0/);
+  assert.match(service, /\$result\['retryable'\].*\$attempts >=/s);
+  assert.match(settingsApi, /sms_template_estimated_message/);
+  assert.match(html, /data-sms-counter="confirmed"/);
+  assert.match(app, /Тооцоолсон урт/);
+});
+
 console.log("sms-booking-notifications.test: OK");
