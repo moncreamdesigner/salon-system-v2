@@ -2111,7 +2111,8 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         });
         applyActiveAccount(loginResult.user);
         hideServerLogin();
-        await synchronizeServerState();
+        const loginSections = VIEW_SERVER_SECTIONS[activeView] || null;
+        await synchronizeServerState(null, loginSections, loginSections ? activeView : null);
         ensureAutomaticPerformanceSnapshot();
         rerenderAll();
         setView(activeView);
@@ -2183,7 +2184,10 @@ async function initializeServerStorage() {
       return;
     }
     applyActiveAccount(status.user);
-    await synchronizeServerState();
+    // Load only what the open screen needs. Customer history, reports and
+    // media keep growing and must not delay every new operational tab.
+    const initialSections = VIEW_SERVER_SECTIONS[activeView] || null;
+    await synchronizeServerState(null, initialSections, initialSections ? activeView : null);
     ensureAutomaticPerformanceSnapshot();
     renderActiveView(activeView, { force: true });
   } catch (error) {
