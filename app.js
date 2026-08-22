@@ -491,6 +491,7 @@ const dashboardDemoData = {
 let dashboardDataCache = null;
 let dashboardAnalyticsRequestSequence = 0;
 let dashboardAnalyticsLoadingKey = "";
+let dashboardStaffLoadingKey = "";
 let activeServiceMainTab = "single";
 let activeProductGroup = "gift";
 let activeDatabaseTab = "import";
@@ -6144,22 +6145,52 @@ async function loadDashboardAnalyticsSource(month = monthText(todayText()), salo
   dashboardAnalyticsLoadingKey = requestKey;
   showServerViewLoader("dashboard");
   try {
-    const params = new URLSearchParams({ mode: "dashboard", month });
+    const params = new URLSearchParams({ month });
     if (effectiveSalon) params.set("salon", effectiveSalon);
-    const result = await serverApi(`analytics-source.php?${params.toString()}`);
+    let result;
+    let usedLegacySource = false;
+    try {
+      result = await serverApi(`dashboard-summary.php?${params.toString()}`);
+      const summary = result?.summary;
+      if (!summary || !summary.snapshots || !summary.serviceRows || !summary.paymentRows || typeof summary.paymentRows !== "object") {
+        throw new Error("Dashboard summary response is incomplete");
+      }
+    } catch (summaryError) {
+      console.warn("Dashboard summary load failed; using the compatible source", summaryError);
+      const legacyParams = new URLSearchParams({ mode: "dashboard", month });
+      if (effectiveSalon) legacyParams.set("salon", effectiveSalon);
+      result = await serverApi(`analytics-source.php?${legacyParams.toString()}`);
+      usedLegacySource = true;
+    }
     if (requestSequence !== dashboardAnalyticsRequestSequence || activeView !== "dashboard") return;
-    dashboardDataCache = {
-      key: requestKey,
-      source: { ...structuredClone(defaultState), ...(result.data || {}) },
-      months: Array.isArray(result.months) ? result.months : [],
-      revisions: result.sectionRevisions || {},
-      paymentRows: null,
-      serviceRows: new Map(),
-      snapshots: new Map(),
-      performanceRows: null
-    };
+    dashboardDataCache = usedLegacySource
+      ? {
+          key: requestKey,
+          source: { ...structuredClone(defaultState), ...(result.data || {}) },
+          summary: null,
+          staffSource: null,
+          months: Array.isArray(result.months) ? result.months : [],
+          revisions: result.sectionRevisions || {},
+          paymentRows: null,
+          serviceRows: new Map(),
+          snapshots: new Map(),
+          performanceRows: null
+        }
+      : {
+          key: requestKey,
+          source: { ...structuredClone(defaultState), salons: Array.isArray(result.salons) ? result.salons : [] },
+          summary: result.summary,
+          staffSource: null,
+          months: Array.isArray(result.months) ? result.months : [],
+          revisions: result.sectionRevisions || {},
+          paymentRows: null,
+          serviceRows: new Map(),
+          snapshots: new Map(),
+          performanceRows: null
+        };
     renderDashboard();
     renderInfoHeader("dashboard");
+    if (!usedLegacySource) setTimeout(() => void loadDashboardStaffSource(month, effectiveSalon, requestKey), 50);
   } catch (error) {
     showToast(error?.message || "Хяналтын самбарын мэдээлэл ачаалсангүй", "error");
   } finally {
@@ -6168,7 +6199,41 @@ async function loadDashboardAnalyticsSource(month = monthText(todayText()), salo
   }
 }
 
+async function loadDashboardStaffSource(month, salon, requestKey) {
+  if (IS_LOCAL_RUNTIME || dashboardStaffLoadingKey === requestKey || dashboardDataCache?.key !== requestKey || dashboardDataCache?.staffSource) return;
+  dashboardStaffLoadingKey = requestKey;
+  try {
+    const [year, monthNumber] = String(month).split("-").map(Number);
+    const from = `${month}-01`;
+    const to = localDateText(new Date(year, monthNumber, 0));
+    const params = new URLSearchParams({ mode: "performance", month, from, to });
+    if (salon) params.set("salon", salon);
+    const result = await serverApi(`analytics-source.php?${params.toString()}`);
+    if (dashboardDataCache?.key !== requestKey || activeView !== "dashboard") return;
+    dashboardDataCache.staffSource = { ...structuredClone(defaultState), ...(result.data || {}) };
+    dashboardDataCache.performanceRows = null;
+    renderDashboard();
+  } catch (error) {
+    console.warn("Dashboard staff summary load failed", error);
+  } finally {
+    if (dashboardStaffLoadingKey === requestKey) dashboardStaffLoadingKey = "";
+  }
+}
+
 function dashboardRefreshDataCatalog() {
+  if (dashboardDataCache?.summary) {
+    dashboardDemoData.months = (dashboardDataCache.months || [])
+      .filter(key => /^\d{4}-\d{2}$/.test(key))
+      .sort()
+      .map(dashboardMonthMeta);
+    dashboardDemoData.branches = (dashboardDataCache.source?.salons || []).map(item => ({
+      name: item.name,
+      share: 0,
+      completionDelta: 0,
+      occupancyDelta: 0
+    }));
+    return;
+  }
   const sourceState = dashboardDataCache?.source || state;
   const monthKeys = new Set([monthText(todayText())]);
   (dashboardDataCache?.months || []).forEach(key => monthKeys.add(key));
@@ -6205,9 +6270,12 @@ function dashboardRowsForMonth(month, salon = "") {
 }
 
 function dashboardServiceRows(month, salon = "") {
-  const sourceState = dashboardDataCache?.source || state;
   const key = typeof month === "string" ? month : month?.key;
   const cacheKey = `${key}|${salon}`;
+  if (dashboardDataCache?.summary?.serviceRows) {
+    return dashboardDataCache.summary.serviceRows[`${key}|${salon || "all"}`] || [];
+  }
+  const sourceState = dashboardDataCache?.source || state;
   if (dashboardDataCache?.serviceRows?.has(cacheKey)) return dashboardDataCache.serviceRows.get(cacheKey);
   const rows = [
     { name: "Курс эмчилгээ", key: "course", count: 0, color: "#60bf63" },
@@ -6253,6 +6321,10 @@ function dashboardServiceRows(month, salon = "") {
 }
 
 function dashboardPaymentRows(month, salon = "") {
+  const key = typeof month === "string" ? month : month?.key;
+  if (dashboardDataCache?.summary?.paymentRows) {
+    return dashboardDataCache.summary.paymentRows[`${key}|${salon || "all"}`] || [];
+  }
   const colors = ["#60bf63", "#87c77e", "#b7d9aa", "#dfe9d7", "#9bcf91", "#c9dfbd", "#76b96f"];
   const totals = new Map();
   dashboardRowsForMonth(month, salon).filter(isActualKassRevenueRow).forEach(row => {
@@ -6271,6 +6343,10 @@ function dashboardPaymentRows(month, salon = "") {
 }
 
 function dashboardTopServices(month, salon = "") {
+  const key = typeof month === "string" ? month : month?.key;
+  if (dashboardDataCache?.summary?.topServices) {
+    return dashboardDataCache.summary.topServices[`${key}|${salon || "all"}`] || [];
+  }
   const grouped = new Map();
   dashboardRowsForMonth(month, salon).filter(isActualKassRevenueRow).forEach(row => {
     const name = row.service || "Үйлчилгээ";
@@ -6302,9 +6378,15 @@ function dashboardBranch(name) {
 }
 
 function dashboardSnapshot(month, salon = "") {
-  const sourceState = dashboardDataCache?.source || state;
   const key = typeof month === "string" ? month : month?.key;
   const cacheKey = `${key}|${salon}`;
+  if (dashboardDataCache?.summary?.snapshots) {
+    return dashboardDataCache.summary.snapshots[`${key}|${salon || "all"}`] || {
+      revenue: 0, payments: 0, visits: 0, products: 0, newCustomers: 0,
+      outstanding: 0, completion: 0, occupancy: 0
+    };
+  }
+  const sourceState = dashboardDataCache?.source || state;
   if (dashboardDataCache?.snapshots?.has(cacheKey)) return dashboardDataCache.snapshots.get(cacheKey);
   const paymentRows = dashboardRowsForMonth(key, salon).filter(isActualKassRevenueRow);
   const serviceRows = dashboardServiceRows(key, salon);
@@ -6389,6 +6471,13 @@ function dashboardAllowedBranches() {
 }
 
 function dashboardRowsForBranches(month) {
+  if (dashboardDataCache?.summary?.snapshots) {
+    const key = typeof month === "string" ? month : month?.key;
+    return dashboardAllowedBranches().map(branch => ({
+      ...branch,
+      ...(dashboardDataCache.summary.snapshots[`${key}|${branch.name}`] || dashboardSnapshot(key, branch.name))
+    }));
+  }
   return dashboardAllowedBranches().map(branch => ({
     ...branch,
     ...dashboardSnapshot(month, branch.name)
@@ -6453,6 +6542,7 @@ function dashboardDonutMarkup(items, total, valueKey = "share") {
 }
 
 function dashboardCustomerDemographics() {
+  if (dashboardDataCache?.summary?.demographics) return dashboardDataCache.summary.demographics;
   const customers = (dashboardDataCache?.source || state).customers.filter(item => !item.deleted && !item.deletedAt);
   const total = customers.length;
   const count = predicate => customers.filter(predicate).length;
@@ -6486,10 +6576,11 @@ function dashboardCustomerDemographics() {
 }
 
 function dashboardStaffRows(month, salon) {
+  if (dashboardDataCache?.summary && !dashboardDataCache.staffSource) return [];
   const key = typeof month === "string" ? month : month?.key;
   const grouped = new Map();
   const performanceRows = dashboardDataCache
-    ? (dashboardDataCache.performanceRows ||= performanceTransactionsForSource(dashboardDataCache.source || state))
+    ? (dashboardDataCache.performanceRows ||= performanceTransactionsForSource(dashboardDataCache.staffSource || dashboardDataCache.source || state))
     : performanceTransactions();
   performanceRows
     .filter(item => monthText(item.date) === key)
@@ -6542,21 +6633,22 @@ function dashboardSelectedViewMode() {
 
 function dashboardOperationsHtml(month, salon, snapshot) {
   const sourceState = dashboardDataCache?.source || state;
+  const summary = dashboardDataCache?.summary?.operations || null;
   const scope = salon || "Нийт салбар";
   const today = todayText();
-  const todayBookings = sourceState.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
-  const bookings = todayBookings.length;
-  const statusCount = status => todayBookings.filter(item => item.status === status).length;
+  const todayBookings = summary ? [] : sourceState.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
+  const bookings = summary ? Number(summary.bookings || 0) : todayBookings.length;
+  const statusCount = status => summary ? Number(summary.statusCounts?.[status] || 0) : todayBookings.filter(item => item.status === status).length;
   const bookingStatus = [
     { name: "Баталгаажсан", value: statusCount("confirmed"), share: bookings ? Math.round(statusCount("confirmed") / bookings * 100) : 0, color: "#60bf63" },
     { name: "Хүлээгдэж буй", value: statusCount("pending"), share: bookings ? Math.round(statusCount("pending") / bookings * 100) : 0, color: "#9bcf91" },
     { name: "Ирсэнгүй", value: statusCount("missed"), share: bookings ? Math.round(statusCount("missed") / bookings * 100) : 0, color: "#e5b65d" },
     { name: "Цуцалсан", value: statusCount("cancelled"), share: bookings ? Math.round(statusCount("cancelled") / bookings * 100) : 0, color: "#e38a8a" }
   ];
-  const slots = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00"].map(name => ({ name, value: todayBookings.filter(item => item.time?.startsWith(name.slice(0, 2))).length }));
-  const activeTreatments = sourceState.customers.filter(customer => customer.currentTreatment && (!salon || (customer.currentTreatment.salon || customer.salon) === salon)).length;
-  const workingStaff = sourceState.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
-  const activeAssignments = sourceState.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
+  const slots = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00"].map(name => ({ name, value: summary ? Number(summary.slotCounts?.[name] || 0) : todayBookings.filter(item => item.time?.startsWith(name.slice(0, 2))).length }));
+  const activeTreatments = summary ? Number(summary.activeTreatments || 0) : sourceState.customers.filter(customer => customer.currentTreatment && (!salon || (customer.currentTreatment.salon || customer.salon) === salon)).length;
+  const workingStaff = summary ? Number(summary.workingStaff || 0) : sourceState.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
+  const activeAssignments = summary ? Number(summary.activeAssignments || 0) : sourceState.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
   const staff = dashboardStaffRows(month, salon).slice(0, 6).map(item => ({ ...item, load: Math.min(98, Math.round(item.visits / Math.max(snapshot.visits, 1) * 720)) }));
   return `
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
@@ -6580,7 +6672,7 @@ function dashboardOperationsHtml(month, salon, snapshot) {
         <div class="dashboard-card-head"><div><h3>Анхаарах ажил</h3><p>Өнөөдөр шийдвэрлэх зүйлс</p></div></div>
         <div class="dashboard-action-list">
           <div><i class="warning"></i><span>Баталгаажаагүй үйлчилгээ</span><strong>0</strong></div>
-          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${sourceState.customers.filter(item => item.unpaid).length}</strong></div>
+          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${summary ? Number(summary.unpaidCustomers || 0) : sourceState.customers.filter(item => item.unpaid).length}</strong></div>
           <div><i></i><span>Дуусах дөхсөн курс</span><strong>0</strong></div>
           <div><i class="warning"></i><span>Барааны үлдэгдэл бага</span><strong>0</strong></div>
           <div><i></i><span>Кассын хаалт хүлээгдэж буй</span><strong>0</strong></div>
@@ -6596,12 +6688,15 @@ function dashboardOperationsHtml(month, salon, snapshot) {
 function dashboardCashflowHtml(month, salon, snapshot) {
   const scope = salon || "Нийт салбар";
   const payments = dashboardPaymentRows(month, salon);
-  const rawPayments = dashboardRowsForMonth(month, salon);
-  const sourceAmount = kind => rawPayments
-    .filter(item => kind === "product"
-      ? item.kind === "kass" || item.kind === "product"
-      : item.kind === kind)
-    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const summarySources = dashboardDataCache?.summary?.sourceTotals?.[`${month.key}|${salon || "all"}`] || null;
+  const rawPayments = summarySources ? [] : dashboardRowsForMonth(month, salon);
+  const sourceAmount = kind => summarySources
+    ? Number(summarySources[kind] || 0)
+    : rawPayments
+      .filter(item => kind === "product"
+        ? item.kind === "kass" || item.kind === "product"
+        : item.kind === kind)
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const sourceValues = [
     ["Үйлчилгээ", sourceAmount("single"), "#60bf63"],
     ["Курс", sourceAmount("course"), "#91cf86"],
@@ -6664,23 +6759,24 @@ function dashboardCashflowHtml(month, salon, snapshot) {
 
 function dashboardSystemHtml(month, salon) {
   const sourceState = dashboardDataCache?.source || state;
+  const summary = dashboardDataCache?.summary?.system || null;
   const scope = salon || "Нийт систем";
   const actions = ["Даваа", "Мягмар", "Лхагва", "Пүрэв", "Баасан", "Бямба", "Ням"].map(name => ({ name, value: 0 }));
   const activeCustomers = sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
-  const deletedCustomers = sourceState.customers.filter(item => item.deleted || item.deletedAt).length;
+  const deletedCustomers = summary ? Number(summary.deletedCustomers || 0) : sourceState.customers.filter(item => item.deleted || item.deletedAt).length;
   const phoneCounts = activeCustomers.reduce((result, item) => {
     if (item.phone) result[item.phone] = (result[item.phone] || 0) + 1;
     return result;
   }, {});
-  const duplicatePhones = Object.values(phoneCounts).filter(value => value > 1).length;
-  const todayActions = (sourceState.audit || []).filter(item => String(item.createdAt || "").startsWith(todayText())).length;
-  const backupCount = databaseBackups().length;
+  const duplicatePhones = summary ? Number(summary.duplicatePhones || 0) : Object.values(phoneCounts).filter(value => value > 1).length;
+  const todayActions = summary ? Number(summary.todayActions || 0) : (sourceState.audit || []).filter(item => String(item.createdAt || "").startsWith(todayText())).length;
+  const backupCount = summary ? Number(summary.backupCount || 0) : databaseBackups().length;
   const dataSizes = [
     { name: "Оношилгооны зураг", value: 0 },
-    { name: "Үйлчилгээний түүх", value: activeCustomers.reduce((sum, item) => sum + (item.serviceHistory || []).length, 0) },
-    { name: "Хэрэглэгч ба групп", value: activeCustomers.length + sourceState.customerGroups.length },
-    { name: "Төлбөр, касс", value: kassRevenueSourceRows(sourceState).length },
-    { name: "Цаг захиалга", value: sourceState.bookings.length }
+    { name: "Үйлчилгээний түүх", value: summary ? Number(summary.serviceHistoryCount || 0) : activeCustomers.reduce((sum, item) => sum + (item.serviceHistory || []).length, 0) },
+    { name: "Хэрэглэгч ба групп", value: summary ? Number(dashboardDataCache.summary.customerStats?.count || 0) + Number(summary.groupCount || 0) : activeCustomers.length + sourceState.customerGroups.length },
+    { name: "Төлбөр, касс", value: summary ? Number(summary.paymentCount || 0) : kassRevenueSourceRows(sourceState).length },
+    { name: "Цаг захиалга", value: summary ? Number(summary.bookingCount || 0) : sourceState.bookings.length }
   ];
   return `
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
@@ -6808,11 +6904,12 @@ function renderDashboard() {
   const monthIndex = dashboardDemoData.months.findIndex(item => item.key === month.key);
   const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
   const demographics = dashboardCustomerDemographics();
-  const activeCustomers = sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
-  const customerCount = activeCustomers.length;
-  const activeGroupCount = sourceState.customerGroups.filter(group => (group.members || []).length > 0).length;
-  const activeCourseCount = activeCustomers.filter(customer => customer.activeCourse || (customer.serviceHistory || []).some(item => item.kind === "course" && item.completed !== true)).length;
-  const bonusBalance = activeCustomers.reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
+  const customerStats = dashboardDataCache?.summary?.customerStats || null;
+  const activeCustomers = customerStats ? [] : sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
+  const customerCount = customerStats ? Number(customerStats.count || 0) : activeCustomers.length;
+  const activeGroupCount = customerStats ? Number(customerStats.activeGroups || 0) : sourceState.customerGroups.filter(group => (group.members || []).length > 0).length;
+  const activeCourseCount = customerStats ? Number(customerStats.activeCourses || 0) : activeCustomers.filter(customer => customer.activeCourse || (customer.serviceHistory || []).some(item => item.kind === "course" && item.completed !== true)).length;
+  const bonusBalance = customerStats ? Number(customerStats.bonusBalance || 0) : activeCustomers.reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
   const staffRows = dashboardStaffRows(month, salon);
   const topServices = dashboardTopServices(month, salon);
 
@@ -6834,7 +6931,9 @@ function renderDashboard() {
     : dashboardChartModes.payments === "table"
       ? dashboardSimpleTable(["Төлбөр", "Дүн", "Хувь"], paymentRows.map(item => [item.name, `<strong>${money(item.amount)}</strong>`, `${item.share}%`]))
       : `<div class="dashboard-payment-bar">${paymentRows.map(item => `<span style="width:${item.share}%;background:${item.color}" title="${item.name}: ${money(item.amount)}"></span>`).join("")}</div><div class="dashboard-payment-list">${paymentRows.map(item => `<div><span><i style="background:${item.color}"></i>${item.name}</span><strong>${money(item.amount)} <small>${item.share}%</small></strong></div>`).join("")}</div>`;
-  const staffVisual = dashboardChartModes.staff === "table"
+  const staffVisual = dashboardDataCache?.summary && !dashboardDataCache.staffSource
+    ? `<div class="empty-state">Ажилтны сарын үзүүлэлтийг үргэлжлүүлэн уншиж байна…</div>`
+    : dashboardChartModes.staff === "table"
     ? dashboardSimpleTable(["Ажилтан", "Үндсэн салбар", "Оролт", "Орлого", "Нийт урамшуулал"], staffRows.map(item => [htmlSafe(item.name), htmlSafe(item.homeSalon), formatNumber(item.visits), `<strong>${money(item.revenue)}</strong>`, money(item.totalReward)]))
     : dashboardVerticalBars(staffRows, "revenue", dashboardCompactMoney);
 
@@ -6942,7 +7041,9 @@ function exportDashboardExcel() {
   const serviceRows = dashboardServiceRows(month, salon).map(item => [item.name, item.share, item.count]);
   const paymentRows = dashboardPaymentRows(month, salon).map(item => [item.name, item.share, item.amount]);
   const demographics = dashboardCustomerDemographics();
-  const customerCount = sourceState.customers.filter(item => !item.deleted && !item.deletedAt).length;
+  const customerCount = dashboardDataCache?.summary?.customerStats
+    ? Number(dashboardDataCache.summary.customerStats.count || 0)
+    : sourceState.customers.filter(item => !item.deleted && !item.deletedAt).length;
   const staffRows = dashboardStaffRows(month, salon);
   const workbook = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
     <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">

@@ -115,6 +115,23 @@ function analytics_compact_customer(array $customer, array $history): array
     return $copy;
 }
 
+function analytics_compact_statement(array $statement): array
+{
+    $copy = analytics_pick($statement, [
+        'id', 'month', 'salon', 'status', 'createdAt', 'updatedAt', 'lockedAt', 'reviewedAt'
+    ]);
+    $copy['transactions'] = array_values(array_map(
+        static fn(array $item): array => analytics_pick($item, [
+            'id', 'sourceId', 'staffId', 'staff', 'homeSalon', 'workedSalon',
+            'date', 'salon', 'type', 'sourceType', 'title', 'customer', 'revenue',
+            'commission', 'rate', 'adjustment', 'directPayment', 'paymentMethod',
+            'temporary', 'policyVersion', 'policyEffectiveFrom', 'calculationBasis'
+        ]),
+        array_values(array_filter(is_array($statement['transactions'] ?? null) ? $statement['transactions'] : [], 'is_array'))
+    ));
+    return $copy;
+}
+
 $mode = ($_GET['mode'] ?? '') === 'dashboard' ? 'dashboard' : 'performance';
 $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
 $requestedMonth = preg_match('/^\d{4}-\d{2}$/', (string)($_GET['month'] ?? '')) === 1
@@ -233,7 +250,10 @@ $source['staff'] = array_values(array_filter((array)$source['staff'], static fun
     return isset($referencedStaffIds[trim((string)($item['id'] ?? ''))]) || isset($referencedStaffNames[trim((string)($item['name'] ?? ''))]);
 }));
 $source['voucherLogs'] = array_values(array_filter((array)$source['voucherLogs'], static fn($item): bool => is_array($item) && isset($voucherLogIds[(string)($item['id'] ?? '')])));
-$source['performanceStatements'] = array_values(array_filter((array)$source['performanceStatements'], static fn($item): bool => is_array($item) && trim((string)($item['month'] ?? '')) >= substr($from, 0, 7) && trim((string)($item['month'] ?? '')) <= substr($to, 0, 7) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon)));
+$source['performanceStatements'] = array_values(array_map(
+    static fn(array $item): array => analytics_compact_statement($item),
+    array_values(array_filter((array)$source['performanceStatements'], static fn($item): bool => is_array($item) && trim((string)($item['month'] ?? '')) >= substr($from, 0, 7) && trim((string)($item['month'] ?? '')) <= substr($to, 0, 7) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon)))
+));
 $source['performanceStatementHistory'] = [];
 $source['performanceAdjustments'] = array_values(array_filter((array)$source['performanceAdjustments'], static fn($item): bool => is_array($item) && analytics_in_range(analytics_event_date($item), $from, $to) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon)));
 
