@@ -114,7 +114,7 @@ if ($method === 'PUT') {
     $eventLabels = ['created' => 'Шинэ захиалга', 'confirmed' => 'Цаг баталгаажуулалт', 'changed' => 'Цаг өөрчлөлт', 'cancelled' => 'Цаг цуцлалт', 'reminder' => 'Цагийн сануулга'];
     foreach ($normalized['events'] as $event => $eventEnabled) {
         if (!$eventEnabled) continue;
-        $lengthError = sms_message_length_error(sms_template_estimated_message((string)($normalized['templates'][$event] ?? '')));
+        $lengthError = sms_message_length_error(sms_template_estimated_message((string)($normalized['templates'][$event] ?? '')), (int)$normalized['characterLimit']);
         if ($lengthError !== '') json_response(['ok' => false, 'message' => ($eventLabels[$event] ?? $event) . ': ' . $lengthError], 422);
     }
     $token = trim((string)($incoming['token'] ?? ''));
@@ -124,6 +124,7 @@ if ($method === 'PUT') {
     }
     $configJson = json_encode([
         'reminderHours' => $normalized['reminderHours'],
+        'characterLimit' => $normalized['characterLimit'],
         'events' => $normalized['events'],
         'templates' => $normalized['templates'],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

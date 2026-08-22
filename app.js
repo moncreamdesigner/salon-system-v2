@@ -4152,7 +4152,9 @@ function smsEstimatedMessage(template) {
 }
 
 function smsMessageLimit(message) {
-  return /[^\x00-\x7F]/.test(message) ? 70 : 160;
+  const providerLimit = /[^\x00-\x7F]/.test(message) ? 70 : 160;
+  const configured = Math.max(1, Math.min(70, Number(document.getElementById("smsCharacterLimit")?.value || smsSettingsCache?.characterLimit || 70)));
+  return Math.min(providerLimit, configured);
 }
 
 function updateSmsLengthCounter(event) {
@@ -4174,6 +4176,7 @@ function renderSmsSettings() {
   const apiUrl = document.getElementById("smsApiUrl");
   const token = document.getElementById("smsToken");
   const reminderHours = document.getElementById("smsReminderHours");
+  const characterLimit = document.getElementById("smsCharacterLimit");
   if (enabled) enabled.checked = Boolean(settings.enabled);
   if (apiUrl) apiUrl.value = settings.apiUrl || "";
   if (token) {
@@ -4181,6 +4184,7 @@ function renderSmsSettings() {
     token.placeholder = settings.tokenConfigured ? "Хадгалсан token ••••••••" : "Token оруулах";
   }
   if (reminderHours) reminderHours.value = Math.max(1, Math.min(3, Number(settings.reminderHours) || 3));
+  if (characterLimit) characterLimit.value = Math.max(1, Math.min(70, Number(settings.characterLimit) || 70));
   Object.entries(SMS_EVENT_FIELDS).forEach(([event, [checkboxId, templateId]]) => {
     const checkbox = document.getElementById(checkboxId);
     const template = document.getElementById(templateId);
@@ -4317,6 +4321,7 @@ function smsSettingsFormPayload() {
     apiUrl: formValue("smsApiUrl"),
     token: formValue("smsToken"),
     reminderHours: Math.max(1, Math.min(3, Number(formValue("smsReminderHours")) || 3)),
+    characterLimit: Math.max(1, Math.min(70, Number(formValue("smsCharacterLimit")) || 70)),
     events,
     templates
   };
@@ -17285,6 +17290,11 @@ function bindEvents() {
   });
   document.getElementById("smsTestPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
+  document.getElementById("smsCharacterLimit")?.addEventListener("input", event => {
+    const value = Number(event.target.value);
+    if (Number.isFinite(value) && value > 70) event.target.value = "70";
+    Object.keys(SMS_EVENT_FIELDS).forEach(updateSmsLengthCounter);
   });
   Object.entries(SMS_EVENT_FIELDS).forEach(([smsEvent, [checkboxId, templateId]]) => {
     document.getElementById(checkboxId)?.addEventListener("change", event => {

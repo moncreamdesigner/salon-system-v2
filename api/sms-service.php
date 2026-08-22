@@ -35,6 +35,7 @@ function sms_default_settings(): array
         'apiUrl' => '',
         'tokenConfigured' => false,
         'reminderHours' => 3,
+        'characterLimit' => SMS_UNICODE_LIMIT,
         'events' => [
             'created' => false,
             'confirmed' => false,
@@ -59,6 +60,7 @@ function sms_normalize_settings(array $stored): array
         $defaults['templates'][$event] = mb_substr($template !== '' ? $template : $defaults['templates'][$event], 0, 1000);
     }
     $defaults['reminderHours'] = max(1, min(3, (int)($stored['reminderHours'] ?? 3)));
+    $defaults['characterLimit'] = max(1, min(SMS_UNICODE_LIMIT, (int)($stored['characterLimit'] ?? SMS_UNICODE_LIMIT)));
     return $defaults;
 }
 
@@ -133,10 +135,11 @@ function sms_message_limit(string $message): int
     return preg_match('/[^\x00-\x7F]/', $message) === 1 ? SMS_UNICODE_LIMIT : SMS_LATIN_LIMIT;
 }
 
-function sms_message_length_error(string $message): string
+function sms_message_length_error(string $message, ?int $configuredLimit = null): string
 {
     $length = mb_strlen($message);
-    $limit = sms_message_limit($message);
+    $providerLimit = sms_message_limit($message);
+    $limit = $configuredLimit === null ? $providerLimit : min($providerLimit, max(1, $configuredLimit));
     return $length > $limit ? "SMS агуулга {$length}/{$limit} тэмдэгт байна. Загварыг богиносгоно уу." : '';
 }
 
@@ -329,7 +332,7 @@ function sms_provider_url(array $settings, string $phone, string $message): stri
 
 function sms_http_send(array $settings, string $phone, string $message): array
 {
-    $lengthError = sms_message_length_error($message);
+    $lengthError = sms_message_length_error($message, (int)($settings['characterLimit'] ?? SMS_UNICODE_LIMIT));
     if ($lengthError !== '') return ['ok' => false, 'retryable' => false, 'error' => $lengthError, 'response' => ''];
     $url = sms_provider_url($settings, $phone, $message);
     $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));

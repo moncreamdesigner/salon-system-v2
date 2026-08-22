@@ -8963,7 +8963,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .sms-connection-grid > label,
-.sms-reminder-hours {
+.sms-reminder-hours,
+.sms-character-limit {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -8984,17 +8985,27 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-top: 1px solid var(--line);
 }
 
-.sms-reminder-hours span {
+.sms-rule-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 14px;
+}
+
+.sms-reminder-hours span,
+.sms-character-limit span {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.sms-reminder-hours .input {
+.sms-reminder-hours .input,
+.sms-character-limit .input {
   width: 82px;
 }
 
-.sms-reminder-hours b {
+.sms-reminder-hours b,
+.sms-character-limit b {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
@@ -9157,6 +9168,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .sms-test-controls .input {
     width: 100%;
+  }
+
+  .sms-rules-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .sms-history-filter-form {
