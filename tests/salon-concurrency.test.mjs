@@ -39,7 +39,8 @@ test("voucher usage logs use globally unique ids", () => {
 test("partial views fetch the shared rules they render", () => {
   assert.match(appSource, /profile: \[[^\]]+"generalSettings"[^\]]+"_serviceSettings"\]/);
   assert.match(appSource, /settingsPricing: \[[^\]]+"customerTypes"[^\]]+"customerTypeRules"\]/);
-  assert.match(appSource, /PERFORMANCE_STAFF_SECTIONS = \["customers"/);
+  assert.match(appSource, /PERFORMANCE_STAFF_SECTIONS = \["staff", "assignments"/);
+  assert.match(appSource, /analytics-source\.php\?\$\{params\.toString\(\)\}/);
   assert.match(appSource, /groups: \["customerTypes", "customerTypeRules", "pricePolicy"\]/);
   assert.match(appSource, /synchronizeServerState\(null, \["customers", "customerGroups"\], "groupsDirectory"\)/);
 });

@@ -106,7 +106,7 @@ const defaultState = {
   audit: [],
   voucherRoles: [],
   voucherLogs: [],
-  giftCards: ["generalSettings"],
+  giftCards: [],
   performanceStatements: [],
   performanceStatementHistory: [],
   performanceAdjustments: [],
@@ -246,6 +246,11 @@ let performanceTransactionsCache = { version: -1, items: [] };
 let performancePolicyDateCache = { version: -1, values: new Map() };
 let performanceMonthsCache = { version: -1, items: [] };
 let performanceReportCache = { version: -1, values: new Map() };
+let performanceCalculationSource = null;
+let performanceAnalyticsSource = null;
+let performanceAnalyticsMonths = [];
+let performanceAnalyticsLoadingKey = "";
+let performanceAnalyticsRequestSequence = 0;
 const submittedListSearches = Object.create(null);
 
 state.salons = (Array.isArray(state.salons) && state.salons.length ? state.salons : []).map((salon, index) => {
@@ -484,6 +489,8 @@ const dashboardDemoData = {
   topServices: []
 };
 let dashboardDataCache = null;
+let dashboardAnalyticsRequestSequence = 0;
+let dashboardAnalyticsLoadingKey = "";
 let activeServiceMainTab = "single";
 let activeProductGroup = "gift";
 let activeDatabaseTab = "import";
@@ -2232,7 +2239,7 @@ const VIEW_SERVER_SECTIONS = {
   kass: ["kassSchedules", "staff", "assignments", "salons", "generalSettings"],
   performance: ["salons", "generalSettings"],
   vouchers: ["voucherRoles"],
-  giftCards: [],
+  giftCards: ["generalSettings"],
   settingsServices: ["_serviceSettings"],
   settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules"],
   settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings"],
@@ -2247,16 +2254,16 @@ const VIEW_SERVER_SECTIONS = {
   settingsGeneral: ["generalSettings", "diagnosisTypes", "customerTypes", "customerTypeRules"],
   groups: ["customerTypes", "customerTypeRules", "pricePolicy"],
   audit: ["generalSettings"],
-  dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"],
+  dashboard: ["salons", "generalSettings"],
   catalog: ["catalog"],
   staff: ["staff", "salons"],
   services: ["services"]
 };
 
-const PERFORMANCE_STAFF_SECTIONS = ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments", "generalSettings"];
+const PERFORMANCE_STAFF_SECTIONS = ["staff", "assignments", "salons", "pricePolicy", "voucherRoles", "performanceStatements", "performanceStatementHistory", "performanceAdjustments", "generalSettings"];
 
 function performanceStaffSectionsLoaded() {
-  return IS_LOCAL_RUNTIME || fullServerStateLoaded || PERFORMANCE_STAFF_SECTIONS.every(key => loadedServerSections.has(key));
+  return IS_LOCAL_RUNTIME || fullServerStateLoaded || (Boolean(performanceAnalyticsSource) && PERFORMANCE_STAFF_SECTIONS.every(key => loadedServerSections.has(key)));
 }
 
 function serverSectionsForView(viewName = activeView) {
@@ -2342,7 +2349,7 @@ async function initializeServerStorage() {
   }
 }
 
-const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers", "giftCards", "groups", "audit", "performance"]);
+const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers", "giftCards", "groups", "audit", "performance", "dashboard"]);
 
 async function waitForServerWritesToSettle(timeoutMs = 12000) {
   const deadline = Date.now() + timeoutMs;
@@ -2415,6 +2422,31 @@ async function refreshServerStateForView(viewName = activeView) {
           profileDirectoryLoadedCustomerId = 0;
           await loadProfileDirectory(Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0), { silent: true });
           changed = true;
+        }
+      }
+      if (viewName === "dashboard" && dashboardDataCache?.source) {
+        const dashboardSections = ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"];
+        const dashboardRevisionResult = await serverApi(`revision.php?sections=${encodeURIComponent(dashboardSections.join(","))}`);
+        const remoteRevisions = dashboardRevisionResult.sectionRevisions || {};
+        const dashboardChanged = dashboardSections.some(key => Number(remoteRevisions[key] || 0) !== Number(dashboardDataCache.revisions?.[key] || 0));
+        if (!dashboardChanged) return changed;
+        dashboardDataCache = null;
+        await loadDashboardAnalyticsSource(document.getElementById("dashboardMonth")?.value || monthText(todayText()), dashboardSelectedSalon());
+        return true;
+      }
+      if (viewName === "performance" && performanceAnalyticsSource) {
+        const performanceSourceSections = ["customers", "services", "kassSchedules", "staff", "assignments", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"];
+        const performanceRevisionResult = await serverApi(`revision.php?sections=${encodeURIComponent(performanceSourceSections.join(","))}`);
+        const remoteRevisions = performanceRevisionResult.sectionRevisions || {};
+        const performanceChanged = performanceSourceSections.some(key => Number(remoteRevisions[key] || 0) !== Number(performanceAnalyticsSource.revisions?.[key] || 0));
+        if (performanceChanged) {
+          performanceAnalyticsSource = null;
+          await loadPerformanceAnalyticsSource(document.getElementById("performanceMonth")?.value || monthText(todayText()), document.getElementById("performanceSalon")?.value || "all");
+          if (activePerformanceTab === "staff") {
+            renderPerformance();
+            renderInfoHeader("performance");
+          }
+          return true;
         }
       }
       if (!serverViewSectionsLoaded(viewName)) {
@@ -3126,7 +3158,7 @@ function setPerformanceTab(name = "revenue") {
   } else {
     if (!performanceStaffSectionsLoaded()) {
       showServerViewLoader("performance");
-      void synchronizeServerState(localStateMutationVersion, PERFORMANCE_STAFF_SECTIONS).then(() => {
+      void synchronizeServerState(localStateMutationVersion, PERFORMANCE_STAFF_SECTIONS).then(() => loadPerformanceAnalyticsSource()).then(() => {
         if (activePerformanceTab !== "staff") return;
         ensureAutomaticPerformanceSnapshot();
         renderPerformance();
@@ -3140,6 +3172,43 @@ function setPerformanceTab(name = "revenue") {
     }
     renderPerformance();
     renderInfoHeader("performance");
+  }
+}
+
+function performanceAnalyticsKey(month, salon) {
+  return `${month}|${salon || "all"}`;
+}
+
+async function loadPerformanceAnalyticsSource(month = "", salon = "") {
+  if (IS_LOCAL_RUNTIME) return;
+  const requestedMonth = /^\d{4}-\d{2}$/.test(month)
+    ? month
+    : (document.getElementById("performanceMonth")?.value || monthText(todayText()));
+  const requestedSalon = isSalonAccount()
+    ? activeAccount.salon
+    : (salon || (document.getElementById("performanceSalon")?.value || "all"));
+  const effectiveSalon = requestedSalon === "all" ? "" : requestedSalon;
+  const requestKey = performanceAnalyticsKey(requestedMonth, effectiveSalon);
+  if (performanceAnalyticsSource?.key === requestKey || performanceAnalyticsLoadingKey === requestKey) return;
+  const requestSequence = ++performanceAnalyticsRequestSequence;
+  performanceAnalyticsLoadingKey = requestKey;
+  const params = new URLSearchParams({ mode: "performance", month: requestedMonth });
+  if (effectiveSalon) params.set("salon", effectiveSalon);
+  try {
+    const result = await serverApi(`analytics-source.php?${params.toString()}`);
+    if (requestSequence !== performanceAnalyticsRequestSequence) return;
+    performanceAnalyticsSource = {
+      ...structuredClone(defaultState),
+      ...state,
+      ...(result.data || {}),
+      key: requestKey,
+      requestedMonth,
+      revisions: result.sectionRevisions || {}
+    };
+    performanceAnalyticsMonths = Array.isArray(result.months) ? result.months : [];
+    invalidatePerformanceCaches();
+  } finally {
+    if (requestSequence === performanceAnalyticsRequestSequence) performanceAnalyticsLoadingKey = "";
   }
 }
 
@@ -3626,8 +3695,9 @@ function salePriceCell(item) {
 }
 
 function pricePolicy() {
-  const stored = state.pricePolicy || {};
-  state.pricePolicy = {
+  const targetState = performanceCalculationSource || state;
+  const stored = targetState.pricePolicy || {};
+  targetState.pricePolicy = {
     ...structuredClone(defaultState.pricePolicy),
     ...stored,
     employeeDiscount: {
@@ -3661,7 +3731,7 @@ function pricePolicy() {
     },
     performanceVersions: Array.isArray(stored.performanceVersions) ? stored.performanceVersions : []
   };
-  return state.pricePolicy;
+  return targetState.pricePolicy;
 }
 
 function customerTypeRule(type) {
@@ -4775,9 +4845,9 @@ function isActualKassRevenueRow(row = {}) {
   return !["bonus", "gift_card", "customer_credit", "credit_transfer", "бонус", "бэлгийн_карт", "шилжүүлсэн_үлдэгдлээс"].includes(method);
 }
 
-function kassRevenueSourceRows() {
+function kassRevenueSourceRows(sourceState = state) {
   const rows = [];
-  state.customers.forEach(customer => {
+  sourceState.customers.forEach(customer => {
     (customer.serviceHistory || []).forEach((item, historyIndex) => {
       const payments = Array.isArray(item.payments) ? item.payments : [];
       const salon = item.salon || item.branch || customer.salon || "—";
@@ -6050,12 +6120,51 @@ function dashboardMonthMeta(key) {
   };
 }
 
+function dashboardAnalyticsKey(month, salon) {
+  return `${month}|${salon || "all"}`;
+}
+
+async function loadDashboardAnalyticsSource(month = monthText(todayText()), salon = "") {
+  if (IS_LOCAL_RUNTIME) return;
+  const effectiveSalon = isSalonAccount() ? activeAccount.salon : salon;
+  const requestKey = dashboardAnalyticsKey(month, effectiveSalon);
+  if (dashboardDataCache?.key === requestKey || dashboardAnalyticsLoadingKey === requestKey) return;
+  const requestSequence = ++dashboardAnalyticsRequestSequence;
+  dashboardAnalyticsLoadingKey = requestKey;
+  showServerViewLoader("dashboard");
+  try {
+    const params = new URLSearchParams({ mode: "dashboard", month });
+    if (effectiveSalon) params.set("salon", effectiveSalon);
+    const result = await serverApi(`analytics-source.php?${params.toString()}`);
+    if (requestSequence !== dashboardAnalyticsRequestSequence || activeView !== "dashboard") return;
+    dashboardDataCache = {
+      key: requestKey,
+      source: { ...structuredClone(defaultState), ...(result.data || {}) },
+      months: Array.isArray(result.months) ? result.months : [],
+      revisions: result.sectionRevisions || {},
+      paymentRows: null,
+      serviceRows: new Map(),
+      snapshots: new Map(),
+      performanceRows: null
+    };
+    renderDashboard();
+    renderInfoHeader("dashboard");
+  } catch (error) {
+    showToast(error?.message || "Хяналтын самбарын мэдээлэл ачаалсангүй", "error");
+  } finally {
+    if (requestSequence === dashboardAnalyticsRequestSequence) dashboardAnalyticsLoadingKey = "";
+    hideServerViewLoader("dashboard");
+  }
+}
+
 function dashboardRefreshDataCatalog() {
+  const sourceState = dashboardDataCache?.source || state;
   const monthKeys = new Set([monthText(todayText())]);
-  const paymentRows = dashboardDataCache?.paymentRows || kassRevenueSourceRows();
+  (dashboardDataCache?.months || []).forEach(key => monthKeys.add(key));
+  const paymentRows = dashboardDataCache?.paymentRows || kassRevenueSourceRows(sourceState);
   paymentRows.forEach(row => monthKeys.add(monthText(row.date)));
-  state.bookings.forEach(item => monthKeys.add(monthText(item.date)));
-  state.customers.forEach(customer => {
+  sourceState.bookings.forEach(item => monthKeys.add(monthText(item.date)));
+  sourceState.customers.forEach(customer => {
     monthKeys.add(monthText(customerRegisteredDate(customer)));
     (customer.serviceHistory || []).forEach(item => {
       monthKeys.add(monthText(serviceDateKey(item.date || item.createdAt || "")));
@@ -6067,7 +6176,7 @@ function dashboardRefreshDataCatalog() {
     .filter(key => /^\d{4}-\d{2}$/.test(key))
     .sort()
     .map(dashboardMonthMeta);
-  dashboardDemoData.branches = state.salons.map(item => ({
+  dashboardDemoData.branches = sourceState.salons.map(item => ({
     name: item.name,
     share: 0,
     completionDelta: 0,
@@ -6077,7 +6186,7 @@ function dashboardRefreshDataCatalog() {
 
 function dashboardRowsForMonth(month, salon = "") {
   const key = typeof month === "string" ? month : month?.key;
-  const paymentRows = dashboardDataCache?.paymentRows || kassRevenueSourceRows();
+  const paymentRows = dashboardDataCache?.paymentRows || kassRevenueSourceRows(dashboardDataCache?.source || state);
   return paymentRows.filter(row =>
     monthText(row.date) === key &&
     (!salon || row.salon === salon)
@@ -6085,6 +6194,7 @@ function dashboardRowsForMonth(month, salon = "") {
 }
 
 function dashboardServiceRows(month, salon = "") {
+  const sourceState = dashboardDataCache?.source || state;
   const key = typeof month === "string" ? month : month?.key;
   const cacheKey = `${key}|${salon}`;
   if (dashboardDataCache?.serviceRows?.has(cacheKey)) return dashboardDataCache.serviceRows.get(cacheKey);
@@ -6095,7 +6205,7 @@ function dashboardServiceRows(month, salon = "") {
     { name: "Оношилгоо", key: "diagnosis", count: 0, color: "#dfe9d7" }
   ];
   const counts = Object.fromEntries(rows.map(item => [item.key, 0]));
-  state.customers.forEach(customer => {
+  sourceState.customers.forEach(customer => {
     if (customer.deleted || customer.deletedAt) return;
     (customer.serviceHistory || []).forEach(item => {
       if (!item || item.deleted) return;
@@ -6181,18 +6291,19 @@ function dashboardBranch(name) {
 }
 
 function dashboardSnapshot(month, salon = "") {
+  const sourceState = dashboardDataCache?.source || state;
   const key = typeof month === "string" ? month : month?.key;
   const cacheKey = `${key}|${salon}`;
   if (dashboardDataCache?.snapshots?.has(cacheKey)) return dashboardDataCache.snapshots.get(cacheKey);
   const paymentRows = dashboardRowsForMonth(key, salon).filter(isActualKassRevenueRow);
   const serviceRows = dashboardServiceRows(key, salon);
-  const bookings = state.bookings.filter(item =>
+  const bookings = sourceState.bookings.filter(item =>
     monthText(item.date) === key &&
     (!salon || item.salon === salon)
   );
   const completedBookings = bookings.filter(item => item.status === "confirmed").length;
   const activeBookings = bookings.filter(item => item.status !== "cancelled").length;
-  const outstanding = state.customers.reduce((customerTotal, customer) => {
+  const outstanding = sourceState.customers.reduce((customerTotal, customer) => {
     return customerTotal + (customer.serviceHistory || []).reduce((sum, item) => {
       const itemSalon = item.salon || item.branch || customer.salon || "";
       const itemDate = serviceDateKey(item.date || item.createdAt || customer.registeredAt || "");
@@ -6205,7 +6316,7 @@ function dashboardSnapshot(month, salon = "") {
     .filter(row => row.kind === "kass" || row.kind === "product")
     .reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const visits = serviceRows.reduce((sum, item) => sum + Number(item.count || 0), 0);
-  const newCustomers = state.customers.filter(customer =>
+  const newCustomers = sourceState.customers.filter(customer =>
     !customer.deleted &&
     !customer.deletedAt &&
     monthText(customerRegisteredDate(customer)) === key &&
@@ -6262,7 +6373,7 @@ function monthLabelForDashboard(month) {
 function dashboardAllowedBranches() {
   if (isSalonAccount()) return [dashboardBranch(activeAccount.salon)];
   const selected = dashboardSelectedSalon();
-  const names = selected ? [selected] : state.salons.map(item => item.name);
+  const names = selected ? [selected] : (dashboardDataCache?.source || state).salons.map(item => item.name);
   return names.map(dashboardBranch);
 }
 
@@ -6331,7 +6442,7 @@ function dashboardDonutMarkup(items, total, valueKey = "share") {
 }
 
 function dashboardCustomerDemographics() {
-  const customers = state.customers.filter(item => !item.deleted && !item.deletedAt);
+  const customers = (dashboardDataCache?.source || state).customers.filter(item => !item.deleted && !item.deletedAt);
   const total = customers.length;
   const count = predicate => customers.filter(predicate).length;
   const demographicItem = (name, value, color) => ({
@@ -6367,7 +6478,7 @@ function dashboardStaffRows(month, salon) {
   const key = typeof month === "string" ? month : month?.key;
   const grouped = new Map();
   const performanceRows = dashboardDataCache
-    ? (dashboardDataCache.performanceRows ||= performanceTransactions())
+    ? (dashboardDataCache.performanceRows ||= performanceTransactionsForSource(dashboardDataCache.source || state))
     : performanceTransactions();
   performanceRows
     .filter(item => monthText(item.date) === key)
@@ -6419,9 +6530,10 @@ function dashboardSelectedViewMode() {
 }
 
 function dashboardOperationsHtml(month, salon, snapshot) {
+  const sourceState = dashboardDataCache?.source || state;
   const scope = salon || "Нийт салбар";
   const today = todayText();
-  const todayBookings = state.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
+  const todayBookings = sourceState.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
   const bookings = todayBookings.length;
   const statusCount = status => todayBookings.filter(item => item.status === status).length;
   const bookingStatus = [
@@ -6431,9 +6543,9 @@ function dashboardOperationsHtml(month, salon, snapshot) {
     { name: "Цуцалсан", value: statusCount("cancelled"), share: bookings ? Math.round(statusCount("cancelled") / bookings * 100) : 0, color: "#e38a8a" }
   ];
   const slots = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00"].map(name => ({ name, value: todayBookings.filter(item => item.time?.startsWith(name.slice(0, 2))).length }));
-  const activeTreatments = state.customers.filter(customer => customer.currentTreatment && (!salon || (customer.currentTreatment.salon || customer.salon) === salon)).length;
-  const workingStaff = state.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
-  const activeAssignments = state.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
+  const activeTreatments = sourceState.customers.filter(customer => customer.currentTreatment && (!salon || (customer.currentTreatment.salon || customer.salon) === salon)).length;
+  const workingStaff = sourceState.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
+  const activeAssignments = sourceState.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
   const staff = dashboardStaffRows(month, salon).slice(0, 6).map(item => ({ ...item, load: Math.min(98, Math.round(item.visits / Math.max(snapshot.visits, 1) * 720)) }));
   return `
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
@@ -6457,7 +6569,7 @@ function dashboardOperationsHtml(month, salon, snapshot) {
         <div class="dashboard-card-head"><div><h3>Анхаарах ажил</h3><p>Өнөөдөр шийдвэрлэх зүйлс</p></div></div>
         <div class="dashboard-action-list">
           <div><i class="warning"></i><span>Баталгаажаагүй үйлчилгээ</span><strong>0</strong></div>
-          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${state.customers.filter(item => item.unpaid).length}</strong></div>
+          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${sourceState.customers.filter(item => item.unpaid).length}</strong></div>
           <div><i></i><span>Дуусах дөхсөн курс</span><strong>0</strong></div>
           <div><i class="warning"></i><span>Барааны үлдэгдэл бага</span><strong>0</strong></div>
           <div><i></i><span>Кассын хаалт хүлээгдэж буй</span><strong>0</strong></div>
@@ -6540,23 +6652,24 @@ function dashboardCashflowHtml(month, salon, snapshot) {
 }
 
 function dashboardSystemHtml(month, salon) {
+  const sourceState = dashboardDataCache?.source || state;
   const scope = salon || "Нийт систем";
   const actions = ["Даваа", "Мягмар", "Лхагва", "Пүрэв", "Баасан", "Бямба", "Ням"].map(name => ({ name, value: 0 }));
-  const activeCustomers = state.customers.filter(item => !item.deleted && !item.deletedAt);
-  const deletedCustomers = state.customers.filter(item => item.deleted || item.deletedAt).length;
+  const activeCustomers = sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
+  const deletedCustomers = sourceState.customers.filter(item => item.deleted || item.deletedAt).length;
   const phoneCounts = activeCustomers.reduce((result, item) => {
     if (item.phone) result[item.phone] = (result[item.phone] || 0) + 1;
     return result;
   }, {});
   const duplicatePhones = Object.values(phoneCounts).filter(value => value > 1).length;
-  const todayActions = state.audit.filter(item => String(item.createdAt || "").startsWith(todayText())).length;
+  const todayActions = (sourceState.audit || []).filter(item => String(item.createdAt || "").startsWith(todayText())).length;
   const backupCount = databaseBackups().length;
   const dataSizes = [
     { name: "Оношилгооны зураг", value: 0 },
     { name: "Үйлчилгээний түүх", value: activeCustomers.reduce((sum, item) => sum + (item.serviceHistory || []).length, 0) },
-    { name: "Хэрэглэгч ба групп", value: activeCustomers.length + state.customerGroups.length },
-    { name: "Төлбөр, касс", value: kassRevenueSourceRows().length },
-    { name: "Цаг захиалга", value: state.bookings.length }
+    { name: "Хэрэглэгч ба групп", value: activeCustomers.length + sourceState.customerGroups.length },
+    { name: "Төлбөр, касс", value: kassRevenueSourceRows(sourceState).length },
+    { name: "Цаг захиалга", value: sourceState.bookings.length }
   ];
   return `
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
@@ -6610,12 +6723,25 @@ function dashboardSystemHtml(month, salon) {
 
 function renderDashboard() {
   if (!document.getElementById("dashboardView")?.isConnected) return;
-  dashboardDataCache = {
-    paymentRows: kassRevenueSourceRows(),
-    serviceRows: new Map(),
-    snapshots: new Map(),
-    performanceRows: null
-  };
+  const requestedMonth = document.getElementById("dashboardMonth")?.value || monthText(todayText());
+  const requestedSalon = isSalonAccount() ? activeAccount.salon : (document.getElementById("dashboardSalon")?.value || "");
+  if (!IS_LOCAL_RUNTIME && dashboardDataCache?.key !== dashboardAnalyticsKey(requestedMonth, requestedSalon)) {
+    void loadDashboardAnalyticsSource(requestedMonth, requestedSalon);
+    return;
+  }
+  const sourceState = dashboardDataCache?.source || state;
+  if (!dashboardDataCache) {
+    dashboardDataCache = {
+      key: "local",
+      source: sourceState,
+      months: [],
+      paymentRows: null,
+      serviceRows: new Map(),
+      snapshots: new Map(),
+      performanceRows: null
+    };
+  }
+  dashboardDataCache.paymentRows ||= kassRevenueSourceRows(sourceState);
   dashboardRefreshDataCatalog();
   const content = document.getElementById("dashboardContent");
   const modeSelect = document.getElementById("dashboardViewMode");
@@ -6634,7 +6760,7 @@ function renderDashboard() {
   monthSelect.value = dashboardDemoData.months.some(month => month.key === previousMonth) ? previousMonth : currentMonthKey;
 
   const previousSalon = dashboardSelectedSalon();
-  const allowedSalons = isSalonAccount() ? state.salons.filter(item => item.name === activeAccount.salon) : state.salons;
+  const allowedSalons = isSalonAccount() ? sourceState.salons.filter(item => item.name === activeAccount.salon) : sourceState.salons;
   salonSelect.innerHTML = `${isSalonAccount() ? "" : `<option value="">Нийт салбар</option>`}${allowedSalons.map(salon => `<option value="${htmlSafe(salon.name)}">${htmlSafe(salon.name)}</option>`).join("")}`;
   salonSelect.value = isSalonAccount() ? activeAccount.salon : (allowedSalons.some(item => item.name === previousSalon) ? previousSalon : "");
   salonSelect.disabled = isSalonAccount();
@@ -6671,9 +6797,9 @@ function renderDashboard() {
   const monthIndex = dashboardDemoData.months.findIndex(item => item.key === month.key);
   const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
   const demographics = dashboardCustomerDemographics();
-  const activeCustomers = state.customers.filter(item => !item.deleted && !item.deletedAt);
+  const activeCustomers = sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
   const customerCount = activeCustomers.length;
-  const activeGroupCount = state.customerGroups.filter(group => (group.members || []).length > 0).length;
+  const activeGroupCount = sourceState.customerGroups.filter(group => (group.members || []).length > 0).length;
   const activeCourseCount = activeCustomers.filter(customer => customer.activeCourse || (customer.serviceHistory || []).some(item => item.kind === "course" && item.completed !== true)).length;
   const bonusBalance = activeCustomers.reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
   const staffRows = dashboardStaffRows(month, salon);
@@ -6791,6 +6917,7 @@ function dashboardWorksheet(name, rows) {
 }
 
 function exportDashboardExcel() {
+  const sourceState = dashboardDataCache?.source || state;
   const month = dashboardSelectedMonth();
   const salon = dashboardSelectedSalon();
   const scope = salon || "Нийт салбар";
@@ -6804,7 +6931,7 @@ function exportDashboardExcel() {
   const serviceRows = dashboardServiceRows(month, salon).map(item => [item.name, item.share, item.count]);
   const paymentRows = dashboardPaymentRows(month, salon).map(item => [item.name, item.share, item.amount]);
   const demographics = dashboardCustomerDemographics();
-  const customerCount = state.customers.filter(item => !item.deleted && !item.deletedAt).length;
+  const customerCount = sourceState.customers.filter(item => !item.deleted && !item.deletedAt).length;
   const staffRows = dashboardStaffRows(month, salon);
   const workbook = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>
     <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
@@ -9484,7 +9611,8 @@ function performanceFilters() {
 }
 
 function performanceAssignment(staff, date, salon) {
-  return state.assignments.find(item =>
+  const sourceState = performanceCalculationSource || state;
+  return sourceState.assignments.find(item =>
     item.status !== "cancelled" &&
     (Number(item.staffId) === Number(staff?.id) || item.staff === staff?.name) &&
     date >= item.startDate && date <= item.endDate &&
@@ -9552,12 +9680,13 @@ function performanceDemoData() {
 }
 
 function performanceVoucherRoleIdForPayment(payment = {}) {
+  const sourceState = performanceCalculationSource || state;
   if (payment.voucherRoleId !== undefined && payment.voucherRoleId !== null && String(payment.voucherRoleId) !== "") {
     return String(payment.voucherRoleId);
   }
-  const log = state.voucherLogs.find(item => String(item.id) === String(payment.voucherLogId || ""));
+  const log = sourceState.voucherLogs.find(item => String(item.id) === String(payment.voucherLogId || ""));
   if (log?.roleId !== undefined && log?.roleId !== null && String(log.roleId) !== "") return String(log.roleId);
-  const role = state.voucherRoles.find(item => String(item.name || "").trim() === String(payment.referenceLabel || "").trim());
+  const role = sourceState.voucherRoles.find(item => String(item.name || "").trim() === String(payment.referenceLabel || "").trim());
   return role ? String(role.id) : "";
 }
 
@@ -9569,13 +9698,17 @@ function performancePaymentEligible(payment = {}, cashierPolicy = {}) {
   return Boolean(roleId && (cashierPolicy.voucherRoleIds || []).map(String).includes(roleId));
 }
 
-function calculatePerformanceTransactions({ policyOverride = null } = {}) {
-  if (!policyOverride && performanceRawTransactionsCache.version === performanceDataVersion) {
+function calculatePerformanceTransactions({ policyOverride = null, sourceState = null } = {}) {
+  sourceState ||= activeView === "performance" && performanceAnalyticsSource ? performanceAnalyticsSource : state;
+  const scopedSource = sourceState !== state;
+  if (!policyOverride && !scopedSource && performanceRawTransactionsCache.version === performanceDataVersion) {
     return performanceRawTransactionsCache.items;
   }
+  const previousCalculationSource = performanceCalculationSource;
+  performanceCalculationSource = sourceState;
   const transactions = [];
   const add = payload => {
-    const staff = state.staff.find(item =>
+    const staff = sourceState.staff.find(item =>
       Number(item.id) === Number(payload.staffId) ||
       item.name === payload.staff ||
       (Array.isArray(item.previousNames) && item.previousNames.includes(payload.staff))
@@ -9602,7 +9735,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
     });
   };
   const addKassCommission = payload => {
-    const schedule = state.kassSchedules.find(entry => entry.date === payload.date && entry.salon === payload.salon);
+    const schedule = sourceState.kassSchedules.find(entry => entry.date === payload.date && entry.salon === payload.salon);
     if (!schedule?.staff) return;
     add({
       ...payload,
@@ -9657,7 +9790,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
     });
   };
 
-  state.customers.forEach(customer => {
+  sourceState.customers.forEach(customer => {
     (customer.serviceHistory || []).forEach(item => {
       if (!item || item.deleted) return;
       const salon = item.salon || customer.salon || activeAccount.salon;
@@ -9757,7 +9890,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
     });
   });
 
-  state.services.forEach((item, index) => {
+  sourceState.services.forEach((item, index) => {
     if (!item || item.deleted || !item.staff) return;
     const serviceTransaction = {
       id: `service:legacy:${item.id || index}`,
@@ -9773,7 +9906,7 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
     const appliedPolicy = performancePolicyForDate(serviceTransaction.date, policyOverride);
     if (appliedPolicy.service.serviceKinds.includes(serviceTransaction.type)) add(serviceTransaction);
   });
-  (state.performanceAdjustments || []).forEach(adjustment => {
+  (sourceState.performanceAdjustments || []).forEach(adjustment => {
     if (!adjustment || adjustment.deleted) return;
     add({
       id: adjustment.id || `adjustment:${adjustment.date}:${adjustment.staffId}`,
@@ -9791,10 +9924,28 @@ function calculatePerformanceTransactions({ policyOverride = null } = {}) {
       adjustment: true
     });
   });
-  if (!policyOverride) {
+  performanceCalculationSource = previousCalculationSource;
+  if (!policyOverride && !scopedSource) {
     performanceRawTransactionsCache = { version: performanceDataVersion, items: transactions };
   }
   return transactions;
+}
+
+function performanceTransactionsForSource(sourceState) {
+  const calculated = calculatePerformanceTransactions({ sourceState });
+  const statements = new Map();
+  (sourceState.performanceStatements || []).forEach(statement => {
+    if (!["review", "locked"].includes(statement.status) || !statement.month || !statement.salon) return;
+    const key = performanceStatementScopeKey(statement.month, statement.salon);
+    const current = statements.get(key);
+    if (!current || String(statement.updatedAt || statement.createdAt || "").localeCompare(String(current.updatedAt || current.createdAt || "")) >= 0) statements.set(key, statement);
+  });
+  if (!statements.size) return calculated;
+  const result = calculated.filter(item => !statements.has(performanceStatementScopeKey(String(item.date || "").slice(0, 7), item.salon)));
+  statements.forEach(statement => {
+    (Array.isArray(statement.transactions) ? statement.transactions : []).forEach(item => result.push(structuredClone(item)));
+  });
+  return result;
 }
 
 function performanceStatementScopeKey(month, salon) {
@@ -9815,6 +9966,9 @@ function activePerformanceStatements() {
 }
 
 function performanceTransactions({ ignoreStatements = false, policyOverride = null } = {}) {
+  if (!ignoreStatements && !policyOverride && activeView === "performance" && performanceAnalyticsSource) {
+    return performanceTransactionsForSource(performanceAnalyticsSource);
+  }
   if (!ignoreStatements && !policyOverride && performanceTransactionsCache.version === performanceDataVersion) {
     return performanceTransactionsCache.items;
   }
@@ -9838,6 +9992,7 @@ function rawPerformanceTransactionDates() {
 }
 
 function performanceDataMonths() {
+  if (activeView === "performance" && performanceAnalyticsMonths.length) return performanceAnalyticsMonths;
   if (performanceMonthsCache.version === performanceDataVersion) return performanceMonthsCache.items;
   const months = [...new Set(performanceTransactions().map(item => String(item.date || "").slice(0, 7)).filter(value => /^\d{4}-\d{2}$/.test(value)))]
     .sort((a, b) => b.localeCompare(a));
@@ -10200,7 +10355,7 @@ async function previewPerformanceRecalculation() {
   document.getElementById("performanceRecalculateTo").value = to;
   const policy = currentPerformancePolicy();
   if (!policy.configured) return showToast("Эхлээд гүйцэтгэлийн бодлогоо хадгална уу", "error");
-  if (!performanceStaffSectionsLoaded()) {
+  if (!IS_LOCAL_RUNTIME && !fullServerStateLoaded && !PERFORMANCE_STAFF_SECTIONS.every(key => loadedServerSections.has(key))) {
     showServerViewLoader("settingsPricing");
     try {
       await synchronizeServerState(localStateMutationVersion, PERFORMANCE_STAFF_SECTIONS);
@@ -10211,9 +10366,24 @@ async function previewPerformanceRecalculation() {
       hideServerViewLoader("settingsPricing");
     }
   }
-  const recalculated = calculatePerformanceTransactions({ policyOverride: policy })
+  let recalculationSource = state;
+  if (!IS_LOCAL_RUNTIME && !fullServerStateLoaded) {
+    showServerViewLoader("settingsPricing");
+    try {
+      const params = new URLSearchParams({ mode: "performance", month: from.slice(0, 7), from, to });
+      const result = await serverApi(`analytics-source.php?${params.toString()}`);
+      recalculationSource = { ...structuredClone(defaultState), ...state, ...(result.data || {}) };
+    } catch (error) {
+      showToast(error?.message || "Дахин тооцох эх мэдээлэл ачаалсангүй", "error");
+      return;
+    } finally {
+      hideServerViewLoader("settingsPricing");
+    }
+  }
+  const recalculated = calculatePerformanceTransactions({ policyOverride: policy, sourceState: recalculationSource })
     .filter(item => item.date >= from && item.date <= to);
-  const current = performanceTransactions().filter(item => item.date >= from && item.date <= to);
+  const current = (recalculationSource === state ? performanceTransactions() : performanceTransactionsForSource(recalculationSource))
+    .filter(item => item.date >= from && item.date <= to);
   if (!recalculated.length && !current.length) return showToast("Сонгосон хугацаанд дахин тооцох гүйлгээ алга", "warning");
   const groups = new Map();
   current.forEach(item => {
@@ -10287,10 +10457,11 @@ function buildPerformanceReport() {
   const transactions = allTransactions.filter(item =>
     item.date >= from && item.date <= to && (salon === "all" || item.salon === salon)
   );
-  const schedules = state.kassSchedules.filter(item =>
+  const sourceState = activeView === "performance" && performanceAnalyticsSource ? performanceAnalyticsSource : state;
+  const schedules = sourceState.kassSchedules.filter(item =>
     item.date >= from && item.date <= to && (salon === "all" || item.salon === salon)
   );
-  const staffPool = state.staff.map(staff => ({ ...staff }));
+  const staffPool = sourceState.staff.map(staff => ({ ...staff }));
   transactions.forEach(transaction => {
     if (staffPool.some(staff => Number(staff.id) === Number(transaction.staffId))) return;
     staffPool.push({
@@ -10302,7 +10473,7 @@ function buildPerformanceReport() {
   });
   const rows = staffPool
     .filter(staff => staff.status !== "inactive" || transactions.some(item => Number(item.staffId) === Number(staff.id)))
-    .filter(staff => salon === "all" || staff.salon === salon || transactions.some(item => Number(item.staffId) === Number(staff.id)) || state.assignments.some(item => Number(item.staffId) === Number(staff.id) && item.to === salon && item.startDate <= to && item.endDate >= from))
+    .filter(staff => salon === "all" || staff.salon === salon || transactions.some(item => Number(item.staffId) === Number(staff.id)) || sourceState.assignments.some(item => Number(item.staffId) === Number(staff.id) && item.to === salon && item.startDate <= to && item.endDate >= from))
     .map(staff => {
       const staffTransactions = transactions.filter(item => Number(item.staffId) === Number(staff.id));
       const snapshot = staffTransactions.find(item => item.staff || item.homeSalon);
@@ -18442,10 +18613,16 @@ function bindEvents() {
   document.getElementById("performanceFilterForm")?.addEventListener("submit", event => {
     event.preventDefault();
   });
-  document.getElementById("performanceMonth")?.addEventListener("change", event => {
+  document.getElementById("performanceMonth")?.addEventListener("change", async event => {
     const range = performanceRangeForMonth(event.target.value);
     document.getElementById("performanceFrom").value = range.from;
     document.getElementById("performanceTo").value = range.to;
+    showServerViewLoader("performance");
+    try {
+      await loadPerformanceAnalyticsSource(event.target.value, document.getElementById("performanceSalon")?.value || "all");
+    } finally {
+      hideServerViewLoader("performance");
+    }
     renderPerformance();
     renderInfoHeader("performance");
   });
@@ -18458,7 +18635,13 @@ function bindEvents() {
       renderInfoHeader("performance");
     });
   });
-  document.getElementById("performanceSalon")?.addEventListener("change", () => {
+  document.getElementById("performanceSalon")?.addEventListener("change", async event => {
+    showServerViewLoader("performance");
+    try {
+      await loadPerformanceAnalyticsSource(document.getElementById("performanceMonth")?.value || monthText(todayText()), event.target.value);
+    } finally {
+      hideServerViewLoader("performance");
+    }
     renderPerformance();
     renderInfoHeader("performance");
   });

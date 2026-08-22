@@ -9,6 +9,9 @@ const customerDetail = fs.readFileSync(new URL("../api/customer-detail.php", imp
 const customerPhone = fs.readFileSync(new URL("../api/customer-phone.php", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
+assert.match(app, /const defaultState = \{[\s\S]*?giftCards: \[\]/, "Gift-card defaults must not contain a synthetic settings record");
+assert.match(app, /const VIEW_SERVER_SECTIONS = \{[\s\S]*?giftCards: \["generalSettings"\]/, "Gift-card bootstrap must remain a non-empty scoped request");
+
 assert.match(bookings, /\$pageSize = min\(100, max\(10,/, "Booking reads must be server-paginated with a bounded page size");
 assert.match(bookings, /!\$historyRequested && \$rowDate < \$today/, "Past bookings must stay server-side until history is searched");
 assert.match(bookings, /\(\$user\['role'\] \?\? ''\) === 'salon'/, "Salon booking reads must enforce branch scope on the server");
