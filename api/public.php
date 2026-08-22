@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
+require __DIR__ . '/sms-service.php';
 
 // Публик endpoint — нэвтрэлт шаардлагагүй, зөвхөн ижил origin.
 verify_same_origin();
@@ -200,7 +201,10 @@ try {
     $meta->execute([(string)$nextRevision]);
     bump_scope_revisions($pdo, ['role' => 'salon', 'salon' => (string)$booking['salon']], ['bookings'], (string)$booking['salon']);
 
+    $smsMessageIds = sms_enqueue_booking_event_safely($pdo, 'created', $booking);
+
     $pdo->commit();
+    sms_dispatch_immediate($pdo, $smsMessageIds);
     json_response(['ok' => true, 'booking' => $booking, 'revision' => $nextRevision]);
 } catch (Throwable $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();

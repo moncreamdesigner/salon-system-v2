@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
+require __DIR__ . '/sms-service.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -249,6 +250,7 @@ try {
     $after = null;
     $affectedSalons = [];
     $resultBookings = [];
+    $smsMessageIds = [];
 
     if ($action === 'create') {
         $requested = is_array($payload['bookings'] ?? null) ? array_values($payload['bookings']) : [];
@@ -370,6 +372,29 @@ try {
         ]);
     }
 
+    if ($action === 'create' && isset($resultBookings[0])) {
+        // A multi-slot booking represents one customer action, therefore one
+        // confirmation and one reminder are enough for the whole group.
+        $createdEvent = (string)($resultBookings[0]['status'] ?? '') === 'confirmed' ? 'confirmed' : 'created';
+        $smsMessageIds = sms_enqueue_booking_event_safely($pdo, $createdEvent, $resultBookings[0]);
+    } elseif ($action === 'status' && is_array($before) && is_array($after)) {
+        $beforeStatus = (string)($before['status'] ?? '');
+        $afterStatus = (string)($after['status'] ?? '');
+        if ($afterStatus === 'confirmed' && $beforeStatus !== 'confirmed') {
+            $smsMessageIds = sms_enqueue_booking_event_safely($pdo, 'confirmed', $after, $before);
+        } elseif (in_array($afterStatus, ['cancelled', 'rejected'], true) && !in_array($beforeStatus, ['cancelled', 'rejected'], true)) {
+            $smsMessageIds = sms_enqueue_booking_event_safely($pdo, 'cancelled', $after, $before);
+        }
+    } elseif ($action === 'update' && is_array($before) && is_array($after)) {
+        $changed = false;
+        foreach (['salon', 'date', 'time'] as $field) {
+            if ((string)($before[$field] ?? '') !== (string)($after[$field] ?? '')) $changed = true;
+        }
+        if ($changed) $smsMessageIds = sms_enqueue_booking_event_safely($pdo, 'changed', $after, $before);
+    } elseif ($action === 'delete' && is_array($before)) {
+        sms_enqueue_booking_event_safely($pdo, 'deleted', $before, $before);
+    }
+
     $result = [
         'ok' => true,
         'revision' => $nextRevision,
@@ -392,6 +417,7 @@ try {
         json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
     ]);
     $pdo->commit();
+    sms_dispatch_immediate($pdo, $smsMessageIds);
     json_response($result);
 } catch (InvalidArgumentException $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();

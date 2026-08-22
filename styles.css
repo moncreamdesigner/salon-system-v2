@@ -8824,6 +8824,286 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   min-height: 40px;
 }
 
+.sms-settings-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.sms-settings-card,
+.sms-history-panel {
+  padding: 20px;
+}
+
+.sms-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.sms-section-head h2 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.sms-section-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sms-status-chip {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sms-status-chip.is-active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sms-master-toggle,
+.sms-event-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.sms-master-toggle {
+  width: fit-content;
+  margin-bottom: 16px;
+}
+
+.sms-master-toggle input,
+.sms-event-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.sms-master-toggle span,
+.sms-event-toggle span {
+  display: grid;
+  gap: 2px;
+}
+
+.sms-master-toggle strong,
+.sms-event-toggle strong {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.sms-master-toggle small,
+.sms-event-toggle small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.sms-connection-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr);
+  gap: 12px;
+}
+
+.sms-connection-grid > label,
+.sms-reminder-hours {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sms-connection-grid label small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.sms-rules-head {
+  align-items: end;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.sms-reminder-hours span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sms-reminder-hours .input {
+  width: 82px;
+}
+
+.sms-reminder-hours b {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sms-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sms-template-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.sms-template-card-wide {
+  grid-column: 1 / -1;
+}
+
+.sms-template-card textarea {
+  width: 100%;
+  min-height: 86px;
+  margin-top: 12px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.sms-template-card:not(.is-enabled) textarea {
+  background: #f4f5f4;
+  color: var(--muted);
+}
+
+.sms-variable-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sms-variable-note strong {
+  margin-right: 3px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.sms-variable-note span {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 7px;
+  background: var(--surface);
+}
+
+.sms-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.sms-test-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sms-test-controls .input {
+  width: 170px;
+}
+
+.sms-history-table th:last-child,
+.sms-history-table td:last-child {
+  text-align: right;
+}
+
+.sms-history-table .sms-message-meta {
+  display: block;
+  max-width: 300px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sms-history-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sms-history-status.sent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sms-history-status.failed,
+.sms-history-status.permanent_failed {
+  background: rgba(180, 35, 24, .08);
+  color: var(--danger);
+}
+
+.sms-history-empty {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .sms-connection-grid,
+  .sms-template-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sms-template-card-wide {
+    grid-column: auto;
+  }
+
+  .sms-settings-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sms-test-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sms-test-controls .input {
+    width: 100%;
+  }
+}
+
 .diagnosis-panel h2 {
   margin: 0 0 12px;
   color: var(--accent);

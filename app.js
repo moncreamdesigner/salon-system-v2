@@ -33,6 +33,9 @@ let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
 let bookingMutationInFlight = 0;
+let smsSettingsCache = null;
+let smsHistoryCache = [];
+let smsSettingsLoading = false;
 let localStateMutationVersion = 0;
 let localStateSaveTimer = null;
 let saveContextView = "";
@@ -881,6 +884,7 @@ function dirtySectionsForView(viewName = "") {
     groups: ["customers", "customerGroups"],
     settingsGeneral: ["generalSettings", "diagnosisTypes"],
     settingsUsers: ["audit"],
+    settingsSms: [],
     staff: ["staff"],
     catalog: ["catalog"],
     services: ["services"]
@@ -4100,6 +4104,173 @@ function saveGeneralSettings(event) {
   showToast("Ерөнхий тохиргоо хадгалагдлаа");
 }
 
+const SMS_EVENT_FIELDS = {
+  created: ["smsEventCreated", "smsTemplateCreated"],
+  confirmed: ["smsEventConfirmed", "smsTemplateConfirmed"],
+  changed: ["smsEventChanged", "smsTemplateChanged"],
+  cancelled: ["smsEventCancelled", "smsTemplateCancelled"],
+  reminder: ["smsEventReminder", "smsTemplateReminder"]
+};
+
+const SMS_EVENT_LABELS = {
+  created: "Шинэ захиалга",
+  confirmed: "Баталгаажуулалт",
+  changed: "Цаг өөрчлөлт",
+  cancelled: "Цуцлалт",
+  reminder: "Сануулга",
+  test: "Туршилт"
+};
+
+const SMS_STATUS_LABELS = {
+  pending: "Хүлээгдэж байна",
+  sending: "Илгээж байна",
+  sent: "Илгээгдсэн",
+  failed: "Дахин оролдоно",
+  permanent_failed: "Амжилтгүй",
+  cancelled: "Цуцлагдсан"
+};
+
+function renderSmsSettings() {
+  const settings = smsSettingsCache;
+  if (!settings || !document.getElementById("settingsSmsView")?.isConnected) return;
+  const enabled = document.getElementById("smsEnabled");
+  const apiUrl = document.getElementById("smsApiUrl");
+  const token = document.getElementById("smsToken");
+  const reminderHours = document.getElementById("smsReminderHours");
+  if (enabled) enabled.checked = Boolean(settings.enabled);
+  if (apiUrl) apiUrl.value = settings.apiUrl || "";
+  if (token) {
+    token.value = "";
+    token.placeholder = settings.tokenConfigured ? "Хадгалсан token ••••••••" : "Token оруулах";
+  }
+  if (reminderHours) reminderHours.value = Math.max(1, Math.min(3, Number(settings.reminderHours) || 3));
+  Object.entries(SMS_EVENT_FIELDS).forEach(([event, [checkboxId, templateId]]) => {
+    const checkbox = document.getElementById(checkboxId);
+    const template = document.getElementById(templateId);
+    if (checkbox) checkbox.checked = Boolean(settings.events?.[event]);
+    if (template) template.value = settings.templates?.[event] || "";
+    document.querySelector(`[data-sms-event="${event}"]`)?.classList.toggle("is-enabled", Boolean(settings.events?.[event]));
+  });
+  const status = document.getElementById("smsConnectionStatus");
+  if (status) {
+    const active = Boolean(settings.enabled && settings.apiUrl && settings.tokenConfigured);
+    status.textContent = active ? "Идэвхтэй" : (settings.tokenConfigured || settings.apiUrl ? "Идэвхгүй" : "Тохируулаагүй");
+    status.classList.toggle("is-active", active);
+  }
+  renderSmsHistory();
+}
+
+function renderSmsHistory() {
+  const rows = document.getElementById("smsHistoryRows");
+  const empty = document.getElementById("smsHistoryEmpty");
+  if (!rows) return;
+  rows.innerHTML = smsHistoryCache.map(item => {
+    const status = String(item.status || "pending");
+    const retryable = ["failed", "permanent_failed"].includes(status);
+    return `<tr>
+      <td>${htmlSafe(String(item.created_at || "").slice(0, 16))}</td>
+      <td>${htmlSafe(SMS_EVENT_LABELS[item.event_type] || item.event_type || "—")}</td>
+      <td>${htmlSafe(item.phone || "—")}</td>
+      <td><strong>${htmlSafe(item.salon || "—")}</strong><span class="sms-message-meta">${htmlSafe(`${item.booking_date || ""} ${item.booking_time || ""}`.trim() || item.message || "—")}</span></td>
+      <td><span class="sms-history-status ${htmlSafe(status)}">${htmlSafe(SMS_STATUS_LABELS[status] || status)}</span>${item.last_error ? `<span class="sms-message-meta" title="${htmlSafe(item.last_error)}">${htmlSafe(item.last_error)}</span>` : ""}</td>
+      <td>${Number(item.attempts || 0)}/${Number(item.max_attempts || 3)}</td>
+      <td>${retryable ? `<button class="secondary-btn sms-retry-button" type="button" data-id="${Number(item.id)}">Дахин илгээх</button>` : "—"}</td>
+    </tr>`;
+  }).join("");
+  empty?.classList.toggle("hidden", smsHistoryCache.length > 0);
+  rows.querySelectorAll(".sms-retry-button").forEach(button => {
+    button.addEventListener("click", () => retrySmsMessage(Number(button.dataset.id || 0)));
+  });
+}
+
+async function loadSmsSettings({ silent = false } = {}) {
+  if (!isAdminAccount() || smsSettingsLoading) return;
+  smsSettingsLoading = true;
+  try {
+    const result = await serverApi("sms-settings.php");
+    smsSettingsCache = result.settings || null;
+    smsHistoryCache = Array.isArray(result.history) ? result.history : [];
+    renderSmsSettings();
+    if (activeView === "settingsSms") renderInfoHeader("settingsSms");
+  } catch (error) {
+    if (!silent) showToast(error.message || "SMS тохиргоо ачаалсангүй", "error");
+  } finally {
+    smsSettingsLoading = false;
+  }
+}
+
+function smsSettingsFormPayload() {
+  const events = {};
+  const templates = {};
+  Object.entries(SMS_EVENT_FIELDS).forEach(([event, [checkboxId, templateId]]) => {
+    events[event] = Boolean(document.getElementById(checkboxId)?.checked);
+    templates[event] = formValue(templateId);
+  });
+  return {
+    enabled: Boolean(document.getElementById("smsEnabled")?.checked),
+    apiUrl: formValue("smsApiUrl"),
+    token: formValue("smsToken"),
+    reminderHours: Math.max(1, Math.min(3, Number(formValue("smsReminderHours")) || 3)),
+    events,
+    templates
+  };
+}
+
+async function saveSmsSettings(event) {
+  event.preventDefault();
+  const code = await requireEditCodeValue();
+  if (!code) return;
+  const button = event.submitter || event.currentTarget.querySelector("button[type='submit']");
+  if (button) button.disabled = true;
+  try {
+    const result = await serverApi("sms-settings.php", {
+      method: "PUT",
+      body: JSON.stringify({ code, settings: smsSettingsFormPayload() })
+    });
+    smsSettingsCache = result.settings || smsSettingsCache;
+    renderSmsSettings();
+    renderInfoHeader("settingsSms");
+    showToast("SMS тохиргоо хадгалагдлаа");
+  } catch (error) {
+    showToast(error.message || "SMS тохиргоо хадгалагдсангүй", "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function sendTestSms() {
+  const phone = formValue("smsTestPhone").replace(/\D/g, "").slice(0, 8);
+  if (phone.length !== 8) return showToast("Туршилтын утас 8 оронтой байна", "error");
+  const code = await requireEditCodeValue();
+  if (!code) return;
+  const button = document.getElementById("smsTestButton");
+  if (button) button.disabled = true;
+  try {
+    const result = await serverApi("sms-settings.php", { method: "POST", body: JSON.stringify({ action: "test", phone, code }) });
+    smsHistoryCache = Array.isArray(result.history) ? result.history : smsHistoryCache;
+    renderSmsHistory();
+    showToast(result.message || "Туршилтын SMS илгээгдлээ");
+  } catch (error) {
+    showToast(error.message || "Туршилтын SMS илгээгдсэнгүй", "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function retrySmsMessage(id) {
+  const code = await requireEditCodeValue();
+  if (!code) return;
+  try {
+    const result = await serverApi("sms-settings.php", { method: "POST", body: JSON.stringify({ action: "retry", id, code }) });
+    smsHistoryCache = Array.isArray(result.history) ? result.history : smsHistoryCache;
+    renderSmsHistory();
+    showToast(result.message || "SMS дахин илгээгдлээ");
+  } catch (error) {
+    showToast(error.message || "SMS дахин илгээгдсэнгүй", "error");
+    await loadSmsSettings({ silent: true });
+  }
+}
+
 function renderDiagnosisTypes() {
   const list = document.getElementById("diagnosisTypeList");
   if (!list) return;
@@ -5308,6 +5479,12 @@ function infoForView(name) {
       ["Зургийн хэмжээ", generalSettings().diagnosisCaptureMode === "native" ? "Камерын үндсэн" : generalSettings().diagnosisCaptureSize],
       ["Оношилгоо", state.diagnosisTypes.length]
     ]],
+    settingsSms: ["SMS ТОХИРГОО", [
+      ["Төлөв", smsSettingsCache?.enabled ? "Идэвхтэй" : "Идэвхгүй"],
+      ["Илгээсэн", smsHistoryCache.filter(item => item.status === "sent").length],
+      ["Амжилтгүй", smsHistoryCache.filter(item => ["failed", "permanent_failed"].includes(item.status)).length],
+      ["Сануулга", `${Number(smsSettingsCache?.reminderHours || 3)} цагийн өмнө`]
+    ]],
     settingsCatalog: ["КАТАЛОГИ", [
       ["Төрөл", "FlipHTML5"],
       ["Чирэх заавар", homepageSettings().catalog.dragHintEnabled === false ? "Нуусан" : "Харуулна"]
@@ -6303,6 +6480,7 @@ function renderActiveView(name = activeView, { force = false } = {}) {
   else if (name === "groups") renderGroupDirectory();
   else if (name === "settingsUsers") loadSystemUsers();
   else if (name === "settingsDatabase") renderDatabaseSettings();
+  else if (name === "settingsSms") void loadSmsSettings();
   else if (name === "settingsGeneral") renderGeneralSettings();
   else if (name === "audit") renderAudit();
   else if (name === "catalog") renderCatalog();
@@ -6334,7 +6512,7 @@ function releaseRenderedView(name) {
 
 function setView(name) {
   releaseDiagnosisCameraSession();
-  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsGeneral", "audit"];
+  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsSms", "settingsGeneral", "audit"];
   const requestedScheduleSection = name === "settingsHolidays" ? "holidays" : null;
   if (name === "settingsHolidays") name = "settingsSchedule";
   if (retiredViews.has(name)) name = "bookings";
@@ -6699,7 +6877,7 @@ function applyActiveAccount(account = {}) {
     const field = document.getElementById(id);
     if (field) delete field.dataset.ready;
   });
-  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
+  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsSms", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
 }
 
 function systemUserRoleLabel(role) {
@@ -16965,6 +17143,17 @@ function bindEvents() {
   document.getElementById("customerTypeForm")?.addEventListener("submit", saveCustomerType);
   document.getElementById("discountForm")?.addEventListener("submit", saveDiscount);
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);
+  document.getElementById("smsSettingsForm")?.addEventListener("submit", saveSmsSettings);
+  document.getElementById("smsTestButton")?.addEventListener("click", sendTestSms);
+  document.getElementById("smsHistoryRefresh")?.addEventListener("click", () => loadSmsSettings());
+  document.getElementById("smsTestPhone")?.addEventListener("input", event => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
+  Object.values(SMS_EVENT_FIELDS).forEach(([checkboxId]) => {
+    document.getElementById(checkboxId)?.addEventListener("change", event => {
+      event.target.closest(".sms-template-card")?.classList.toggle("is-enabled", event.target.checked);
+    });
+  });
   ["deleteActionCode", "actionCodeInput"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", event => {
       event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);

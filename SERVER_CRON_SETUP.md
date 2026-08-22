@@ -4,7 +4,7 @@
 
 ## Hostinger дээр тохируулах
 
-Hostinger-ийн **Advanced → Cron Jobs** хэсэгт төслийн бодит absolute path-ыг ашиглан дараах хоёр ажил үүсгэнэ. Доорх `/home/ACCOUNT/domains/salon.khalgai.mn/public_html` хэсгийг Hostinger File Manager дээр харагдах бодит замаар солино.
+Hostinger-ийн **Advanced → Cron Jobs** хэсэгт төслийн бодит absolute path-ыг ашиглан дараах ажлуудыг үүсгэнэ. Доорх `/home/ACCOUNT/domains/salon.khalgai.mn/public_html` хэсгийг Hostinger File Manager дээр харагдах бодит замаар солино.
 
 ### 1. Rolling backup — 6 цаг тутам
 
@@ -39,6 +39,20 @@ Schedule:
 ```
 
 Cron өдөр бүр ажиллах боловч 30 хоног болоогүй бол шинэ full backup үүсгэхгүй. Ингэснээр сарын backup browser-оос хамаарахгүй.
+
+### 3. SMS сануулга — Монголын ажлын цагаар цаг тутам
+
+```sh
+/usr/bin/php /home/ACCOUNT/domains/salon.khalgai.mn/public_html/api/sms-reminders.php
+```
+
+Hostinger cron UTC timezone ашиглаж байвал Монголын 06:00–20:00 цагт тохирох schedule:
+
+```text
+0 22-23,0-12 * * *
+```
+
+Hostinger өөр timezone ашиглаж байвал эхлээд `date` командаар шалгаад Монголын 06:00–20:00-д тааруулна. Endpoint нь дотроо `Asia/Ulaanbaatar` timezone ашиглана. Тухайн өдөр ажиллаж буй салбаруудын хамгийн сүүлийн боломжит слот болон админы сануулах хугацаанаас хойш SMS queue-г шалгахгүй.
 
 ## Нэвтрүүлсний дараах шалгалт
 

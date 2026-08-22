@@ -82,7 +82,7 @@ function ensure_schema(PDO $pdo): void
     if ($ready) return;
     try {
         $schemaVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'schema_version'")->fetchColumn();
-        if ($schemaVersion >= 5) {
+        if ($schemaVersion >= 6) {
             $ready = true;
             return;
         }
@@ -210,6 +210,41 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_users_role_active (role, is_active),
         INDEX idx_users_salon (salon_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_sms_settings (
+        id TINYINT UNSIGNED PRIMARY KEY,
+        enabled TINYINT(1) NOT NULL DEFAULT 0,
+        api_url VARCHAR(500) NOT NULL DEFAULT '',
+        token_cipher LONGTEXT NOT NULL,
+        settings_json LONGTEXT NOT NULL,
+        updated_by VARCHAR(64) NOT NULL DEFAULT '',
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CHECK (JSON_VALID(settings_json))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_sms_messages (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        dedupe_key VARCHAR(190) NOT NULL UNIQUE,
+        booking_id VARCHAR(190) NOT NULL DEFAULT '',
+        event_type VARCHAR(30) NOT NULL,
+        phone VARCHAR(32) NOT NULL DEFAULT '',
+        salon VARCHAR(190) NOT NULL DEFAULT '',
+        booking_date DATE NULL,
+        booking_time VARCHAR(10) NOT NULL DEFAULT '',
+        message TEXT NOT NULL,
+        scheduled_for DATETIME NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        max_attempts TINYINT UNSIGNED NOT NULL DEFAULT 3,
+        next_attempt_at DATETIME NULL,
+        last_error VARCHAR(500) NOT NULL DEFAULT '',
+        provider_response TEXT NULL,
+        sent_at DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_sms_due (status, scheduled_for),
+        INDEX idx_sms_retry (status, next_attempt_at),
+        INDEX idx_sms_booking (booking_id),
+        INDEX idx_sms_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
     $pdo->exec("INSERT IGNORE INTO app_scope_revisions (scope_key, revision) VALUES ('global', 0)");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '1')");
@@ -224,7 +259,7 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec("UPDATE app_meta SET meta_value = '6' WHERE meta_key = 'backup_interval_hours'");
         $pdo->exec("UPDATE app_meta SET meta_value = '3' WHERE meta_key = 'backup_policy_version'");
     }
-    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '5') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
+    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '6') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
     $ready = true;
 }
 
