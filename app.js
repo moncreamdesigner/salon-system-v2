@@ -2425,7 +2425,7 @@ async function refreshServerStateForView(viewName = activeView) {
         }
       }
       if (viewName === "dashboard" && dashboardDataCache?.source) {
-        const dashboardSections = ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"];
+        const dashboardSections = ["customers", "bookings", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"];
         const dashboardRevisionResult = await serverApi(`revision.php?sections=${encodeURIComponent(dashboardSections.join(","))}`);
         const remoteRevisions = dashboardRevisionResult.sectionRevisions || {};
         const dashboardChanged = dashboardSections.some(key => Number(remoteRevisions[key] || 0) !== Number(dashboardDataCache.revisions?.[key] || 0));
@@ -3175,11 +3175,11 @@ function setPerformanceTab(name = "revenue") {
   }
 }
 
-function performanceAnalyticsKey(month, salon) {
-  return `${month}|${salon || "all"}`;
+function performanceAnalyticsKey(month, salon, from = "", to = "") {
+  return `${month}|${from || "auto"}|${to || "auto"}|${salon || "all"}`;
 }
 
-async function loadPerformanceAnalyticsSource(month = "", salon = "") {
+async function loadPerformanceAnalyticsSource(month = "", salon = "", from = "", to = "") {
   if (IS_LOCAL_RUNTIME) return;
   const requestedMonth = /^\d{4}-\d{2}$/.test(month)
     ? month
@@ -3188,12 +3188,23 @@ async function loadPerformanceAnalyticsSource(month = "", salon = "") {
     ? activeAccount.salon
     : (salon || (document.getElementById("performanceSalon")?.value || "all"));
   const effectiveSalon = requestedSalon === "all" ? "" : requestedSalon;
-  const requestKey = performanceAnalyticsKey(requestedMonth, effectiveSalon);
+  const requestedFrom = /^\d{4}-\d{2}-\d{2}$/.test(from)
+    ? from
+    : (document.getElementById("performanceFrom")?.value || "");
+  const requestedTo = /^\d{4}-\d{2}-\d{2}$/.test(to)
+    ? to
+    : (document.getElementById("performanceTo")?.value || "");
+  const explicitRange = requestedFrom && requestedTo && requestedFrom <= requestedTo;
+  const requestKey = performanceAnalyticsKey(requestedMonth, effectiveSalon, explicitRange ? requestedFrom : "", explicitRange ? requestedTo : "");
   if (performanceAnalyticsSource?.key === requestKey || performanceAnalyticsLoadingKey === requestKey) return;
   const requestSequence = ++performanceAnalyticsRequestSequence;
   performanceAnalyticsLoadingKey = requestKey;
   const params = new URLSearchParams({ mode: "performance", month: requestedMonth });
   if (effectiveSalon) params.set("salon", effectiveSalon);
+  if (explicitRange) {
+    params.set("from", requestedFrom);
+    params.set("to", requestedTo);
+  }
   try {
     const result = await serverApi(`analytics-source.php?${params.toString()}`);
     if (requestSequence !== performanceAnalyticsRequestSequence) return;
@@ -3206,7 +3217,7 @@ async function loadPerformanceAnalyticsSource(month = "", salon = "") {
       revisions: result.sectionRevisions || {}
     };
     performanceAnalyticsMonths = Array.isArray(result.months) ? result.months : [];
-    invalidatePerformanceCaches();
+    invalidatePerformanceData();
   } finally {
     if (requestSequence === performanceAnalyticsRequestSequence) performanceAnalyticsLoadingKey = "";
   }
@@ -18627,10 +18638,22 @@ function bindEvents() {
     renderInfoHeader("performance");
   });
   ["performanceFrom", "performanceTo"].forEach(id => {
-    document.getElementById(id)?.addEventListener("change", () => {
+    document.getElementById(id)?.addEventListener("change", async () => {
       const from = formValue("performanceFrom");
       const to = formValue("performanceTo");
       if (from && to && to < from) return showToast("Огнооны дарааллыг зөв оруулна уу");
+      if (!from || !to) return;
+      showServerViewLoader("performance");
+      try {
+        await loadPerformanceAnalyticsSource(
+          document.getElementById("performanceMonth")?.value || monthText(from),
+          document.getElementById("performanceSalon")?.value || "all",
+          from,
+          to
+        );
+      } finally {
+        hideServerViewLoader("performance");
+      }
       renderPerformance();
       renderInfoHeader("performance");
     });
@@ -18638,20 +18661,31 @@ function bindEvents() {
   document.getElementById("performanceSalon")?.addEventListener("change", async event => {
     showServerViewLoader("performance");
     try {
-      await loadPerformanceAnalyticsSource(document.getElementById("performanceMonth")?.value || monthText(todayText()), event.target.value);
+      await loadPerformanceAnalyticsSource(
+        document.getElementById("performanceMonth")?.value || monthText(todayText()),
+        event.target.value,
+        formValue("performanceFrom"),
+        formValue("performanceTo")
+      );
     } finally {
       hideServerViewLoader("performance");
     }
     renderPerformance();
     renderInfoHeader("performance");
   });
-  document.getElementById("performanceClear")?.addEventListener("click", () => {
+  document.getElementById("performanceClear")?.addEventListener("click", async () => {
     const latestMonth = performanceDataMonths()[0] || "";
     const range = performanceRangeForMonth(latestMonth);
     document.getElementById("performanceMonth").value = latestMonth;
     document.getElementById("performanceFrom").value = range.from;
     document.getElementById("performanceTo").value = range.to;
     document.getElementById("performanceSalon").value = "all";
+    showServerViewLoader("performance");
+    try {
+      await loadPerformanceAnalyticsSource(latestMonth, "all", range.from, range.to);
+    } finally {
+      hideServerViewLoader("performance");
+    }
     renderPerformance();
     renderInfoHeader("performance");
   });

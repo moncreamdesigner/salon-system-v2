@@ -51,6 +51,70 @@ function analytics_months_from_service(array $item, array &$months): void
     }
 }
 
+function analytics_pick(array $item, array $keys): array
+{
+    return array_intersect_key($item, array_fill_keys($keys, true));
+}
+
+function analytics_compact_payment(array $payment): array
+{
+    return analytics_pick($payment, [
+        'id', 'date', 'createdAt', 'time', 'method', 'amount', 'paidAmount',
+        'bonusAmount', 'voucherLogId', 'voucherRoleId', 'referenceLabel'
+    ]);
+}
+
+function analytics_compact_visit(array $visit): array
+{
+    return analytics_pick($visit, [
+        'id', 'date', 'createdAt', 'deleted', 'staff', 'staffId', 'salon',
+        'vipRoomFee', 'masterStaffFee'
+    ]);
+}
+
+function analytics_compact_service(array $item): array
+{
+    $copy = analytics_pick($item, [
+        'id', 'kind', 'deleted', 'date', 'createdAt', 'time', 'salon', 'branch',
+        'title', 'service', 'staff', 'staffId', 'visitsTotal', 'basePrice', 'price',
+        'total', 'balance', 'employeeDiscountAmount', 'vipRoomFee', 'masterStaffFee',
+        'paymentMethod', 'referenceLabel'
+    ]);
+    $copy['payments'] = array_values(array_map(
+        static fn(array $payment): array => analytics_compact_payment($payment),
+        array_values(array_filter(is_array($item['payments'] ?? null) ? $item['payments'] : [], 'is_array'))
+    ));
+    $copy['visits'] = array_values(array_map(
+        static fn(array $visit): array => analytics_compact_visit($visit),
+        array_values(array_filter(is_array($item['visits'] ?? null) ? $item['visits'] : [], 'is_array'))
+    ));
+    $copy['diagnosisHistory'] = array_values(array_map(
+        static fn(array $entry): array => analytics_pick($entry, ['date', 'createdAt']),
+        array_values(array_filter(is_array($item['diagnosisHistory'] ?? null) ? $item['diagnosisHistory'] : [], 'is_array'))
+    ));
+    $copy['products'] = array_values(array_map(
+        static fn(array $product): array => analytics_pick($product, ['name', 'product', 'qty', 'quantity']),
+        array_values(array_filter(is_array($item['products'] ?? null) ? $item['products'] : [], 'is_array'))
+    ));
+    return $copy;
+}
+
+function analytics_compact_customer(array $customer, array $history): array
+{
+    $copy = analytics_pick($customer, [
+        'id', 'name', 'phone', 'type', 'salon', 'registeredSalon', 'registeredAt',
+        'last', 'deleted', 'deletedAt', 'gender', 'birthYear', 'age', 'district'
+    ]);
+    if (is_array($customer['currentTreatment'] ?? null)) {
+        $copy['currentTreatment'] = analytics_pick($customer['currentTreatment'], ['salon', 'branch']);
+    }
+    $copy['serviceHistory'] = array_values(array_map(
+        static fn(array $item): array => analytics_compact_service($item),
+        $history
+    ));
+    return $copy;
+}
+
 $mode = ($_GET['mode'] ?? '') === 'dashboard' ? 'dashboard' : 'performance';
 $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
 $requestedMonth = preg_match('/^\d{4}-\d{2}$/', (string)($_GET['month'] ?? '')) === 1
@@ -69,7 +133,7 @@ if ($mode === 'performance' && $explicitFrom !== '' && $explicitTo !== '') {
 $requestedSalon = trim((string)($_GET['salon'] ?? ''));
 $salon = ($user['role'] ?? '') === 'salon' ? trim((string)($user['salon'] ?? '')) : $requestedSalon;
 
-$keys = ['customers', 'customerGroups', 'bookings', 'services', 'kassSchedules', 'staff', 'assignments', 'salons', 'pricePolicy', 'voucherRoles', 'voucherLogs', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments', 'generalSettings'];
+$keys = ['customers', 'bookings', 'services', 'kassSchedules', 'staff', 'assignments', 'salons', 'pricePolicy', 'voucherRoles', 'voucherLogs', 'performanceStatements', 'performanceAdjustments', 'generalSettings'];
 $placeholders = implode(',', array_fill(0, count($keys), '?'));
 $statement = db()->prepare("SELECT section_key, payload, revision FROM app_sections WHERE section_key IN ($placeholders)");
 $statement->execute($keys);
@@ -107,29 +171,12 @@ foreach ((array)$source['customers'] as $customer) {
     $registeredDate = analytics_event_date($customer);
     if ($registeredDate !== '') $availableMonths[substr($registeredDate, 0, 7)] = true;
     $customerSalon = trim((string)($customer['registeredSalon'] ?? $customer['salon'] ?? ''));
-    $includeCompact = $mode === 'dashboard' && ($salon === '' || $customerSalon === $salon || $history !== []);
+    $registeredRelevant = analytics_in_range($registeredDate, $from, $to) && ($salon === '' || $customerSalon === $salon);
+    $includeCompact = $mode === 'dashboard' && ($registeredRelevant || $history !== []);
     if ($history === [] && !$includeCompact) continue;
-    $copy = $customer;
-    $copy['serviceHistory'] = $history;
-    $copy['creditLedger'] = [];
-    unset($copy['diagnosisImages'], $copy['images'], $copy['photos']);
-    $compactCustomers[] = $copy;
+    $compactCustomers[] = analytics_compact_customer($customer, $history);
 }
 $source['customers'] = $compactCustomers;
-$includedCustomerIds = [];
-foreach ($compactCustomers as $customer) {
-    $id = trim((string)($customer['id'] ?? ''));
-    if ($id !== '') $includedCustomerIds[$id] = true;
-}
-$source['customerGroups'] = array_values(array_filter(array_map(static function ($group) use ($includedCustomerIds) {
-    if (!is_array($group)) return null;
-    $copy = $group;
-    $copy['members'] = array_values(array_filter((is_array($group['members'] ?? null) ? $group['members'] : []), static function ($member) use ($includedCustomerIds): bool {
-        $id = is_array($member) ? trim((string)($member['id'] ?? $member['customerId'] ?? '')) : trim((string)$member);
-        return $id !== '' && isset($includedCustomerIds[$id]);
-    }));
-    return $copy['members'] === [] ? null : $copy;
-}, (array)$source['customerGroups'])));
 
 $source['bookings'] = array_values(array_filter((array)$source['bookings'], static function ($item) use ($from, $to, $salon, &$availableMonths): bool {
     if (!is_array($item)) return false;
