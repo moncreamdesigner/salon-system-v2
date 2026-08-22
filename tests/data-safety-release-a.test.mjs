@@ -27,8 +27,8 @@ const serverInitializer = app.slice(
 );
 assert.match(
   serverInitializer,
-  /await synchronizeServerState\(\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);/,
-  "Daily operational data must render immediately after the server state loads"
+  /const initialSections = serverSectionsForView\(activeView\);[\s\S]*await synchronizeServerState\(null, initialSections, initialSections \? activeView : null\);[\s\S]*renderActiveView\(activeView, \{ force: true \}\);/,
+  "Startup must load only the active view's authoritative sections before rendering"
 );
 assert.doesNotMatch(
   serverInitializer.slice(serverInitializer.indexOf("async function initializeServerStorage(")),
@@ -64,6 +64,29 @@ assert.match(
 const applyServerData = app.slice(
   app.indexOf("function applyServerData("),
   app.indexOf("function showServerSyncOverlay(")
+);
+assert.match(
+  applyServerData,
+  /Object\.keys\(incoming\)\.forEach\(key => loadedServerSections\.add\(key\)\);[\s\S]*if \(!partial\) fullServerStateLoaded = true;/,
+  "Partial state must explicitly track which authoritative server sections are loaded"
+);
+const viewSetter = app.slice(
+  app.indexOf("function setView("),
+  app.indexOf("function resetIncomingViewState(")
+);
+assert.match(
+  viewSetter,
+  /!serverViewSectionsLoaded\(name\)[\s\S]*showServerSyncOverlay[\s\S]*refreshServerStateForView\(name\)/,
+  "An unopened partial view must block edits until its authoritative sections load"
+);
+const automaticSnapshot = app.slice(
+  app.indexOf("function ensureAutomaticPerformanceSnapshot("),
+  app.indexOf("function selectedPerformanceMonth(")
+);
+assert.match(
+  automaticSnapshot,
+  /!serverStorageReady \|\| !serverViewSectionsLoaded\("performance"\)/,
+  "Automatic performance snapshots must never run against unloaded partial data"
 );
 const renderVouchers = app.slice(
   app.indexOf("function renderVouchers("),

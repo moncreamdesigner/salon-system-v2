@@ -28,10 +28,13 @@ let serverStorageRevision = 0;
 let serverScopeRevision = 0;
 const serverSectionRevisions = new Map();
 const viewServerRevisions = new Map();
+const loadedServerSections = new Set();
+let fullServerStateLoaded = false;
 let serverSaveTimer = null;
 let serverSaveInFlight = false;
 let serverSavePending = false;
 let serverRefreshInFlight = false;
+let serverRefreshPromise = null;
 let bookingMutationInFlight = 0;
 let smsSettingsCache = null;
 let smsHistoryCache = [];
@@ -1658,6 +1661,8 @@ function applyServerData(data = {}, { partial = false } = {}) {
   // customer section again can freeze cashier devices for several seconds.
   // Only copy the top level because `_serviceSettings` is removed below.
   const incoming = { ...(data || {}) };
+  Object.keys(incoming).forEach(key => loadedServerSections.add(key));
+  if (!partial) fullServerStateLoaded = true;
   const serviceSettings = incoming._serviceSettings;
   delete incoming._serviceSettings;
   if (partial) {
@@ -1709,6 +1714,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
   }
   // Loading a page must be read-only. Historical migrations and cleanup run
   // once on the server, never from every staff browser.
+  if (!partial) markAllViewsCurrent();
   return pendingSections.size ? Array.from(pendingSections) : null;
 }
 
@@ -1792,10 +1798,8 @@ async function saveServerStateNow() {
     serverStorageRevision = Number(result.revision || serverStorageRevision);
     serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
     applyServerSectionRevisions(result.sectionRevisions || {});
-    // This browser already owns every mutation in the successful request.
-    // Mark every local view current so switching menus does not immediately
-    // download and render the same sections again.
-    virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+    // Do not mark unrelated views current from a partial save. Their last
+    // fetched revision intentionally stays old so a later visit refreshes them.
     savingSections.forEach(key => {
       if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
     });
@@ -1890,7 +1894,6 @@ async function saveServerStateNow() {
         serverStorageRevision = Number(remote.revision || serverStorageRevision);
         serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
         applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
-        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
         renderActiveView(activeView, { force: true });
       } catch (reloadError) {
@@ -1920,7 +1923,6 @@ async function saveServerStateNow() {
         serverStorageRevision = Number(remote.revision || serverStorageRevision);
         serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
         applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
-        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
         renderActiveView(activeView, { force: true });
       } catch (reloadError) {
@@ -1938,7 +1940,6 @@ async function saveServerStateNow() {
         serverStorageRevision = Number(remote.revision || 0);
         serverScopeRevision = Number(remote.scopeRevision || 0);
         applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
-        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
         applyServerData(remote.data || {});
         if (error.payload?.dangerousChange) {
           savingSections.forEach(key => {
@@ -2111,13 +2112,16 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
         });
         applyActiveAccount(loginResult.user);
         hideServerLogin();
-        await synchronizeServerState();
-        ensureAutomaticPerformanceSnapshot();
+        showServerSyncOverlay("Эхний цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…");
+        const initialSections = serverSectionsForView(activeView);
+        await synchronizeServerState(null, initialSections, initialSections ? activeView : null);
+        if (serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
         rerenderAll();
         setView(activeView);
       } catch (error) {
         overlay.querySelector("#serverLoginMessage").textContent = error.message;
       } finally {
+        hideServerSyncOverlay();
         button.disabled = false;
       }
     });
@@ -2135,10 +2139,39 @@ const VIEW_SERVER_SECTIONS = {
   giftCards: ["giftCards"],
   settingsServices: ["_serviceSettings"],
   settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules", "customers", "performanceStatements", "performanceStatementHistory", "performanceAdjustments"],
+  settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings"],
+  settingsHumanResources: ["staff", "assignments", "salons", "generalSettings"],
+  settingsSchedule: ["salons", "holidays", "assignments", "staff", "generalSettings"],
+  settingsCatalog: ["homepageSettings"],
+  branches: ["salons", "homepageSettings", "bookings"],
+  settingsResults: ["homepageSettings"],
+  settingsUsers: ["audit", "salons"],
+  settingsDatabase: ["generalSettings"],
+  settingsSms: ["generalSettings"],
+  settingsGeneral: ["generalSettings", "diagnosisTypes", "customerTypes", "customerTypeRules"],
   groups: ["customers", "customerGroups", "customerTypes", "customerTypeRules", "pricePolicy"],
   audit: ["audit"],
-  dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"]
+  dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"],
+  catalog: ["catalog"],
+  staff: ["staff", "salons"],
+  services: ["services"]
 };
+
+function serverSectionsForView(viewName = activeView) {
+  const sections = VIEW_SERVER_SECTIONS[viewName];
+  return Array.isArray(sections) ? sections : null;
+}
+
+function serverViewSectionsLoaded(viewName = activeView) {
+  if (IS_LOCAL_RUNTIME || fullServerStateLoaded) return true;
+  const sections = serverSectionsForView(viewName);
+  return Array.isArray(sections) && sections.every(key => loadedServerSections.has(key));
+}
+
+function markAllViewsCurrent() {
+  if (!fullServerStateLoaded) return;
+  virtualViews.forEach((_, viewName) => viewServerRevisions.set(viewName, serverScopeRevision));
+}
 
 async function synchronizeServerState(expectedLocalVersion = null, sectionKeys = null, viewName = null) {
   const query = Array.isArray(sectionKeys) && sectionKeys.length ? `?sections=${encodeURIComponent(sectionKeys.join(","))}` : "";
@@ -2147,10 +2180,13 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
   serverStorageRevision = Number(remote.revision || 0);
   serverScopeRevision = Number(remote.scopeRevision || 0);
   applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: !(remote.partial || query) });
-  if (viewName) viewServerRevisions.set(viewName, serverScopeRevision);
+  if (query) sectionKeys.forEach(key => loadedServerSections.add(key));
   if (remote.empty) {
     serverStorageReady = true;
-    if (remote.partial || query) return false;
+    if (remote.partial || query) {
+      if (viewName && serverViewSectionsLoaded(viewName)) viewServerRevisions.set(viewName, serverScopeRevision);
+      return true;
+    }
     Object.keys(state).forEach(key => {
       if (key !== "selectedCustomerId") pendingServerSections.set(key, localStateMutationVersion);
     });
@@ -2160,7 +2196,8 @@ async function synchronizeServerState(expectedLocalVersion = null, sectionKeys =
   }
   const normalizedSections = applyServerData(remote.data || {}, { partial: Boolean(remote.partial || query) });
   if (!query) pendingServerSections.clear();
-  if (!query) virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+  if (viewName && serverViewSectionsLoaded(viewName)) viewServerRevisions.set(viewName, serverScopeRevision);
+  if (!query) markAllViewsCurrent();
   serverStorageReady = true;
   if (normalizedSections?.length) {
     normalizedSections.forEach(key => pendingServerSections.set(key, localStateMutationVersion));
@@ -2176,45 +2213,85 @@ async function initializeServerStorage() {
     renderActiveView(activeView, { force: true });
     return;
   }
+  showServerSyncOverlay("Эхний цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…");
   try {
     const status = await serverApi("status.php");
     if (!status.authenticated) {
+      hideServerSyncOverlay();
       showServerLogin("Server database-д нэвтэрч мэдээллээ ачаална уу");
       return;
     }
     applyActiveAccount(status.user);
-    await synchronizeServerState();
-    ensureAutomaticPerformanceSnapshot();
+    const initialSections = serverSectionsForView(activeView);
+    await synchronizeServerState(null, initialSections, initialSections ? activeView : null);
+    if (serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
     renderActiveView(activeView, { force: true });
   } catch (error) {
     if (error.status === 401) {
+      hideServerSyncOverlay();
       showServerLogin(error.message);
       return;
     }
     console.error("Server storage unavailable", error);
+    hideServerSyncOverlay();
     showServerLogin(error.message || "Server database тохиргоо хийгдээгүй байна");
+  } finally {
+    if (serverStorageReady) hideServerSyncOverlay();
   }
 }
 
 const AUTO_REFRESH_VIEWS = new Set(["bookings", "customers", "kass", "vouchers", "giftCards", "groups", "audit", "performance"]);
 
+async function waitForServerWritesToSettle(timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  while (serverSaveTimer || serverSaveInFlight || serverSavePending || bookingMutationInFlight > 0) {
+    if (Date.now() >= deadline) return false;
+    await new Promise(resolve => window.setTimeout(resolve, 100));
+  }
+  return true;
+}
+
 async function refreshServerStateForView(viewName = activeView) {
   if (["127.0.0.1", "localhost"].includes(window.location.hostname)) return;
-  if (!serverStorageReady || serverRefreshInFlight || serverSaveTimer || serverSaveInFlight || serverSavePending || bookingMutationInFlight > 0) return;
+  if (!serverStorageReady) return false;
+  if (!(await waitForServerWritesToSettle())) return false;
+  if (serverRefreshPromise) {
+    try {
+      await serverRefreshPromise;
+    } catch (error) {
+      // The next request below gets its own authoritative response.
+    }
+  }
   const refreshVersion = localStateMutationVersion;
+  const refreshTask = (async () => {
+    try {
+      const sections = serverSectionsForView(viewName);
+      let changed = false;
+      if (!serverViewSectionsLoaded(viewName)) {
+        changed = await synchronizeServerState(refreshVersion, sections, sections ? viewName : null);
+      } else {
+        const revisionResult = await serverApi("revision.php");
+        const remoteScopeRevision = Number(revisionResult.scopeRevision ?? revisionResult.revision ?? 0);
+        const viewRevision = Number(viewServerRevisions.get(viewName) ?? 0);
+        if (remoteScopeRevision === viewRevision) return false;
+        changed = await synchronizeServerState(refreshVersion, sections, sections ? viewName : null);
+      }
+      if (viewName === "performance" && serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
+      if (!changed || activeView !== viewName) return changed;
+      renderActiveView(activeView, { force: true });
+      if (activeView !== "performance") renderInfoHeader(activeView);
+      return changed;
+    } catch (error) {
+      console.error("Server refresh failed", error);
+      return false;
+    }
+  })();
   serverRefreshInFlight = true;
+  serverRefreshPromise = refreshTask;
   try {
-    const revisionResult = await serverApi("revision.php");
-    const remoteScopeRevision = Number(revisionResult.scopeRevision ?? revisionResult.revision ?? 0);
-    const viewRevision = Number(viewServerRevisions.get(viewName) ?? 0);
-    if (remoteScopeRevision === viewRevision) return;
-    const changed = await synchronizeServerState(refreshVersion, VIEW_SERVER_SECTIONS[viewName] || null, viewName);
-    if (!changed || activeView !== viewName) return;
-    renderActiveView(activeView, { force: true });
-    if (activeView !== "performance") renderInfoHeader(activeView);
-  } catch (error) {
-    console.error("Server refresh failed", error);
+    return await refreshTask;
   } finally {
+    if (serverRefreshPromise === refreshTask) serverRefreshPromise = null;
     serverRefreshInFlight = false;
   }
 }
@@ -6666,8 +6743,18 @@ function setView(name) {
   if (view) view.classList.add("active");
 
   if (name === "settingsSchedule" && requestedScheduleSection) activeScheduleSection = requestedScheduleSection;
-  renderActiveView(name, { force: true });
   document.getElementById("sidebar").classList.remove("open");
+  if (!IS_LOCAL_RUNTIME && serverStorageReady && !serverViewSectionsLoaded(name)) {
+    showServerSyncOverlay("Энэ цэсийн хамгийн сүүлийн мэдээллийг ачаалж байна…");
+    void refreshServerStateForView(name).finally(() => {
+      hideServerSyncOverlay();
+      if (activeView === name && !serverViewSectionsLoaded(name)) {
+        showToast("Энэ цэсийн мэдээллийг ачаалж чадсангүй. Дахин нээнэ үү.", "error");
+      }
+    });
+    return;
+  }
+  renderActiveView(name, { force: true });
   void refreshServerStateForView(name);
 }
 
@@ -9443,7 +9530,7 @@ function previousCalendarMonth(date = new Date()) {
 }
 
 function ensureAutomaticPerformanceSnapshot() {
-  if (!IS_LOCAL_RUNTIME && !serverStorageReady) return false;
+  if (!IS_LOCAL_RUNTIME && (!serverStorageReady || !serverViewSectionsLoaded("performance"))) return false;
   const now = new Date();
   const checkDate = localDateText(now);
   if (automaticPerformanceSnapshotCheckedDate === checkDate) return false;
@@ -16329,7 +16416,7 @@ async function submitBookingOperation(action, payload = {}) {
         serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
         applyServerSectionRevisions(result.sectionRevisions || {});
         pendingServerSections.delete("bookings");
-        virtualViews.forEach((_, view) => viewServerRevisions.set(view, serverScopeRevision));
+        viewServerRevisions.set("bookings", serverScopeRevision);
         const changedBookings = Array.isArray(result.bookings) ? result.bookings : [];
         if (result.action === "create") {
           changedBookings.slice().reverse().forEach(booking => {
