@@ -5,6 +5,9 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const api = fs.readFileSync(new URL("../api/bookings.php", import.meta.url), "utf8");
 const changes = fs.readFileSync(new URL("../api/changes.php", import.meta.url), "utf8");
 const recovery = fs.readFileSync(new URL("../api/recovery.php", import.meta.url), "utf8");
+const bootstrap = fs.readFileSync(new URL("../api/bootstrap.php", import.meta.url), "utf8");
+const publicApi = fs.readFileSync(new URL("../api/public.php", import.meta.url), "utf8");
+const publicApp = fs.readFileSync(new URL("../public.js", import.meta.url), "utf8");
 
 assert.match(api, /FOR UPDATE/, "Booking mutations must lock current server state");
 assert.match(api, /SELECT actor_user_id, result_payload FROM app_operations/, "Booking retries must be idempotent");
@@ -27,6 +30,12 @@ assert.match(app, /updateBookingStatus\(booking\.id, "cancelled"\)/, "The cancel
 assert.match(app, /status === "cancelled"\) return "Цуцлагдсан"/, "Cancelled bookings must render their actual status");
 assert.doesNotMatch(app, /state\.bookings\s*=\s*state\.bookings\.filter\(booking\s*=>\s*booking\.status\s*!==\s*"cancelled"\)/, "Cancelled bookings must remain available for status history and filtering");
 assert.match(api, /\['pending', 'confirmed', 'cancelled', 'rejected'\]/, "The server must preserve the cancelled booking status");
+assert.match(bootstrap, /function booking_max_advance_date/, "The server must define one shared calendar-month booking window");
+assert.match(api, /booking_date_within_advance_window/, "Admin bookings must enforce the calendar-month window on the server");
+assert.match(publicApi, /booking_date_within_advance_window/, "Public bookings must enforce the same calendar-month window on the server");
+assert.match(publicApi, /new DateTimeZone\('Asia\/Ulaanbaatar'\)/, "Public booking date validation must use Mongolia time");
+assert.match(app, /max="\$\{bookingMaxDateText\(\)\}"/, "Admin booking dates must expose the one-month maximum in the UI");
+assert.match(publicApp, /date > bookingMaxDate\(\)/, "Public booking dates beyond one month must be disabled");
 
 const statusFunction = app.slice(app.indexOf("async function updateBookingStatus"), app.indexOf("let actionCodeDialogOpen"));
 assert.doesNotMatch(statusFunction, /saveState\(/, "Booking status must not write the full section");

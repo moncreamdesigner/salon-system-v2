@@ -20,6 +20,20 @@ function request_payload(): array
     return $decoded;
 }
 
+function booking_max_advance_date(?DateTimeImmutable $today = null): DateTimeImmutable
+{
+    $timezone = new DateTimeZone('Asia/Ulaanbaatar');
+    $base = ($today ?? new DateTimeImmutable('today', $timezone))->setTime(0, 0);
+    $nextMonth = $base->modify('first day of next month');
+    $day = min((int)$base->format('j'), (int)$nextMonth->format('t'));
+    return $nextMonth->setDate((int)$nextMonth->format('Y'), (int)$nextMonth->format('m'), $day);
+}
+
+function booking_date_within_advance_window(DateTimeImmutable $date, DateTimeImmutable $today): bool
+{
+    return $date >= $today && $date <= booking_max_advance_date($today);
+}
+
 function private_config(): array
 {
     if (!is_file(KHALGAI_PRIVATE_CONFIG)) {

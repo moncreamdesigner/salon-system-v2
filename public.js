@@ -397,6 +397,17 @@ function dateText(date) {
   return `${year}-${month}-${day}`;
 }
 
+function bookingMaxDate(baseDate = new Date()) {
+  const result = new Date(baseDate);
+  result.setHours(0, 0, 0, 0);
+  const day = result.getDate();
+  result.setDate(1);
+  result.setMonth(result.getMonth() + 1);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
+  return result;
+}
+
 function weekDates() {
   const base = new Date();
   base.setHours(0, 0, 0, 0);
@@ -446,7 +457,7 @@ function timeIsPast(date, time) {
 
 function dateUnavailable(salon, date) {
   const value = dateText(date);
-  if (dateIsPast(date) || dateHoliday(salon, value)) return true;
+  if (dateIsPast(date) || date > bookingMaxDate() || dateHoliday(salon, value)) return true;
   const times = timeOptions(salon, date);
   return !times.length || times.every(time => timeIsPast(date, time) || slotFull(salon, value, time));
 }
@@ -522,7 +533,7 @@ function renderBookingComposer(salon) {
   if (selectedTime && (!times.includes(selectedTime) || timeDisabled(selectedTime))) selectedTime = "";
   composer.innerHTML = `<section class="booking-card">
       <h3>ӨДӨР СОНГОХ</h3>
-      <div class="week-head"><button class="week-nav-button" type="button" data-week="prev" aria-label="Өмнөх долоо хоног" ${weekOffset <= 0 ? "disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button><strong>${selectedDateObject.getMonth() + 1}-Р САР</strong><button class="week-nav-button" type="button" data-week="next" aria-label="Дараагийн долоо хоног"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button></div>
+      <div class="week-head"><button class="week-nav-button" type="button" data-week="prev" aria-label="Өмнөх долоо хоног" ${weekOffset <= 0 ? "disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button><strong>${selectedDateObject.getMonth() + 1}-Р САР</strong><button class="week-nav-button" type="button" data-week="next" aria-label="Дараагийн долоо хоног" ${dates[dates.length - 1] >= bookingMaxDate() ? "disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button></div>
       <div class="date-strip">${dates.map(date => { const value = dateText(date); const disabled = dateUnavailable(salon, date); return `<button class="date-option ${value === selectedDate ? "active" : ""}" type="button" data-booking-date="${value}" ${disabled ? "disabled" : ""}><small>${weekdays[date.getDay()]}</small>${date.getDate()}</button>`; }).join("")}</div>
     </section>
     <section class="booking-card"><h3>ЦАГ СОНГОХ</h3>${availabilityMessage ? "" : `<div class="time-grid">${times.map(time => `<button class="time-option ${selectedTime === time ? "active" : ""}" type="button" data-booking-time="${time}" ${timeDisabled(time) ? "disabled" : ""}>${time}</button>`).join("")}</div>`}</section>
@@ -678,7 +689,7 @@ function bindPublicEvents() {
       return renderSalonDirectory();
     }
     const week = event.target.closest("[data-week]");
-    if (week) { weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (week) { if (week.disabled) return; weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     const date = event.target.closest("[data-booking-date]");
     if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     const time = event.target.closest("[data-booking-time]");

@@ -130,8 +130,8 @@ function booking_assert_slot_rules(array $candidate, array $salons, array $holid
     $timezone = new DateTimeZone('Asia/Ulaanbaatar');
     $bookingDate = DateTimeImmutable::createFromFormat('!Y-m-d', (string)$candidate['date'], $timezone);
     $today = new DateTimeImmutable('today', $timezone);
-    if (!$bookingDate || $bookingDate->format('Y-m-d') !== (string)$candidate['date'] || $bookingDate < $today) {
-        throw new InvalidArgumentException('Өнгөрсөн эсвэл буруу өдөрт цаг захиалах боломжгүй.');
+    if (!$bookingDate || $bookingDate->format('Y-m-d') !== (string)$candidate['date'] || !booking_date_within_advance_window($bookingDate, $today)) {
+        throw new InvalidArgumentException('Зөвхөн өнөөдрөөс хойш нэг сарын дотор цаг захиалах боломжтой.');
     }
 
     foreach ($holidays as $holiday) {

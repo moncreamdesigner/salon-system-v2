@@ -492,6 +492,19 @@ let homepageResultEditingId = null;
 let homepageResultEditorRange = null;
 let serviceEditingRef = null;
 let customerPage = 1;
+let customerDirectoryRows = [];
+let customerDirectoryActiveRows = [];
+let customerDirectoryLoaded = IS_LOCAL_RUNTIME;
+let customerDirectoryLoading = null;
+let customerDirectoryLoadingKey = "";
+let customerDirectoryPageCount = 1;
+let customerDirectoryTotal = 0;
+let customerDirectoryRevision = 0;
+let customerDirectorySummary = { newCustomers: 0, single: 0, course: 0, kass: 0 };
+let profileDirectoryLoadedCustomerId = 0;
+let profileDirectoryLoading = null;
+let profileDirectoryCustomerRevision = 0;
+let profileDirectoryGroupRevision = 0;
 let holidayEditingId = null;
 let customerTypeEditingName = null;
 let kassInlineEditingId = null;
@@ -499,7 +512,23 @@ let kassPage = 1;
 let kassRevenuePage = 1;
 let activePerformanceTab = "revenue";
 let auditPage = 1;
+let auditDirectoryRows = [];
+let auditDirectoryActionTypes = [];
+let auditDirectoryLoaded = IS_LOCAL_RUNTIME;
+let auditDirectoryLoading = null;
+let auditDirectoryLoadingKey = "";
+let auditDirectoryPageCount = 1;
+let auditDirectoryTotal = 0;
+let auditDirectoryRevision = 0;
 let bookingPage = 1;
+let bookingDirectoryRows = [];
+let bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
+let bookingDirectoryLoading = null;
+let bookingDirectoryLoadingKey = "";
+let bookingDirectoryPageCount = 1;
+let bookingDirectoryTotal = 0;
+let bookingDirectoryRevision = 0;
+let bookingDirectorySummary = { total: 0, confirmed: 0, pending: 0, today: 0 };
 let bookingInlineEditingId = null;
 let voucherPage = 1;
 let giftCardPage = 1;
@@ -2171,9 +2200,9 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
 }
 
 const VIEW_SERVER_SECTIONS = {
-  bookings: ["bookings", "salons", "holidays"],
-  customers: ["customers", "customerGroups", "salons", "customerTypes", "customerTypeRules", "generalSettings"],
-  profile: ["customers", "customerGroups", "giftCards", "voucherRoles", "voucherLogs", "services", "staff", "salons", "pricePolicy", "discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings"],
+  bookings: ["salons", "holidays"],
+  customers: ["customerGroups", "salons", "customerTypes", "customerTypeRules", "generalSettings"],
+  profile: ["giftCards", "voucherRoles", "voucherLogs", "services", "staff", "salons", "pricePolicy", "discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings"],
   kass: ["kassSchedules", "staff", "assignments", "salons", "generalSettings"],
   performance: ["customers", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceStatementHistory", "performanceAdjustments", "generalSettings"],
   vouchers: ["voucherRoles", "voucherLogs"],
@@ -2191,7 +2220,7 @@ const VIEW_SERVER_SECTIONS = {
   settingsSms: ["generalSettings"],
   settingsGeneral: ["generalSettings", "diagnosisTypes", "customerTypes", "customerTypeRules"],
   groups: ["customers", "customerGroups", "customerTypes", "customerTypeRules", "pricePolicy"],
-  audit: ["audit"],
+  audit: ["generalSettings"],
   dashboard: ["customers", "customerGroups", "bookings", "services", "kassSchedules", "staff", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"],
   catalog: ["catalog"],
   staff: ["staff", "salons"],
@@ -2318,8 +2347,46 @@ async function refreshServerStateForView(viewName = activeView) {
     try {
       const sections = requestedSections;
       let changed = false;
+      if (viewName === "bookings" && bookingDirectoryLoaded) {
+        const bookingRevisionResult = await serverApi("revision.php?sections=bookings");
+        const remoteBookingRevision = Number(bookingRevisionResult.sectionRevisions?.bookings || 0);
+        if (remoteBookingRevision !== Number(bookingDirectoryRevision || 0)) {
+          bookingDirectoryLoaded = false;
+          await loadBookingDirectory({ silent: true });
+          changed = true;
+        }
+      }
+      if (viewName === "audit" && auditDirectoryLoaded) {
+        const auditRevisionResult = await serverApi("revision.php?sections=audit");
+        const remoteAuditRevision = Number(auditRevisionResult.sectionRevisions?.audit || 0);
+        if (remoteAuditRevision !== Number(auditDirectoryRevision || 0)) {
+          auditDirectoryLoaded = false;
+          await loadAuditDirectory({ silent: true });
+          changed = true;
+        }
+      }
+      if (viewName === "customers" && customerDirectoryLoaded) {
+        const customerRevisionResult = await serverApi("revision.php?sections=customers");
+        const remoteCustomerRevision = Number(customerRevisionResult.sectionRevisions?.customers || 0);
+        if (remoteCustomerRevision !== Number(customerDirectoryRevision || 0)) {
+          customerDirectoryLoaded = false;
+          await loadCustomerDirectory({ silent: true });
+          changed = true;
+        }
+      }
+      if (viewName === "profile" && profileDirectoryLoadedCustomerId) {
+        const profileRevisionResult = await serverApi("revision.php?sections=customers,customerGroups");
+        const remoteCustomerRevision = Number(profileRevisionResult.sectionRevisions?.customers || 0);
+        const remoteGroupRevision = Number(profileRevisionResult.sectionRevisions?.customerGroups || 0);
+        if (remoteCustomerRevision !== Number(profileDirectoryCustomerRevision || 0)
+          || remoteGroupRevision !== Number(profileDirectoryGroupRevision || 0)) {
+          profileDirectoryLoadedCustomerId = 0;
+          await loadProfileDirectory(Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0), { silent: true });
+          changed = true;
+        }
+      }
       if (!serverViewSectionsLoaded(viewName)) {
-        changed = await synchronizeServerState(refreshVersion, sections, sections ? viewName : null);
+        changed = (await synchronizeServerState(refreshVersion, sections, sections ? viewName : null)) || changed;
       } else {
         const sectionQuery = Array.isArray(sections) && sections.length
           ? `?sections=${encodeURIComponent(sections.join(","))}`
@@ -2329,8 +2396,8 @@ async function refreshServerStateForView(viewName = activeView) {
         const relevantSectionChanged = Array.isArray(sections) && sections.length
           ? sections.some(key => Number(remoteSectionRevisions[key] || 0) !== Number(serverSectionRevisions.get(key) || 0))
           : Number(revisionResult.scopeRevision ?? revisionResult.revision ?? 0) !== Number(viewServerRevisions.get(viewName) ?? 0);
-        if (!relevantSectionChanged) return false;
-        changed = await synchronizeServerState(refreshVersion, sections, sections ? viewName : null);
+        if (!relevantSectionChanged) return changed;
+        changed = (await synchronizeServerState(refreshVersion, sections, sections ? viewName : null)) || changed;
       }
       if (viewName === "performance" && serverViewSectionsLoaded("performance")) ensureAutomaticPerformanceSnapshot();
       if (!changed || activeView !== viewName) return changed;
@@ -5415,6 +5482,19 @@ function todayText() {
   return `${year}-${month}-${day}`;
 }
 
+function bookingMaxDateText(baseDate = new Date()) {
+  const result = new Date(baseDate);
+  result.setHours(0, 0, 0, 0);
+  const day = result.getDate();
+  result.setDate(1);
+  result.setMonth(result.getMonth() + 1);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
+  const year = result.getFullYear();
+  const month = String(result.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-${String(result.getDate()).padStart(2, "0")}`;
+}
+
 function dateTimeText(dateText = todayText()) {
   const date = new Date();
   const hours = String(date.getHours()).padStart(2, "0");
@@ -5539,6 +5619,14 @@ function customerRegisteredSalon(customer = {}) {
 }
 
 function customerTodayHeaderStats() {
+  if (!IS_LOCAL_RUNTIME && customerDirectoryLoaded) {
+    return [
+      ["Шинэ хэрэглэгч", Number(customerDirectorySummary.newCustomers || 0)],
+      ["Нэг удаа", Number(customerDirectorySummary.single || 0)],
+      ["Курс", Number(customerDirectorySummary.course || 0)],
+      ["Касс", Number(customerDirectorySummary.kass || 0)]
+    ];
+  }
   const today = todayText();
   const salon = isSalonAccount() ? activeAccount.salon : "";
   const customers = state.customers.filter(customer =>
@@ -5594,7 +5682,12 @@ function infoForView(name) {
     item.date >= today &&
     (!bookingSalon || item.salon === bookingSalon)
   );
-  const bookingStats = [
+  const bookingStats = !IS_LOCAL_RUNTIME && bookingDirectoryLoaded ? [
+    ["Нийт", Number(bookingDirectorySummary.total || 0)],
+    ["Баталгаажсан", Number(bookingDirectorySummary.confirmed || 0)],
+    ["Хүлээгдэж буй", Number(bookingDirectorySummary.pending || 0)],
+    ["Өнөөдөр", Number(bookingDirectorySummary.today || 0)]
+  ] : [
     ["Нийт", currentBookings.length],
     ["Баталгаажсан", currentBookings.filter(item => item.status === "confirmed").length],
     ["Хүлээгдэж буй", currentBookings.filter(item => item.status === "pending").length],
@@ -6830,12 +6923,17 @@ function resetIncomingViewState(name) {
     clearSubmittedListSearch(["customerSearch", "customerFromFilter", "customerToFilter", "customerTypeFilter", "customerWorkFilter"]);
     customerSortMode = "date";
     customerPage = 1;
+    customerDirectoryRows = [];
+    customerDirectoryActiveRows = [];
+    customerDirectoryLoaded = IS_LOCAL_RUNTIME;
     state.selectedCustomerId = null;
   }
   if (name === "bookings") {
     resetValues({ bookingSearch: "", bookingSalonFilter: isSalonAccount() ? activeAccount.salon : "all", bookingDateFilter: "", bookingStatusFilter: "all" });
     clearSubmittedListSearch(["bookingSearch", "bookingSalonFilter", "bookingDateFilter", "bookingStatusFilter"]);
     bookingPage = 1;
+    bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
+    bookingDirectoryRows = [];
     bookingInlineEditingId = null;
   }
   if (name === "kass") {
@@ -6862,6 +6960,8 @@ function resetIncomingViewState(name) {
   if (name === "audit") {
     resetValues({ auditActionFilter: "all" });
     auditPage = 1;
+    auditDirectoryRows = [];
+    auditDirectoryLoaded = IS_LOCAL_RUNTIME;
   }
   if (name === "settingsUsers") {
     resetValues({ systemUserSearch: "", systemUserRoleFilter: "all", systemUserStatusFilter: "all" });
@@ -8226,12 +8326,13 @@ function assignDailyQueue(customer, date = todayText(), salon = "") {
   ensureDailyQueueSequences(date);
 }
 
-function activeCustomerTreatments(salon = "") {
-  const key = `${customerDerivedDataVersion}|${salon}|${todayText()}|${activeAccount.role}|${activeAccount.salon}`;
+function activeCustomerTreatments(salon = "", sourceCustomers = state.customers) {
+  const sourceKey = sourceCustomers === state.customers ? "state" : `directory:${customerDirectoryRevision}:${sourceCustomers.length}`;
+  const key = `${customerDerivedDataVersion}|${sourceKey}|${salon}|${todayText()}|${activeAccount.role}|${activeAccount.salon}`;
   ensureDailyQueueSequences(todayText());
   if (customerActiveTreatmentCache.key === key) return customerActiveTreatmentCache.items;
   const items = [];
-  for (const customer of state.customers || []) {
+  for (const customer of sourceCustomers || []) {
     if (customer.deleted || customer.deletedAt) continue;
     if (customer.dailyQueueDate !== todayText() || !Number(customer.dailyQueueSequence || 0)) continue;
     const queueSalon = dailyQueueSalon(customer);
@@ -8357,7 +8458,7 @@ function rejectDuplicateCustomerPhone(phone, excludeCustomerId = null) {
   return true;
 }
 
-function saveInlineCustomer(event) {
+async function saveInlineCustomer(event) {
   event.preventDefault();
   const phone = normalizedCustomerPhone(formValue("inlineCustomerPhone"));
   if (!/^\d{8}$/.test(phone)) {
@@ -8365,6 +8466,18 @@ function saveInlineCustomer(event) {
     return;
   }
   if (rejectDuplicateCustomerPhone(phone)) return;
+  if (!IS_LOCAL_RUNTIME) {
+    try {
+      const duplicateResult = await serverApi(`customer-phone.php?phone=${encodeURIComponent(phone)}`);
+      if (duplicateResult.exists) {
+        showToast(`Энэ утасны дугаар ${duplicateResult.customer?.name || "өөр хэрэглэгч"}-ийн бүртгэлд байна`, "error");
+        return;
+      }
+    } catch (error) {
+      showToast(error?.message || "Утасны дугаар шалгаж чадсангүй", "error");
+      return;
+    }
+  }
   const selectedType = formValue("inlineCustomerType") || "Хэрэглэгч";
   if (selectedType === "Салбар" && !isAdminAccount()) {
     showToast("“Салбар” төрлийн хэрэглэгчийг зөвхөн админ бүртгэнэ", "error");
@@ -8406,6 +8519,7 @@ function saveInlineCustomer(event) {
     serviceHistory: []
   };
   state.customers.unshift(newCustomer);
+  if (!IS_LOCAL_RUNTIME) customerDirectoryRows.unshift(newCustomer);
   state.selectedCustomerId = customerId;
   const auditEntry = {
     id: entityId("audit"),
@@ -8443,6 +8557,7 @@ function clearCustomerFilters() {
   });
   customerSortMode = "date";
   customerPage = 1;
+  customerDirectoryLoaded = IS_LOCAL_RUNTIME;
   renderCustomers();
 }
 
@@ -8531,6 +8646,66 @@ function bindListSearchSubmit(buttonId, inputIds, render) {
   });
 }
 
+function customerDirectoryQuery() {
+  const params = new URLSearchParams({
+    page: String(customerPage),
+    pageSize: "100",
+    sort: customerSortMode || "date"
+  });
+  const query = submittedListSearchValue("customerSearch");
+  const from = submittedListSearchValue("customerFromFilter");
+  const to = submittedListSearchValue("customerToFilter");
+  const type = submittedListSearchValue("customerTypeFilter") || "all";
+  const work = submittedListSearchValue("customerWorkFilter") || "all";
+  if (query) params.set("q", query);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (type !== "all") params.set("type", type);
+  if (work !== "all") params.set("work", work);
+  return params;
+}
+
+async function loadCustomerDirectory({ silent = false } = {}) {
+  if (IS_LOCAL_RUNTIME) {
+    customerDirectoryRows = state.customers.slice();
+    customerDirectoryActiveRows = state.customers.slice();
+    customerDirectoryLoaded = true;
+    return customerDirectoryRows;
+  }
+  const requestKey = customerDirectoryQuery().toString();
+  if (customerDirectoryLoading && customerDirectoryLoadingKey === requestKey) return customerDirectoryLoading;
+  const request = (async () => {
+    try {
+      const result = await serverApi(`customer-list.php?${requestKey}`);
+      if (customerDirectoryQuery().toString() !== requestKey) return null;
+      customerDirectoryRows = Array.isArray(result.customers) ? result.customers : [];
+      customerDirectoryActiveRows = Array.isArray(result.activeCustomers) ? result.activeCustomers : [];
+      customerDirectoryPageCount = Math.max(1, Number(result.pageCount) || 1);
+      customerDirectoryTotal = Math.max(0, Number(result.total) || 0);
+      customerDirectoryRevision = Math.max(0, Number(result.revision) || 0);
+      customerDirectorySummary = result.summary && typeof result.summary === "object" ? result.summary : customerDirectorySummary;
+      customerPage = Math.min(Math.max(1, Number(result.page) || customerPage), customerDirectoryPageCount);
+      customerDirectoryLoaded = true;
+      customerActiveTreatmentCache = { key: "", items: [] };
+      if (activeView === "customers") renderCustomers();
+      return customerDirectoryRows;
+    } catch (error) {
+      if (customerDirectoryQuery().toString() !== requestKey) return null;
+      customerDirectoryLoaded = false;
+      if (!silent) showToast(error?.message || "Хэрэглэгчийн жагсаалт ачаалсангүй", "error");
+      throw error;
+    } finally {
+      if (customerDirectoryLoading === request) {
+        customerDirectoryLoading = null;
+        customerDirectoryLoadingKey = "";
+      }
+    }
+  })();
+  customerDirectoryLoading = request;
+  customerDirectoryLoadingKey = requestKey;
+  return request;
+}
+
 function renderCustomers() {
   if (!document.getElementById("customersView")?.isConnected) return;
   renderCustomerTypeFilter();
@@ -8548,8 +8723,19 @@ function renderCustomers() {
     sortToggle.dataset.sort = sortMode;
     sortToggle.innerHTML = `${sortMode === "name" ? "Нэр" : "Огноо"} <span>↓</span>`;
   }
+  if (!IS_LOCAL_RUNTIME && !customerDirectoryLoaded) {
+    const activeStrip = document.getElementById("activeTreatmentStrip");
+    const body = document.getElementById("customerRows");
+    const pagination = document.getElementById("customerPagination");
+    if (activeStrip) activeStrip.innerHTML = '<div class="active-treatment-empty">Үйлчилгээтэй хэрэглэгчдийг уншиж байна…</div>';
+    if (body) body.innerHTML = '<tr><td colspan="8" class="empty-state">Хэрэглэгчийн мэдээлэл уншиж байна…</td></tr>';
+    if (pagination) pagination.innerHTML = "";
+    if (!customerDirectoryLoading) void loadCustomerDirectory();
+    return;
+  }
   const treatmentSalonScope = isSalonAccount() ? activeAccount.salon : "";
-  const activeTreatments = activeCustomerTreatments(treatmentSalonScope);
+  const customerSource = IS_LOCAL_RUNTIME ? state.customers : customerDirectoryActiveRows;
+  const activeTreatments = activeCustomerTreatments(treatmentSalonScope, customerSource);
   const showTreatmentSalon = ["admin", "manager"].includes(activeAccount.role);
   const treatmentCardMarkup = ({ customer, treatment, sequence, isRecent, vacant }) => {
     if (vacant) {
@@ -8626,7 +8812,7 @@ function renderCustomers() {
     `;
   }
   const groupById = new Map((state.customerGroups || []).map(group => [Number(group.id), group]));
-  let rows = state.customers
+  let rows = (IS_LOCAL_RUNTIME ? state.customers : customerDirectoryRows)
     .filter(c => !c.deleted)
     .filter(c => {
       const registeredDate = customerRegisteredDate(c);
@@ -8651,7 +8837,7 @@ function renderCustomers() {
     })
     .filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q));
 
-  rows = rows.sort((a, b) => {
+  if (IS_LOCAL_RUNTIME) rows = rows.sort((a, b) => {
     if (sortMode === "name") return a.name.localeCompare(b.name);
     const aRegistered = `${a.registeredAt || a.last || ""} ${a.registeredTime || ""}`;
     const bRegistered = `${b.registeredAt || b.last || ""} ${b.registeredTime || ""}`;
@@ -8687,11 +8873,26 @@ function renderCustomers() {
   }
 
   const pagination = document.getElementById("customerPagination");
-  if (pagination) pagination.innerHTML = "";
+  if (pagination) pagination.innerHTML = !IS_LOCAL_RUNTIME && customerDirectoryPageCount > 1 ? `
+    <button class="secondary-btn" type="button" id="customerPrev" ${customerPage <= 1 ? "disabled" : ""}>Өмнөх</button>
+    <span>${customerPage} / ${customerDirectoryPageCount} · ${customerDirectoryTotal}</span>
+    <button class="secondary-btn" type="button" id="customerNext" ${customerPage >= customerDirectoryPageCount ? "disabled" : ""}>Дараах</button>
+  ` : "";
+  document.getElementById("customerPrev")?.addEventListener("click", () => {
+    customerPage -= 1;
+    customerDirectoryLoaded = false;
+    renderCustomers();
+  });
+  document.getElementById("customerNext")?.addEventListener("click", () => {
+    customerPage += 1;
+    customerDirectoryLoaded = false;
+    renderCustomers();
+  });
 
   document.querySelectorAll(".customer-detail-open").forEach(button => {
     button.addEventListener("click", () => {
-      const customer = state.customers.find(item => Number(item.id) === Number(button.dataset.id));
+      const customer = [...customerDirectoryRows, ...customerDirectoryActiveRows, ...state.customers]
+        .find(item => Number(item.id) === Number(button.dataset.id));
       clearCustomerUiState(customer);
       state.selectedCustomerId = Number(button.dataset.id);
       setView("profile");
@@ -11770,6 +11971,50 @@ function profileServiceEditMode(item = {}) {
   return "full";
 }
 
+async function loadProfileDirectory(customerId, { silent = false } = {}) {
+  const requestedId = Number(customerId || 0);
+  if (!requestedId || IS_LOCAL_RUNTIME) {
+    profileDirectoryLoadedCustomerId = requestedId;
+    return null;
+  }
+  if (profileDirectoryLoading) return profileDirectoryLoading;
+  const request = (async () => {
+    try {
+      const result = await serverApi(`customer-detail.php?id=${encodeURIComponent(requestedId)}`);
+      if (Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0) !== requestedId) {
+        queueMicrotask(() => {
+          if (activeView === "profile") renderProfile();
+        });
+        return null;
+      }
+      const related = Array.isArray(result.relatedCustomers) ? result.relatedCustomers : [];
+      related.forEach(customer => {
+        const index = state.customers.findIndex(item => Number(item.id) === Number(customer.id));
+        if (index >= 0) state.customers[index] = customer;
+        else state.customers.push(customer);
+      });
+      if (result.group && typeof result.group === "object") {
+        const groupIndex = state.customerGroups.findIndex(item => Number(item.id) === Number(result.group.id));
+        if (groupIndex >= 0) state.customerGroups[groupIndex] = result.group;
+        else state.customerGroups.push(result.group);
+      }
+      profileDirectoryCustomerRevision = Math.max(0, Number(result.sectionRevisions?.customers) || 0);
+      profileDirectoryGroupRevision = Math.max(0, Number(result.sectionRevisions?.customerGroups) || 0);
+      profileDirectoryLoadedCustomerId = requestedId;
+      if (activeView === "profile") renderProfile();
+      return result.customer || null;
+    } catch (error) {
+      profileDirectoryLoadedCustomerId = 0;
+      if (!silent) showToast(error?.message || "Хэрэглэгчийн дэлгэрэнгүй ачаалсангүй", "error");
+      throw error;
+    } finally {
+      profileDirectoryLoading = null;
+    }
+  })();
+  profileDirectoryLoading = request;
+  return request;
+}
+
 function isServiceDeletable(item) {
   return isServiceWithinEditDays(item);
 }
@@ -11779,6 +12024,11 @@ function renderProfile() {
   if (!shell) return;
   document.body.classList.remove("signature-modal-open");
   const requestedCustomerId = Number(state.selectedCustomerId || rememberedProfileCustomerId() || 0);
+  if (!IS_LOCAL_RUNTIME && requestedCustomerId && profileDirectoryLoadedCustomerId !== requestedCustomerId) {
+    shell.innerHTML = '<div class="empty-state">Хэрэглэгчийн мэдээлэл ачаалж байна…</div>';
+    if (!profileDirectoryLoading) void loadProfileDirectory(requestedCustomerId);
+    return;
+  }
   const customer = state.customers.find(c =>
     Number(c.id) === requestedCustomerId &&
     !c.deleted &&
@@ -14521,12 +14771,78 @@ function renderStaff() {
   if (assignStaff) assignStaff.innerHTML = staffOptions;
 }
 
+function bookingDirectoryQuery() {
+  const params = new URLSearchParams({ page: String(bookingPage), pageSize: "100" });
+  const query = submittedListSearchValue("bookingSearch");
+  const status = submittedListSearchValue("bookingStatusFilter") || "all";
+  const salon = isSalonAccount() ? activeAccount.salon : (submittedListSearchValue("bookingSalonFilter") || "all");
+  const date = submittedListSearchValue("bookingDateFilter");
+  if (query) params.set("q", query);
+  if (status !== "all") params.set("status", status);
+  if (salon !== "all") params.set("salon", salon);
+  if (date) params.set("date", date);
+  return params;
+}
+
+function loadedBookingById(id) {
+  return bookingDirectoryRows.find(item => String(item.id) === String(id))
+    || state.bookings.find(item => String(item.id) === String(id));
+}
+
+async function loadBookingDirectory({ silent = false } = {}) {
+  if (IS_LOCAL_RUNTIME) {
+    bookingDirectoryRows = state.bookings.slice();
+    bookingDirectoryLoaded = true;
+    return bookingDirectoryRows;
+  }
+  const requestKey = bookingDirectoryQuery().toString();
+  if (bookingDirectoryLoading && bookingDirectoryLoadingKey === requestKey) return bookingDirectoryLoading;
+  const request = (async () => {
+    try {
+      const result = await serverApi(`booking-list.php?${requestKey}`);
+      if (bookingDirectoryQuery().toString() !== requestKey) return null;
+      bookingDirectoryRows = Array.isArray(result.bookings) ? result.bookings : [];
+      bookingDirectoryPageCount = Math.max(1, Number(result.pageCount) || 1);
+      bookingDirectoryTotal = Math.max(0, Number(result.total) || 0);
+      bookingDirectoryRevision = Math.max(0, Number(result.revision) || 0);
+      bookingDirectorySummary = result.summary && typeof result.summary === "object" ? result.summary : bookingDirectorySummary;
+      bookingPage = Math.min(Math.max(1, Number(result.page) || bookingPage), bookingDirectoryPageCount);
+      bookingDirectoryLoaded = true;
+      if (activeView === "bookings") renderBookings();
+      return bookingDirectoryRows;
+    } catch (error) {
+      if (bookingDirectoryQuery().toString() !== requestKey) return null;
+      bookingDirectoryLoaded = false;
+      if (!silent) showToast(error?.message || "Цаг захиалгын жагсаалт ачаалсангүй", "error");
+      throw error;
+    } finally {
+      if (bookingDirectoryLoading === request) {
+        bookingDirectoryLoading = null;
+        bookingDirectoryLoadingKey = "";
+      }
+    }
+  })();
+  bookingDirectoryLoading = request;
+  bookingDirectoryLoadingKey = requestKey;
+  return request;
+}
+
 function renderBookings() {
   if (!document.getElementById("bookingsView")?.isConnected) return;
   // The booking view is mounted before the server state finishes loading.
   // Rebuild its branch filter from the current branch records, otherwise the
   // initial prototype branches remain visible after real data is applied.
   renderSalons();
+  if (!IS_LOCAL_RUNTIME && !bookingDirectoryLoaded) {
+    const rows = document.getElementById("bookingRows");
+    const pagination = document.getElementById("bookingPagination");
+    const entry = document.getElementById("bookingInlineSlot");
+    if (rows) rows.innerHTML = '<tr><td colspan="8" class="empty-state">Уншиж байна…</td></tr>';
+    if (pagination) pagination.innerHTML = "";
+    if (entry) entry.innerHTML = '<div class="empty-state">Цаг захиалгын мэдээлэл уншиж байна…</div>';
+    if (!bookingDirectoryLoading) void loadBookingDirectory();
+    return;
+  }
   const activeEditForm = document.getElementById("bookingRowEditSlot")?.querySelector("#bookingForm");
   const editDraft = activeEditForm ? {
     salon: activeEditForm.querySelector(".booking-salon")?.value || "",
@@ -14539,21 +14855,23 @@ function renderBookings() {
   const salon = isSalonAccount() ? activeAccount.salon : (submittedListSearchValue("bookingSalonFilter") || "all");
   const date = submittedListSearchValue("bookingDateFilter");
   const pagination = document.getElementById("bookingPagination");
-  const bookings = state.bookings
-    .filter(b => !q || b.phone.includes(q))
-    .filter(b => q || date || b.date >= todayText())
-    .filter(b => salon === "all" || b.salon === salon)
-    .filter(b => !date || b.date === date)
-    .filter(b => status === "all" || b.status === status)
-    .slice()
-    .sort((a, b) => {
-      const aDateTime = `${a.date || ""} ${a.time || ""}`;
-      const bDateTime = `${b.date || ""} ${b.time || ""}`;
-      const dateTimeOrder = q ? bDateTime.localeCompare(aDateTime) : aDateTime.localeCompare(bDateTime);
-      if (dateTimeOrder) return dateTimeOrder;
-      const pendingOrder = Number(b.status === "pending") - Number(a.status === "pending");
-      return pendingOrder || Number(a.id || 0) - Number(b.id || 0);
-    });
+  const bookings = IS_LOCAL_RUNTIME
+    ? state.bookings
+      .filter(b => !q || b.phone.includes(q))
+      .filter(b => q || date || b.date >= todayText())
+      .filter(b => salon === "all" || b.salon === salon)
+      .filter(b => !date || b.date === date)
+      .filter(b => status === "all" || b.status === status)
+      .slice()
+      .sort((a, b) => {
+        const aDateTime = `${a.date || ""} ${a.time || ""}`;
+        const bDateTime = `${b.date || ""} ${b.time || ""}`;
+        const dateTimeOrder = q ? bDateTime.localeCompare(aDateTime) : aDateTime.localeCompare(bDateTime);
+        if (dateTimeOrder) return dateTimeOrder;
+        const pendingOrder = Number(b.status === "pending") - Number(a.status === "pending");
+        return pendingOrder || Number(a.id || 0) - Number(b.id || 0);
+      })
+    : bookingDirectoryRows;
   document.getElementById("bookingRows").innerHTML = bookings.map((booking, index) => {
     const editingThisBooking = String(bookingInlineEditingId ?? "") === String(booking.id ?? "");
     return `
@@ -14587,7 +14905,7 @@ function renderBookings() {
   });
   document.querySelectorAll(".booking-cancel").forEach(button => {
     button.addEventListener("click", async () => {
-      const booking = state.bookings.find(item => String(item.id) === String(button.dataset.id));
+      const booking = loadedBookingById(button.dataset.id);
       if (!booking) return;
       if (!window.confirm(`${dateWithWeekday(booking.date)} ${booking.time} цагийг цуцлах уу?`)) return;
       await updateBookingStatus(booking.id, "cancelled");
@@ -14603,7 +14921,21 @@ function renderBookings() {
       renderBookings();
     });
   });
-  if (pagination) pagination.innerHTML = "";
+  if (pagination) pagination.innerHTML = !IS_LOCAL_RUNTIME && bookingDirectoryPageCount > 1 ? `
+    <button class="secondary-btn" type="button" id="bookingPrev" ${bookingPage <= 1 ? "disabled" : ""}>Өмнөх</button>
+    <span>${bookingPage} / ${bookingDirectoryPageCount} · ${bookingDirectoryTotal}</span>
+    <button class="secondary-btn" type="button" id="bookingNext" ${bookingPage >= bookingDirectoryPageCount ? "disabled" : ""}>Дараах</button>
+  ` : "";
+  document.getElementById("bookingPrev")?.addEventListener("click", () => {
+    bookingPage -= 1;
+    bookingDirectoryLoaded = false;
+    renderBookings();
+  });
+  document.getElementById("bookingNext")?.addEventListener("click", () => {
+    bookingPage += 1;
+    bookingDirectoryLoaded = false;
+    renderBookings();
+  });
 
   if (bookingInlineEditingId) {
     const editSlot = document.getElementById("bookingRowEditSlot");
@@ -16162,6 +16494,52 @@ function auditCreatedAtText(value = "", demoIndex = 0) {
   return String(value).replace("T", " ").slice(0, 16);
 }
 
+function auditDirectoryQuery() {
+  const params = new URLSearchParams({ page: String(auditPage), pageSize: "100" });
+  const action = document.getElementById("auditActionFilter")?.value || "";
+  if (action && action !== "all") params.set("action", action);
+  return params;
+}
+
+async function loadAuditDirectory({ silent = false } = {}) {
+  if (IS_LOCAL_RUNTIME) {
+    auditDirectoryRows = state.audit.slice();
+    auditDirectoryActionTypes = [...new Set(state.audit.map(item => item.title).filter(Boolean))];
+    auditDirectoryLoaded = true;
+    return auditDirectoryRows;
+  }
+  const requestKey = auditDirectoryQuery().toString();
+  if (auditDirectoryLoading && auditDirectoryLoadingKey === requestKey) return auditDirectoryLoading;
+  const request = (async () => {
+    try {
+      const result = await serverApi(`audit-list.php?${requestKey}`);
+      if (auditDirectoryQuery().toString() !== requestKey) return null;
+      auditDirectoryRows = Array.isArray(result.events) ? result.events : [];
+      auditDirectoryActionTypes = Array.isArray(result.actionTypes) ? result.actionTypes : [];
+      auditDirectoryPageCount = Math.max(1, Number(result.pageCount) || 1);
+      auditDirectoryTotal = Math.max(0, Number(result.total) || 0);
+      auditDirectoryRevision = Math.max(0, Number(result.revision) || 0);
+      auditPage = Math.min(Math.max(1, Number(result.page) || auditPage), auditDirectoryPageCount);
+      auditDirectoryLoaded = true;
+      if (activeView === "audit") renderAudit();
+      return auditDirectoryRows;
+    } catch (error) {
+      if (auditDirectoryQuery().toString() !== requestKey) return null;
+      auditDirectoryLoaded = false;
+      if (!silent) showToast(error?.message || "Үйлдлийн түүх ачаалсангүй", "error");
+      throw error;
+    } finally {
+      if (auditDirectoryLoading === request) {
+        auditDirectoryLoading = null;
+        auditDirectoryLoadingKey = "";
+      }
+    }
+  })();
+  auditDirectoryLoading = request;
+  auditDirectoryLoadingKey = requestKey;
+  return request;
+}
+
 function renderAudit() {
   if (!document.getElementById("auditView")?.isConnected) return;
   const list = document.getElementById("auditList");
@@ -16169,18 +16547,29 @@ function renderAudit() {
   const pagination = document.getElementById("auditPagination");
   if (!list || !filter || !pagination) return;
 
+  if (!IS_LOCAL_RUNTIME && !auditDirectoryLoaded) {
+    list.innerHTML = '<div class="empty-state">Үйлдлийн түүх уншиж байна…</div>';
+    pagination.innerHTML = "";
+    if (!auditDirectoryLoading) void loadAuditDirectory();
+    return;
+  }
+
   const selectedType = filter.value;
-  const actionTypes = [...new Set(state.audit.map(item => item.title).filter(Boolean))]
+  const actionTypes = (IS_LOCAL_RUNTIME
+    ? [...new Set(state.audit.map(item => item.title).filter(Boolean))]
+    : auditDirectoryActionTypes.slice())
     .sort((a, b) => auditActionText(a).localeCompare(auditActionText(b), "mn"));
   filter.innerHTML = `<option value="">Бүх үйлдэл</option>${actionTypes.map(type => `<option value="${htmlSafe(type)}">${htmlSafe(auditActionText(type))}</option>`).join("")}`;
   filter.value = actionTypes.includes(selectedType) ? selectedType : "";
   enhanceNativeSelects(["auditActionFilter"]);
 
-  const filtered = state.audit.filter(item => !filter.value || item.title === filter.value);
+  const filtered = IS_LOCAL_RUNTIME
+    ? state.audit.filter(item => !filter.value || item.title === filter.value)
+    : auditDirectoryRows;
   const pageSize = 100;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = IS_LOCAL_RUNTIME ? Math.max(1, Math.ceil(filtered.length / pageSize)) : auditDirectoryPageCount;
   auditPage = Math.min(Math.max(auditPage, 1), pageCount);
-  const pageItems = filtered.slice((auditPage - 1) * pageSize, auditPage * pageSize);
+  const pageItems = IS_LOCAL_RUNTIME ? filtered.slice((auditPage - 1) * pageSize, auditPage * pageSize) : filtered;
 
   list.innerHTML = pageItems.map((item, index) => {
     const meta = auditMetaParts(item.meta);
@@ -16192,17 +16581,19 @@ function renderAudit() {
     `;
   }).join("") || `<div class="empty-state">Сонгосон төрлийн үйлдэл бүртгэгдээгүй байна</div>`;
 
-  pagination.innerHTML = filtered.length > pageSize ? `
+  pagination.innerHTML = (IS_LOCAL_RUNTIME ? filtered.length > pageSize : auditDirectoryTotal > pageSize) ? `
     <button class="secondary-btn" type="button" id="auditPrev" ${auditPage <= 1 ? "disabled" : ""}>Өмнөх</button>
     <span>${auditPage} / ${pageCount}</span>
     <button class="secondary-btn" type="button" id="auditNext" ${auditPage >= pageCount ? "disabled" : ""}>Дараах</button>
   ` : "";
   document.getElementById("auditPrev")?.addEventListener("click", () => {
     auditPage -= 1;
+    auditDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderAudit();
   });
   document.getElementById("auditNext")?.addEventListener("click", () => {
     auditPage += 1;
+    auditDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderAudit();
   });
 }
@@ -16512,10 +16903,11 @@ async function submitBookingOperation(action, payload = {}) {
 }
 
 async function updateBookingStatus(id, status) {
-  const booking = state.bookings.find(item => String(item.id) === String(id));
+  const booking = loadedBookingById(id);
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг өөрчлөх эрхгүй");
   try {
     await submitBookingOperation("status", { id: booking.id, status, expected: structuredClone(booking) });
+    bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderBookings();
     renderAudit();
     renderInfoHeader(activeView);
@@ -16588,12 +16980,13 @@ function requireEditCodeValue() {
 }
 
 async function deleteBooking(id) {
-  const booking = state.bookings.find(item => String(item.id) === String(id));
+  const booking = loadedBookingById(id);
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг устгах эрхгүй");
   const code = await requestActionCode("delete", true);
   if (!code) return;
   try {
     await submitBookingOperation("delete", { id: booking.id, code, expected: structuredClone(booking) });
+    bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderBookings();
     renderAudit();
     renderInfoHeader(activeView);
@@ -16670,6 +17063,7 @@ function clearBookingFilters() {
   }
   resetCustomSelect("bookingStatusDropdown", "bookingStatusFilter");
   bookingPage = 1;
+  bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
   renderBookings();
 }
 
@@ -16935,7 +17329,7 @@ function bookingSlotMarkup(index, values, editing = false) {
         </div>
       </label>
       <label>Огноо
-        <input class="input booking-date" type="date" min="${todayText()}" value="${selectedDate}">
+        <input class="input booking-date" type="date" min="${todayText()}" max="${bookingMaxDateText()}" value="${selectedDate}">
       </label>
       <label>Цаг
         <input type="hidden" class="booking-time" value="${selectedTime}">
@@ -17148,6 +17542,12 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
       renderBookingTimeOptions(editId, emptySlot.row);
       return;
     }
+    const outOfWindowSlot = slotValues.find(item => item.date < todayText() || item.date > bookingMaxDateText());
+    if (outOfWindowSlot) {
+      showToast("Зөвхөн өнөөдрөөс хойш нэг сарын дотор цаг захиална");
+      outOfWindowSlot.row.querySelector(".booking-date")?.focus();
+      return;
+    }
     const holidaySlot = slotValues.find(item => isHolidayClosed(item.salon, item.date));
     if (holidaySlot) {
       showToast("Тухайн өдөр амралттай байна");
@@ -17198,6 +17598,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
         await submitBookingOperation("create", { bookings });
       }
       bookingInlineEditingId = null;
+      bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
       openBookingModal();
       renderBookings();
       renderAudit();
@@ -17555,11 +17956,13 @@ function bindEvents() {
   });
   document.getElementById("auditActionFilter")?.addEventListener("change", () => {
     auditPage = 1;
+    auditDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderAudit();
   });
   document.getElementById("auditFilterClear")?.addEventListener("click", () => {
     document.getElementById("auditActionFilter").value = "";
     auditPage = 1;
+    auditDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderAudit();
   });
   ["kassRevenueFrom", "kassRevenueTo", "kassRevenueSalon"].forEach(id => {
@@ -17706,12 +18109,14 @@ function bindEvents() {
       return;
     }
     customerPage = 1;
+    customerDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderCustomers();
   });
   document.getElementById("clearCustomerFilters")?.addEventListener("click", clearCustomerFilters);
   document.getElementById("customerSortToggle")?.addEventListener("click", () => {
     customerSortMode = customerSortMode === "date" ? "name" : "date";
     customerPage = 1;
+    customerDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderCustomers();
   });
   document.getElementById("bookingSearch").addEventListener("input", event => {
@@ -17719,6 +18124,7 @@ function bindEvents() {
   });
   bindListSearchSubmit("bookingSearchBtn", ["bookingSearch", "bookingSalonFilter", "bookingDateFilter", "bookingStatusFilter"], () => {
     bookingPage = 1;
+    bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderBookings();
   });
   document.getElementById("clearBookingFilters").addEventListener("click", clearBookingFilters);

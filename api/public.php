@@ -55,9 +55,12 @@ function sanitize_public_booking(array $booking): ?array
 
 if ($method === 'GET') {
     $data = load_public_sections($pdo);
-    $today = (new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d');
-    // Public UI only needs future slot occupancy. Historical rows and phone
-    // numbers stay on the server and are never sent to anonymous browsers.
+    $todayDate = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
+    $today = $todayDate->format('Y-m-d');
+    $maxDate = booking_max_advance_date($todayDate)->format('Y-m-d');
+    // Public UI only needs slot occupancy inside the selectable one-month
+    // window. Historical rows and phone numbers, plus farther-future rows,
+    // stay on the server and are never sent to anonymous browsers.
     $data['bookings'] = array_values(array_map(
         static fn(array $booking): array => [
             'salon' => (string)($booking['salon'] ?? ''),
@@ -67,7 +70,9 @@ if ($method === 'GET') {
         ],
         array_filter(
             is_array($data['bookings']) ? $data['bookings'] : [],
-            static fn($booking): bool => is_array($booking) && (string)($booking['date'] ?? '') >= $today
+            static fn($booking): bool => is_array($booking)
+                && (string)($booking['date'] ?? '') >= $today
+                && (string)($booking['date'] ?? '') <= $maxDate
         )
     ));
     json_response(['ok' => true, 'data' => $data]);
@@ -107,11 +112,12 @@ try {
         json_response(['ok' => false, 'message' => 'Салбар олдсонгүй эсвэл идэвхгүй байна.'], 422);
     }
 
-    $bookingDate = DateTimeImmutable::createFromFormat('!Y-m-d', $booking['date']);
-    $today = new DateTimeImmutable('today');
-    if (!$bookingDate || $bookingDate->format('Y-m-d') !== $booking['date'] || $bookingDate < $today) {
+    $timezone = new DateTimeZone('Asia/Ulaanbaatar');
+    $bookingDate = DateTimeImmutable::createFromFormat('!Y-m-d', $booking['date'], $timezone);
+    $today = new DateTimeImmutable('today', $timezone);
+    if (!$bookingDate || $bookingDate->format('Y-m-d') !== $booking['date'] || !booking_date_within_advance_window($bookingDate, $today)) {
         $pdo->rollBack();
-        json_response(['ok' => false, 'message' => 'Өнгөрсөн эсвэл буруу өдөрт цаг захиалах боломжгүй.'], 422);
+        json_response(['ok' => false, 'message' => 'Зөвхөн өнөөдрөөс хойш нэг сарын дотор цаг захиалах боломжтой.'], 422);
     }
 
     $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
