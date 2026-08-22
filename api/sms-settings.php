@@ -22,18 +22,67 @@ function sms_public_settings(array $settings): array
     return $settings;
 }
 
-function sms_history(PDO $pdo, int $limit = 100): array
+function sms_history_filters(): array
 {
-    $limit = max(1, min(200, $limit));
-    $statement = $pdo->query("SELECT id, booking_id, event_type, phone, salon, booking_date, booking_time, message, scheduled_for, status, attempts, max_attempts, last_error, sent_at, created_at FROM app_sms_messages ORDER BY id DESC LIMIT $limit");
-    return $statement->fetchAll();
+    $phone = preg_replace('/\D+/', '', (string)($_GET['phone'] ?? '')) ?? '';
+    $from = trim((string)($_GET['from'] ?? ''));
+    $to = trim((string)($_GET['to'] ?? ''));
+    $event = trim((string)($_GET['event'] ?? ''));
+    $validDate = static fn(string $value): bool => $value === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1;
+    $validEvents = ['created', 'confirmed', 'changed', 'cancelled', 'reminder', 'test'];
+    if (!$validDate($from) || !$validDate($to)) json_response(['ok' => false, 'message' => 'Огнооны шүүлтүүр буруу байна.'], 422);
+    if ($event !== '' && !in_array($event, $validEvents, true)) json_response(['ok' => false, 'message' => 'SMS төрөл буруу байна.'], 422);
+    if ($from !== '' && $to !== '' && $from > $to) json_response(['ok' => false, 'message' => 'Эхлэх огноо дуусах огнооноос хойш байж болохгүй.'], 422);
+    return ['phone' => substr($phone, 0, 8), 'from' => $from, 'to' => $to, 'event' => $event];
+}
+
+function sms_history(PDO $pdo, int $page = 1, array $filters = []): array
+{
+    $pageSize = 100;
+    $page = max(1, $page);
+    $where = [];
+    $params = [];
+    if (($filters['phone'] ?? '') !== '') {
+        $where[] = 'phone LIKE ?';
+        $params[] = $filters['phone'] . '%';
+    }
+    if (($filters['from'] ?? '') !== '') {
+        $where[] = 'created_at >= ?';
+        $params[] = $filters['from'] . ' 00:00:00';
+    }
+    if (($filters['to'] ?? '') !== '') {
+        $where[] = 'created_at < DATE_ADD(?, INTERVAL 1 DAY)';
+        $params[] = $filters['to'] . ' 00:00:00';
+    }
+    if (($filters['event'] ?? '') !== '') {
+        $where[] = 'event_type = ?';
+        $params[] = $filters['event'];
+    }
+    $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+    $count = $pdo->prepare('SELECT COUNT(*) FROM app_sms_messages' . $whereSql);
+    $count->execute($params);
+    $total = (int)$count->fetchColumn();
+    $pageCount = max(1, (int)ceil($total / $pageSize));
+    $page = min($page, $pageCount);
+    $offset = ($page - 1) * $pageSize;
+    $statement = $pdo->prepare("SELECT id, booking_id, event_type, phone, salon, booking_date, booking_time, message, scheduled_for, status, attempts, max_attempts, last_error, sent_at, created_at FROM app_sms_messages{$whereSql} ORDER BY id DESC LIMIT {$pageSize} OFFSET {$offset}");
+    $statement->execute($params);
+    return [
+        'items' => $statement->fetchAll(),
+        'pagination' => ['page' => $page, 'pageSize' => $pageSize, 'pageCount' => $pageCount, 'total' => $total],
+        'filters' => $filters,
+    ];
 }
 
 if ($method === 'GET') {
+    $view = trim((string)($_GET['view'] ?? 'settings'));
+    if ($view === 'history') {
+        $history = sms_history($pdo, (int)($_GET['page'] ?? 1), sms_history_filters());
+        json_response(['ok' => true, 'history' => $history['items'], 'pagination' => $history['pagination'], 'filters' => $history['filters']]);
+    }
     json_response([
         'ok' => true,
         'settings' => sms_public_settings(sms_load_settings($pdo)),
-        'history' => sms_history($pdo),
         'timezone' => SMS_TIMEZONE,
         'firstCheckHour' => SMS_FIRST_CHECK_HOUR,
     ]);
@@ -114,7 +163,7 @@ if ($action === 'test') {
     $id = sms_enqueue_row($pdo, 'test:' . bin2hex(random_bytes(16)), 'test', $booking, 'Халгай SMS холболтын туршилт амжилттай.', $now);
     $result = $id ? sms_dispatch_message($pdo, $id) : ['ok' => false, 'error' => 'Туршилтын SMS үүссэнгүй.'];
     if (($result['ok'] ?? false) !== true) json_response(['ok' => false, 'message' => (string)($result['error'] ?? $result['message'] ?? 'SMS илгээгдсэнгүй.')], 502);
-    json_response(['ok' => true, 'message' => 'Туршилтын SMS амжилттай илгээгдлээ.', 'history' => sms_history($pdo)]);
+    json_response(['ok' => true, 'message' => 'Туршилтын SMS амжилттай илгээгдлээ.']);
 }
 
 if ($action === 'retry') {
@@ -124,7 +173,7 @@ if ($action === 'retry') {
     $reset->execute([(new DateTimeImmutable('now', new DateTimeZone(SMS_TIMEZONE)))->format('Y-m-d H:i:s'), $id]);
     if ($reset->rowCount() < 1) json_response(['ok' => false, 'message' => 'Дахин илгээх боломжгүй төлөвтэй байна.'], 409);
     $result = sms_dispatch_message($pdo, $id);
-    json_response(['ok' => (bool)($result['ok'] ?? false), 'message' => ($result['ok'] ?? false) ? 'SMS амжилттай илгээгдлээ.' : (string)($result['error'] ?? 'SMS илгээгдсэнгүй.'), 'history' => sms_history($pdo)], ($result['ok'] ?? false) ? 200 : 502);
+    json_response(['ok' => (bool)($result['ok'] ?? false), 'message' => ($result['ok'] ?? false) ? 'SMS амжилттай илгээгдлээ.' : (string)($result['error'] ?? 'SMS илгээгдсэнгүй.')], ($result['ok'] ?? false) ? 200 : 502);
 }
 
 json_response(['ok' => false, 'message' => 'SMS үйлдэл буруу байна.'], 422);

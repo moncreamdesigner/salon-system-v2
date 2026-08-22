@@ -36,6 +36,11 @@ let bookingMutationInFlight = 0;
 let smsSettingsCache = null;
 let smsHistoryCache = [];
 let smsSettingsLoading = false;
+let smsHistoryLoading = false;
+let smsHistoryLoaded = false;
+let activeSmsTab = "settings";
+let smsHistoryPage = 1;
+let smsHistoryPagination = { page: 1, pageSize: 100, pageCount: 1, total: 0 };
 let localStateMutationVersion = 0;
 let localStateSaveTimer = null;
 let saveContextView = "";
@@ -4190,12 +4195,13 @@ function renderSmsSettings() {
     status.textContent = active ? "Идэвхтэй" : (settings.tokenConfigured || settings.apiUrl ? "Идэвхгүй" : "Тохируулаагүй");
     status.classList.toggle("is-active", active);
   }
-  renderSmsHistory();
 }
 
 function renderSmsHistory() {
   const rows = document.getElementById("smsHistoryRows");
   const empty = document.getElementById("smsHistoryEmpty");
+  const pagination = document.getElementById("smsHistoryPagination");
+  const summary = document.getElementById("smsHistorySummary");
   if (!rows) return;
   rows.innerHTML = smsHistoryCache.map(item => {
     const status = String(item.status || "pending");
@@ -4211,9 +4217,76 @@ function renderSmsHistory() {
     </tr>`;
   }).join("");
   empty?.classList.toggle("hidden", smsHistoryCache.length > 0);
+  if (summary) summary.textContent = `Нийт ${Number(smsHistoryPagination.total || 0).toLocaleString("en-US")} илгээлт · Нэг хуудсанд 100`;
+  if (pagination) {
+    const page = Math.max(1, Number(smsHistoryPagination.page || 1));
+    const pageCount = Math.max(1, Number(smsHistoryPagination.pageCount || 1));
+    pagination.innerHTML = Number(smsHistoryPagination.total || 0) > Number(smsHistoryPagination.pageSize || 100) ? `
+      <button class="secondary-btn" type="button" id="smsHistoryPrev" ${page <= 1 ? "disabled" : ""}>Өмнөх</button>
+      <span>${page} / ${pageCount}</span>
+      <button class="secondary-btn" type="button" id="smsHistoryNext" ${page >= pageCount ? "disabled" : ""}>Дараах</button>
+    ` : "";
+    document.getElementById("smsHistoryPrev")?.addEventListener("click", () => {
+      smsHistoryPage = Math.max(1, page - 1);
+      loadSmsHistory();
+    });
+    document.getElementById("smsHistoryNext")?.addEventListener("click", () => {
+      smsHistoryPage = Math.min(pageCount, page + 1);
+      loadSmsHistory();
+    });
+  }
   rows.querySelectorAll(".sms-retry-button").forEach(button => {
     button.addEventListener("click", () => retrySmsMessage(Number(button.dataset.id || 0)));
   });
+}
+
+function smsHistoryFilterValues() {
+  return {
+    phone: formValue("smsHistoryPhone").replace(/\D/g, "").slice(0, 8),
+    from: formValue("smsHistoryFrom"),
+    to: formValue("smsHistoryTo"),
+    event: formValue("smsHistoryEvent")
+  };
+}
+
+function setSmsTab(name = "settings") {
+  activeSmsTab = name === "history" ? "history" : "settings";
+  document.querySelectorAll(".sms-section-tab").forEach(button => {
+    const active = button.dataset.smsTab === activeSmsTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.getElementById("smsSettingsTabPanel")?.classList.toggle("hidden", activeSmsTab !== "settings");
+  document.getElementById("smsHistoryTabPanel")?.classList.toggle("hidden", activeSmsTab !== "history");
+  if (activeView === "settingsSms") renderInfoHeader("settingsSms");
+  if (activeSmsTab === "history") loadSmsHistory({ silent: smsHistoryCache.length > 0 });
+}
+
+async function loadSmsHistory({ silent = false } = {}) {
+  if (!isAdminAccount() || smsHistoryLoading) return;
+  const filters = smsHistoryFilterValues();
+  if (filters.from && filters.to && filters.from > filters.to) {
+    if (!silent) showToast("Эхлэх огноо дуусах огнооноос хойш байж болохгүй", "error");
+    return;
+  }
+  smsHistoryLoading = true;
+  try {
+    const query = new URLSearchParams({ view: "history", page: String(smsHistoryPage) });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    const result = await serverApi(`sms-settings.php?${query.toString()}`);
+    smsHistoryCache = Array.isArray(result.history) ? result.history : [];
+    smsHistoryPagination = result.pagination || { page: 1, pageSize: 100, pageCount: 1, total: smsHistoryCache.length };
+    smsHistoryLoaded = true;
+    smsHistoryPage = Number(smsHistoryPagination.page || 1);
+    renderSmsHistory();
+    if (activeView === "settingsSms") renderInfoHeader("settingsSms");
+  } catch (error) {
+    if (!silent) showToast(error.message || "SMS түүх ачаалсангүй", "error");
+  } finally {
+    smsHistoryLoading = false;
+  }
 }
 
 async function loadSmsSettings({ silent = false } = {}) {
@@ -4222,8 +4295,8 @@ async function loadSmsSettings({ silent = false } = {}) {
   try {
     const result = await serverApi("sms-settings.php");
     smsSettingsCache = result.settings || null;
-    smsHistoryCache = Array.isArray(result.history) ? result.history : [];
     renderSmsSettings();
+    setSmsTab(activeSmsTab);
     if (activeView === "settingsSms") renderInfoHeader("settingsSms");
   } catch (error) {
     if (!silent) showToast(error.message || "SMS тохиргоо ачаалсангүй", "error");
@@ -4286,8 +4359,6 @@ async function sendTestSms() {
   if (button) button.disabled = true;
   try {
     const result = await serverApi("sms-settings.php", { method: "POST", body: JSON.stringify({ action: "test", phone, code }) });
-    smsHistoryCache = Array.isArray(result.history) ? result.history : smsHistoryCache;
-    renderSmsHistory();
     showToast(result.message || "Туршилтын SMS илгээгдлээ");
   } catch (error) {
     showToast(error.message || "Туршилтын SMS илгээгдсэнгүй", "error");
@@ -4301,9 +4372,8 @@ async function retrySmsMessage(id) {
   if (!code) return;
   try {
     const result = await serverApi("sms-settings.php", { method: "POST", body: JSON.stringify({ action: "retry", id, code }) });
-    smsHistoryCache = Array.isArray(result.history) ? result.history : smsHistoryCache;
-    renderSmsHistory();
     showToast(result.message || "SMS дахин илгээгдлээ");
+    await loadSmsHistory({ silent: true });
   } catch (error) {
     showToast(error.message || "SMS дахин илгээгдсэнгүй", "error");
     await loadSmsSettings({ silent: true });
@@ -5520,8 +5590,8 @@ function infoForView(name) {
     ]],
     settingsSms: ["SMS ТОХИРГОО", [
       ["Төлөв", smsSettingsCache?.enabled ? "Идэвхтэй" : "Идэвхгүй"],
-      ["Илгээсэн", smsHistoryCache.filter(item => item.status === "sent").length],
-      ["Амжилтгүй", smsHistoryCache.filter(item => ["failed", "permanent_failed"].includes(item.status)).length],
+      ["Хэсэг", activeSmsTab === "history" ? "Илгээсэн түүх" : "Тохиргоо"],
+      ["Түүх", smsHistoryLoaded ? Number(smsHistoryPagination.total || 0).toLocaleString("en-US") : "—"],
       ["Сануулга", `${Number(smsSettingsCache?.reminderHours || 3)} цагийн өмнө`]
     ]],
     settingsCatalog: ["КАТАЛОГИ", [
@@ -17193,7 +17263,26 @@ function bindEvents() {
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);
   document.getElementById("smsSettingsForm")?.addEventListener("submit", saveSmsSettings);
   document.getElementById("smsTestButton")?.addEventListener("click", sendTestSms);
-  document.getElementById("smsHistoryRefresh")?.addEventListener("click", () => loadSmsSettings());
+  document.querySelectorAll(".sms-section-tab").forEach(button => {
+    button.addEventListener("click", () => setSmsTab(button.dataset.smsTab));
+  });
+  document.getElementById("smsHistoryFilterForm")?.addEventListener("submit", event => {
+    event.preventDefault();
+    smsHistoryPage = 1;
+    loadSmsHistory();
+  });
+  document.getElementById("smsHistoryFilterClear")?.addEventListener("click", () => {
+    ["smsHistoryPhone", "smsHistoryFrom", "smsHistoryTo", "smsHistoryEvent"].forEach(id => {
+      const field = document.getElementById(id);
+      if (field) field.value = "";
+    });
+    smsHistoryPage = 1;
+    loadSmsHistory();
+  });
+  document.getElementById("smsHistoryRefresh")?.addEventListener("click", () => loadSmsHistory());
+  document.getElementById("smsHistoryPhone")?.addEventListener("input", event => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
   document.getElementById("smsTestPhone")?.addEventListener("input", event => {
     event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
   });

@@ -82,7 +82,7 @@ function ensure_schema(PDO $pdo): void
     if ($ready) return;
     try {
         $schemaVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'schema_version'")->fetchColumn();
-        if ($schemaVersion >= 6) {
+        if ($schemaVersion >= 7) {
             $ready = true;
             return;
         }
@@ -250,6 +250,21 @@ function ensure_schema(PDO $pdo): void
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '1')");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_hours', '6')");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_policy_version', '0')");
+    $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('sms_history_index_version', '0')");
+    $smsHistoryIndexVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'sms_history_index_version'")->fetchColumn();
+    if ($smsHistoryIndexVersion < 1) {
+        foreach ([
+            'idx_sms_phone_created' => '(phone, created_at)',
+            'idx_sms_event_created' => '(event_type, created_at)',
+        ] as $indexName => $columns) {
+            try {
+                $pdo->exec("ALTER TABLE app_sms_messages ADD INDEX {$indexName} {$columns}");
+            } catch (PDOException $error) {
+                if ((int)($error->errorInfo[1] ?? 0) !== 1061) throw $error;
+            }
+        }
+        $pdo->exec("UPDATE app_meta SET meta_value = '1' WHERE meta_key = 'sms_history_index_version'");
+    }
     $backupPolicyVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'backup_policy_version'")->fetchColumn();
     if ($backupPolicyVersion < 2) {
         $pdo->exec("UPDATE app_meta SET meta_value = '1' WHERE meta_key = 'backup_interval_days'");
@@ -259,7 +274,7 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec("UPDATE app_meta SET meta_value = '6' WHERE meta_key = 'backup_interval_hours'");
         $pdo->exec("UPDATE app_meta SET meta_value = '3' WHERE meta_key = 'backup_policy_version'");
     }
-    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '6') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
+    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '7') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
     $ready = true;
 }
 

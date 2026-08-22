@@ -16,7 +16,7 @@ test("SMS configuration and outbox are server-owned and recoverable", () => {
   assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS app_sms_settings/);
   assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS app_sms_messages/);
   assert.match(bootstrap, /dedupe_key VARCHAR\(190\) NOT NULL UNIQUE/);
-  assert.match(bootstrap, /'schema_version', '6'/);
+  assert.match(bootstrap, /'schema_version', '7'/);
   assert.match(fullBackups, /'app_sms_settings'/);
   assert.match(fullBackups, /'app_sms_messages'/);
 });
@@ -37,6 +37,21 @@ test("all booking lifecycle events have independent controls and templates", () 
   assert.match(html, /id="smsApiUrl"/);
   assert.match(html, /id="smsToken"[^>]+type="password"/);
   assert.match(html, /id="smsHistoryRows"/);
+});
+
+test("SMS history is isolated, server-paginated and searchable", () => {
+  assert.match(html, /data-sms-tab="history"/);
+  for (const id of ["smsHistoryPhone", "smsHistoryFrom", "smsHistoryTo", "smsHistoryEvent", "smsHistoryPagination"]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(settingsApi, /\$pageSize = 100/);
+  assert.match(settingsApi, /SELECT COUNT\(\*\) FROM app_sms_messages/);
+  assert.match(settingsApi, /LIMIT \{\$pageSize\} OFFSET \{\$offset\}/);
+  assert.match(settingsApi, /created_at >= \?/);
+  assert.match(settingsApi, /event_type = \?/);
+  assert.match(bootstrap, /idx_sms_phone_created/);
+  assert.match(bootstrap, /idx_sms_event_created/);
+  assert.match(app, /new URLSearchParams\(\{ view: "history", page:/);
 });
 
 test("booking persistence is isolated from SMS provider failures", () => {
