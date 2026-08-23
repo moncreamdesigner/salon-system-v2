@@ -32,8 +32,8 @@ assert.match(
 );
 assert.match(
   appSource,
-  /discardPendingMutationsThrough\(savingMutationVersion\);[\s\S]+?const remote = await serverApi\("state\.php"\)/,
-  "A rejected locked operation must be removed from the retry queue and replaced with server state"
+  /discardPendingMutationsThrough\(savingMutationVersion\);[\s\S]+?await reloadServerConflictSections\(savingSections\)/,
+  "A rejected locked operation must be removed from the retry queue and replaced with scoped server state"
 );
 
 console.log("operational-lock-settings.test: OK");

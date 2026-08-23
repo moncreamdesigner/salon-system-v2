@@ -417,15 +417,20 @@ function service_core_for_lock(array $service): array
 function assert_sections_readable_by_user(array $keys, array $user): void
 {
     if (($user['role'] ?? '') !== 'salon') return;
-    // These sections belong to global administration. Hiding their menus in
-    // the browser is not an authorization boundary, so reject direct API
-    // requests as well.
-    $adminOnly = [
-        'audit',
-        'homepageSettings',
-        'performanceStatementHistory',
+    // A missing section list used to mean "load everything". Never allow a
+    // branch account to use that legacy path; branch reads are allowlisted.
+    if ($keys === []) {
+        json_response(['ok' => false, 'message' => 'Салбарын эрхээр бүх мэдээллийг нэг дор татах боломжгүй.'], 403);
+    }
+    $allowed = [
+        'customers', 'customerGroups', 'bookings', 'kassSchedules', 'services',
+        'holidays', 'assignments', 'staff', 'voucherLogs',
+        'performanceStatements', 'performanceAdjustments', 'salons',
+        'generalSettings', 'pricePolicy', 'discounts', 'voucherRoles', 'catalog',
+        '_serviceSettings', 'diagnosisTypes', 'customerTypes',
+        'customerTypeRules', 'giftCards',
     ];
-    $blocked = array_values(array_intersect($keys, $adminOnly));
+    $blocked = array_values(array_diff($keys, $allowed));
     if ($blocked !== []) {
         json_response(['ok' => false, 'message' => 'Энэ мэдээллийг харах эрхгүй байна.'], 403);
     }

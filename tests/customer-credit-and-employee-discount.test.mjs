@@ -85,6 +85,13 @@ test("deleted services do not leave credit ledger history behind", () => {
   assert.match(appSource, /function reverseCustomerCreditPayment[\s\S]+?String\(entry\.targetServiceId \|\| ""\) === historyId/);
 });
 
+test("service deletion replays every dependent ledger after a revision conflict", () => {
+  assert.match(appSource, /kind:\s*"reversal"/);
+  assert.match(appSource, /registerPendingGiftCardMutation\(\{ type: "update", item: giftCardAfter, before: giftCardBefore \}\)/);
+  assert.match(appSource, /saveAndRefreshCustomerProfile\("Үйлчилгээ устлаа", \{ groupIds: affectedGroupIds \}\)/);
+  assert.match(appSource, /const voucherLogId = String\(mutation\.voucherLogId[\s\S]*targetState\.voucherLogs/);
+});
+
 test("non-admin accounts cannot create or convert branch customer types", () => {
   assert.match(appSource, /type !== "Салбар" \|\| isAdminAccount\(\)/);
   assert.match(apiSource, /function assert_branch_customer_type_permissions/);

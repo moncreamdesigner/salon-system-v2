@@ -60,4 +60,11 @@ assert.match(refresher, /serverViewRefreshPromises\.get\(viewName\)/, "Each view
 assert.match(refresher, /requestedSections\.some\(key => pendingSections\.includes\(key\)\)/, "Only refreshes with overlapping data sections are serialized");
 assert.doesNotMatch(refresher, /serverRefreshPromise/, "A slow unrelated view must not serialize every refresh");
 
+const saver = app.slice(
+  app.indexOf("async function reloadServerConflictSections("),
+  app.indexOf("function auditNowText(")
+);
+assert.match(saver, /state\.php\?sections=/, "Conflict recovery must request only scoped sections");
+assert.doesNotMatch(saver, /serverApi\("state\.php"\)/, "Conflict recovery must never download the full state");
+
 console.log("scoped-state-loading.test: OK");

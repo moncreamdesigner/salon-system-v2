@@ -7,10 +7,12 @@ const revenueApi = fs.readFileSync(new URL("../api/revenue-list.php", import.met
 const voucherApi = fs.readFileSync(new URL("../api/voucher-list.php", import.meta.url), "utf8");
 const groupSummaryApi = fs.readFileSync(new URL("../api/group-summary.php", import.meta.url), "utf8");
 const giftCardApi = fs.readFileSync(new URL("../api/gift-card-list.php", import.meta.url), "utf8");
+const customerDetailApi = fs.readFileSync(new URL("../api/customer-detail.php", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
 assert.match(stateApi, /assert_sections_readable_by_user\(\$requestedSections, \$user\)/, "State reads must enforce role permissions on the server");
-assert.match(stateApi, /'audit'.*'homepageSettings'.*'performanceStatementHistory'/s, "Branch accounts must not read global admin sections");
+assert.match(stateApi, /if \(\$keys === \[\]\)[\s\S]*бүх мэдээллийг нэг дор татах боломжгүй/, "Branch accounts must never use the legacy full-state read");
+assert.match(stateApi, /\$allowed = \[[\s\S]*'giftCards'/, "Branch state reads must use a positive section allowlist");
 assert.match(stateApi, /\$copy\['serviceHistory'\] = \$scopedHistory/, "Branch report payloads must strip other branches' customer history");
 assert.match(stateApi, /'voucherLogs'.*'performanceStatements'/s, "Branch payloads must scope voucher and performance rows on the server");
 assert.match(smsApi, /\$user = require_admin\(\)/, "SMS settings and history must be admin-only");
@@ -21,6 +23,8 @@ assert.match(voucherApi, /\$pageSize = min\(100, max\(10,/, "Voucher history mus
 assert.match(voucherApi, /\(\$user\['role'\] \?\? ''\) === 'salon'/, "Voucher history must enforce salon scope on the server");
 assert.match(groupSummaryApi, /require_admin\(\)/, "Group summary must remain admin-only");
 assert.match(giftCardApi, /\$pageSize = min\(100, max\(10,/, "Gift cards must be server-paginated");
+assert.match(giftCardApi, /\$user\['role'\].*=== 'salon'/s, "Branch accounts must not browse the global gift-card directory");
+assert.match(customerDetailApi, /\$registeredSalon !== \$salon.*\$queueSalon !== \$salon.*!\$hasSalonHistory/s, "Customer detail must enforce branch relationship on the server");
 assert.match(app, /revenue-list\.php\?/, "Revenue UI must use the server-side filtered endpoint");
 assert.match(app, /voucher-list\.php\?/, "Voucher history UI must use the server-side filtered endpoint");
 assert.match(app, /vouchers: \["voucherRoles"\]/, "Opening vouchers must not download every historical voucher row");

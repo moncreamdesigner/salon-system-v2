@@ -1647,6 +1647,17 @@ function applyPendingPaymentMutations(targetState) {
   if (!targetState || !pendingPaymentMutations.size) return false;
   let changed = false;
   pendingPaymentMutations.forEach(mutation => {
+    if (mutation.kind === "reversal") {
+      const paymentId = String(mutation.paymentId || "");
+      const voucherLogId = String(mutation.voucherLogId || "");
+      const beforeCount = Array.isArray(targetState.voucherLogs) ? targetState.voucherLogs.length : 0;
+      targetState.voucherLogs = (Array.isArray(targetState.voucherLogs) ? targetState.voucherLogs : []).filter(log =>
+        !(paymentId && String(log.paymentId || "") === paymentId) &&
+        !(voucherLogId && String(log.id || "") === voucherLogId)
+      );
+      if (targetState.voucherLogs.length !== beforeCount) changed = true;
+      return;
+    }
     const targetCustomer = (targetState.customers || []).find(customer => Number(customer.id) === Number(mutation.customerId));
     if (!targetCustomer) return;
     const historyItem = pendingHistoryItem(targetCustomer, mutation);
@@ -1874,6 +1885,20 @@ function showServerProtectionNotice(message = "Мэдээллийг хамгаа
   overlay.querySelector("button")?.focus();
 }
 
+async function reloadServerConflictSections(sectionKeys = [], viewName = activeView) {
+  const viewSections = serverSectionsForView(viewName) || [];
+  const keys = Array.from(new Set([...sectionKeys, ...viewSections]))
+    .filter(key => key && key !== "bookings");
+  if (!keys.length) throw new Error("Conflict reload section тодорхойгүй байна.");
+  const remote = await serverApi(`state.php?sections=${encodeURIComponent(keys.join(","))}`);
+  serverStorageRevision = Number(remote.revision || serverStorageRevision);
+  serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
+  applyServerSectionRevisions(remote.sectionRevisions || {});
+  keys.forEach(key => loadedServerSections.add(key));
+  applyServerData(remote.data || {}, { partial: true });
+  return remote;
+}
+
 async function saveServerStateNow() {
   if (!serverStorageReady) return;
   if (!pendingServerSections.size) return;
@@ -1995,11 +2020,7 @@ async function saveServerStateNow() {
       discardPendingMutationsThrough(savingMutationVersion);
       clearPendingServerOperation(savingOperationId);
       try {
-        const remote = await serverApi("state.php");
-        serverStorageRevision = Number(remote.revision || serverStorageRevision);
-        serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
-        applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
-        applyServerData(remote.data || {});
+        await reloadServerConflictSections(savingSections);
         renderActiveView(activeView, { force: true });
       } catch (reloadError) {
         console.warn("Protected state reload failed", reloadError);
@@ -2024,11 +2045,7 @@ async function saveServerStateNow() {
       discardPendingMutationsThrough(savingMutationVersion);
       clearPendingServerOperation(savingOperationId);
       try {
-        const remote = await serverApi("state.php");
-        serverStorageRevision = Number(remote.revision || serverStorageRevision);
-        serverScopeRevision = Number(remote.scopeRevision || serverScopeRevision);
-        applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
-        applyServerData(remote.data || {});
+        await reloadServerConflictSections(savingSections);
         renderActiveView(activeView, { force: true });
       } catch (reloadError) {
         console.warn("Duplicate phone state reload failed", reloadError);
@@ -2040,19 +2057,14 @@ async function saveServerStateNow() {
     if (error.status === 409 && error.payload?.conflict) {
       try {
         showServerSyncOverlay();
-        const remote = await serverApi("state.php");
+        const remote = await reloadServerConflictSections(savingSections);
         const unsafeReplayCount = discardUnsafeCustomerReplays(remote.data || {}, savingMutationVersion);
-        serverStorageRevision = Number(remote.revision || 0);
-        serverScopeRevision = Number(remote.scopeRevision || 0);
-        applyServerSectionRevisions(remote.sectionRevisions || {}, { replace: true });
-        applyServerData(remote.data || {});
         if (error.payload?.dangerousChange) {
           savingSections.forEach(key => {
             if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
           });
           discardPendingMutationsThrough(savingMutationVersion);
           clearPendingServerOperation(savingOperationId);
-          applyServerData(remote.data || {});
           renderActiveView(activeView, { force: true });
           showServerProtectionNotice(error.payload.message || "Олон мэдээлэл хасагдах өөрчлөлтийг хамгаалж зогсоолоо.");
           return;
@@ -13862,6 +13874,7 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
       ].filter(value => typeof value === "string" && value.includes("api/media.php"))
     : [];
   const group = customerGroup(customer);
+  const affectedGroupIds = group?.id ? [group.id] : [];
   const queueDate = customer.dailyQueueDate || todayText();
   const queueSalon = dailyQueueSalon(customer) || historyItem.salon || "";
   const deletedQueueTreatment = dailyQueueTreatmentFromHistory(customer, queueDate, queueSalon) || {
@@ -13876,8 +13889,24 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
   (historyItem.payments || []).forEach(payment => {
     if (payment.id) pendingPaymentMutations.delete(String(payment.id));
     reverseGroupPayment(payment, group);
+    const giftCardBefore = payment?.method === "gift_card"
+      ? structuredClone(findGiftCard(payment.referenceLabel || payment.giftCardNumber || ""))
+      : null;
     reverseGiftCardPayment(payment, customer, historyItem);
+    if (giftCardBefore) {
+      const giftCardAfter = findGiftCard(giftCardBefore.cardNumber || "");
+      if (giftCardAfter) registerPendingGiftCardMutation({ type: "update", item: giftCardAfter, before: giftCardBefore });
+    }
     reverseVoucherPayment(payment, customer, historyItem);
+    if (payment?.method === "voucher") {
+      registerPendingPaymentMutation({
+        id: `reversal-${payment.id || entityId("payment")}`,
+        kind: "reversal",
+        mutationVersion: localStateMutationVersion + 1,
+        paymentId: payment.id || "",
+        voucherLogId: payment.voucherLogId || ""
+      });
+    }
     reverseCustomerCreditPayment(payment, customer, historyItem);
     state.audit.unshift({
       title: "payment_reversed",
@@ -13916,7 +13945,7 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • гүйцэтгэлээс давхар хасна`
   });
   queueMediaTrashAfterSave(diagnosisImages);
-  saveAndRefreshCustomerProfile("Үйлчилгээ устлаа");
+  saveAndRefreshCustomerProfile("Үйлчилгээ устлаа", { groupIds: affectedGroupIds });
 }
 
 function saveAndRefreshCustomerProfile(message, { customerIds = [], groupIds = [], auditEntries = [] } = {}) {
