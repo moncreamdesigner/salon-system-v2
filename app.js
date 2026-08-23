@@ -3222,6 +3222,14 @@ async function loadPerformanceAnalyticsSource(month = "", salon = "", from = "",
   try {
     const result = await serverApi(`analytics-source.php?${params.toString()}`);
     if (requestSequence !== performanceAnalyticsRequestSequence) return;
+    const availableMonths = Array.isArray(result.months) ? result.months : [];
+    const latestDataMonth = !explicitRange && availableMonths.length && !availableMonths.includes(requestedMonth)
+      ? availableMonths[0]
+      : "";
+    if (latestDataMonth && latestDataMonth !== requestedMonth) {
+      performanceAnalyticsLoadingKey = "";
+      return loadPerformanceAnalyticsSource(latestDataMonth, effectiveSalon);
+    }
     performanceAnalyticsSource = {
       ...structuredClone(defaultState),
       ...state,
@@ -3230,7 +3238,7 @@ async function loadPerformanceAnalyticsSource(month = "", salon = "", from = "",
       requestedMonth,
       revisions: result.sectionRevisions || {}
     };
-    performanceAnalyticsMonths = Array.isArray(result.months) ? result.months : [];
+    performanceAnalyticsMonths = availableMonths;
     invalidatePerformanceData();
   } finally {
     if (requestSequence === performanceAnalyticsRequestSequence) performanceAnalyticsLoadingKey = "";
@@ -8870,6 +8878,10 @@ async function saveInlineCustomer(event) {
   }
   const customerId = uniqueNumericId(state.customers);
   const ageValue = formValue("inlineCustomerAge");
+  if (!/^\d{1,3}$/.test(ageValue) || Number(ageValue) < 1 || Number(ageValue) > 120) {
+    showToast("Насыг 1–120 хооронд оруулна уу", "error");
+    return;
+  }
   const birthYear = birthYearFromAge(ageValue);
   const newCustomer = {
     id: customerId,
@@ -10815,7 +10827,7 @@ function paymentMethodOptionsLabel(value = "") {
   return labels[normalizedValue] || "";
 }
 
-function paymentMethodOptions(selected = "card", { allowCreditTransfer = false, creditBalance = 0 } = {}) {
+function paymentMethodOptions(selected = "card", { allowCreditTransfer = false, allowSalary = false, creditBalance = 0 } = {}) {
   const methods = [
     ["card", "Карт"],
     ["qpay", "QPay"],
@@ -10824,7 +10836,7 @@ function paymentMethodOptions(selected = "card", { allowCreditTransfer = false, 
     ["loan_app", "Зээлийн апп"],
     ["voucher", "Ваучер"],
     ["gift_card", "Бэлгийн карт"],
-    ["salary", "Цалингаас суутгах"],
+    ...(allowSalary ? [["salary", "Цалингаас суутгах"]] : []),
     ...(creditBalance > 0 ? [["customer_credit", `Шилжүүлсэн үлдэгдлээс · ${money(creditBalance)}`]] : []),
     ...(allowCreditTransfer ? [["credit_transfer", "Шилжүүлэх / хаах"]] : [])
   ];
@@ -10901,7 +10913,8 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const selectedMethod = "card";
   const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
   const transferInfo = courseTransferInfo(item);
-  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && !item.transferClosed;
+  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && transferInfo.paid > 0 && transferInfo.available > 0 && !item.transferClosed;
+  const allowSalary = customer?.type === "Ажилтан";
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
       <div class="inline-payment-grid">
@@ -10921,7 +10934,7 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
           <input class="input inline-payment-date" type="date" value="${todayText()}" required>
         </label>
         <label class="inline-payment-method-field">Төлбөрийн арга
-          <select class="input inline-payment-method">${paymentMethodOptions(selectedMethod, { allowCreditTransfer, creditBalance })}</select>
+          <select class="input inline-payment-method">${paymentMethodOptions(selectedMethod, { allowCreditTransfer, allowSalary, creditBalance })}</select>
         </label>
         <button class="primary-btn inline-payment-submit" type="submit" ${amount <= 0 && !allowCreditTransfer ? "disabled" : ""}>Хадгалах</button>
       </div>
@@ -13577,10 +13590,14 @@ function bindInlinePaymentForms(customer) {
       historyItem.id = historyItem.id || entityId("svc");
       const methodSelect = form.querySelector(".inline-payment-method");
       const selectedMethodValue = methodSelect?.value || "";
+      if (selectedMethodValue === "salary" && customer?.type !== "Ажилтан") {
+        showToast("Цалингаас суутгах аргыг зөвхөн ажилтан хэрэглэнэ", "error");
+        return;
+      }
       if (selectedMethodValue === "credit_transfer") {
         const transfer = courseTransferInfo(historyItem);
         const reason = form.querySelector(".inline-credit-transfer-reason")?.value?.trim() || "";
-        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.unusedVisits <= 0) {
+        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.unusedVisits <= 0 || transfer.paid <= 0 || transfer.available <= 0) {
           showToast("Хаах ашиглаагүй оролт алга", "error");
           return;
         }
@@ -17341,7 +17358,7 @@ function openCustomerModal() {
           <input id="modalCustomerPhone" class="input" required inputmode="numeric" maxlength="8" minlength="8" placeholder="99112233">
         </label>
         <label>Нас
-          <input id="modalCustomerAge" class="input" required type="number" min="1" max="120" placeholder="32">
+          <input id="modalCustomerAge" class="input" required type="text" inputmode="numeric" pattern="[0-9]{1,3}" maxlength="3" placeholder="32">
         </label>
         <label>Хүйс
           <select id="modalCustomerGender" class="input" required>
@@ -17377,6 +17394,9 @@ function openCustomerModal() {
     `,
     () => {
       document.getElementById("cancelModal").addEventListener("click", closeModal);
+      document.getElementById("modalCustomerAge")?.addEventListener("input", event => {
+        event.target.value = event.target.value.replace(/\D/g, "").slice(0, 3);
+      });
       document.getElementById("modalCustomerType").addEventListener("change", event => {
         document.getElementById("modalCustomerBonus").value = `${customerTypeRule(event.target.value).bonusPercent}%`;
       });
@@ -17401,6 +17421,10 @@ function openCustomerModal() {
           return;
         }
         const ageValue = formValue("modalCustomerAge");
+        if (!/^\d{1,3}$/.test(ageValue) || Number(ageValue) < 1 || Number(ageValue) > 120) {
+          showToast("Насыг 1–120 хооронд оруулна уу", "error");
+          return;
+        }
         const birthYear = birthYearFromAge(ageValue);
         const newCustomer = {
           id: customerId,
@@ -18952,6 +18976,9 @@ function bindEvents() {
     openCustomerModal();
   });
   document.getElementById("customerInlineForm")?.addEventListener("submit", saveInlineCustomer);
+  document.getElementById("inlineCustomerAge")?.addEventListener("input", event => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 3);
+  });
   document.getElementById("inlineCustomerType")?.addEventListener("change", event => {
     syncNativeSelectProxy(event.target);
   });

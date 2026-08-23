@@ -166,7 +166,7 @@ if (($user['role'] ?? '') === 'salon') {
     $source['salons'] = array_values(array_filter((array)$source['salons'], static fn($item): bool => is_array($item) && trim((string)($item['name'] ?? '')) === $salon));
 }
 
-$availableMonths = [$today->format('Y-m') => true];
+$availableMonths = $mode === 'dashboard' ? [$today->format('Y-m') => true] : [];
 $voucherLogIds = [];
 $compactCustomers = [];
 foreach ((array)$source['customers'] as $customer) {
@@ -174,9 +174,9 @@ foreach ((array)$source['customers'] as $customer) {
     $history = [];
     foreach ((is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : []) as $item) {
         if (!is_array($item)) continue;
-        analytics_months_from_service($item, $availableMonths);
         $itemSalon = trim((string)($item['salon'] ?? $item['branch'] ?? $customer['salon'] ?? ''));
         if ($salon !== '' && $itemSalon !== $salon) continue;
+        if (empty($item['deleted'])) analytics_months_from_service($item, $availableMonths);
         if (!analytics_service_relevant($item, $from, $to)) continue;
         foreach ((is_array($item['payments'] ?? null) ? $item['payments'] : []) as $payment) {
             if (is_array($payment) && trim((string)($payment['voucherLogId'] ?? '')) !== '') {
@@ -186,7 +186,7 @@ foreach ((array)$source['customers'] as $customer) {
         $history[] = $item;
     }
     $registeredDate = analytics_event_date($customer);
-    if ($registeredDate !== '') $availableMonths[substr($registeredDate, 0, 7)] = true;
+    if ($mode === 'dashboard' && $registeredDate !== '') $availableMonths[substr($registeredDate, 0, 7)] = true;
     $customerSalon = trim((string)($customer['registeredSalon'] ?? $customer['salon'] ?? ''));
     $registeredRelevant = analytics_in_range($registeredDate, $from, $to) && ($salon === '' || $customerSalon === $salon);
     $includeCompact = $mode === 'dashboard' && ($registeredRelevant || $history !== []);
@@ -195,19 +195,21 @@ foreach ((array)$source['customers'] as $customer) {
 }
 $source['customers'] = $compactCustomers;
 
-$source['bookings'] = array_values(array_filter((array)$source['bookings'], static function ($item) use ($from, $to, $salon, &$availableMonths): bool {
+$source['bookings'] = array_values(array_filter((array)$source['bookings'], static function ($item) use ($from, $to, $salon, $mode, &$availableMonths): bool {
     if (!is_array($item)) return false;
     $date = analytics_event_date($item);
-    if ($date !== '') $availableMonths[substr($date, 0, 7)] = true;
+    if ($mode === 'dashboard' && $date !== '') $availableMonths[substr($date, 0, 7)] = true;
     return analytics_in_range($date, $from, $to) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon);
 }));
 $source['services'] = array_values(array_filter((array)$source['services'], static function ($item) use ($from, $to, $salon): bool {
     if (!is_array($item)) return false;
     return analytics_in_range(analytics_event_date($item), $from, $to) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon);
 }));
-$source['kassSchedules'] = array_values(array_filter((array)$source['kassSchedules'], static function ($item) use ($from, $to, $salon): bool {
+$source['kassSchedules'] = array_values(array_filter((array)$source['kassSchedules'], static function ($item) use ($from, $to, $salon, &$availableMonths): bool {
     if (!is_array($item)) return false;
-    return analytics_in_range(analytics_event_date($item), $from, $to) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon);
+    $date = analytics_event_date($item);
+    if (($salon === '' || trim((string)($item['salon'] ?? '')) === $salon) && $date !== '') $availableMonths[substr($date, 0, 7)] = true;
+    return analytics_in_range($date, $from, $to) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon);
 }));
 $source['assignments'] = array_values(array_filter((array)$source['assignments'], static function ($item) use ($from, $to, $salon): bool {
     if (!is_array($item)) return false;
@@ -250,6 +252,18 @@ $source['staff'] = array_values(array_filter((array)$source['staff'], static fun
     return isset($referencedStaffIds[trim((string)($item['id'] ?? ''))]) || isset($referencedStaffNames[trim((string)($item['name'] ?? ''))]);
 }));
 $source['voucherLogs'] = array_values(array_filter((array)$source['voucherLogs'], static fn($item): bool => is_array($item) && isset($voucherLogIds[(string)($item['id'] ?? '')])));
+foreach ((array)$source['performanceStatements'] as $item) {
+    if (!is_array($item)) continue;
+    $itemSalon = trim((string)($item['salon'] ?? ''));
+    $month = trim((string)($item['month'] ?? ''));
+    if (($salon === '' || $itemSalon === $salon) && preg_match('/^\d{4}-\d{2}$/', $month) === 1) $availableMonths[$month] = true;
+}
+foreach ((array)$source['performanceAdjustments'] as $item) {
+    if (!is_array($item)) continue;
+    $itemSalon = trim((string)($item['salon'] ?? ''));
+    $date = analytics_event_date($item);
+    if (($salon === '' || $itemSalon === $salon) && $date !== '') $availableMonths[substr($date, 0, 7)] = true;
+}
 $source['performanceStatements'] = array_values(array_map(
     static fn(array $item): array => analytics_compact_statement($item),
     array_values(array_filter((array)$source['performanceStatements'], static fn($item): bool => is_array($item) && trim((string)($item['month'] ?? '')) >= substr($from, 0, 7) && trim((string)($item['month'] ?? '')) <= substr($to, 0, 7) && ($salon === '' || trim((string)($item['salon'] ?? '')) === $salon)))

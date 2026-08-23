@@ -50,7 +50,7 @@ function course({ paid, visits = 4, price = 800000, totalVisits = 8, employeeDis
   };
 }
 
-test("a half-used, half-paid course can close without creating credit", () => {
+test("a half-used, half-paid course has no transferable overpayment", () => {
   const info = context.courseTransferInfo(course({ paid: 400000 }));
   assert.deepEqual(
     { used: info.usedVisits, unused: info.unusedVisits, usedValue: info.usedValue, available: info.available, shortfall: info.shortfall },
@@ -70,12 +70,25 @@ test("a course cannot close while consumed visits have an unpaid shortfall", () 
   assert.equal(info.shortfall, 100000);
 });
 
-test("close flow keeps zero-credit closure out of the customer ledger", () => {
+test("transfer and close is offered only for a paid course with an overpayment", () => {
   assert.match(appSource, /\["credit_transfer", "Шилжүүлэх \/ хаах"\]/);
-  assert.match(appSource, /submitButton\.disabled = transferInfo\.unusedVisits <= 0 \|\| transferInfo\.shortfall > 0/);
+  assert.match(appSource, /allowCreditTransfer = item\.kind === "course" && transferInfo\.unusedVisits > 0 && transferInfo\.paid > 0 && transferInfo\.available > 0/);
+  assert.match(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0 \|\| transfer\.available <= 0/);
   assert.match(appSource, /if \(transfer\.available > 0\) \{[\s\S]*customer\.creditLedger\.unshift\(closureEntry\)/);
-  assert.match(appSource, /historyItem\.courseClosedWithoutTransfer = transfer\.available <= 0;[\s\S]*historyItem\.balance = 0;/);
-  assert.match(appSource, /title: transfer\.available > 0 \? "course_credit_transferred" : "course_closed"/);
+});
+
+test("salary deduction is offered only to employee customers", () => {
+  assert.match(appSource, /allowSalary = customer\?\.type === "Ажилтан"/);
+  assert.match(appSource, /\.\.\.\(allowSalary \? \[\["salary", "Цалингаас суутгах"\]\] : \[\]\)/);
+  assert.match(appSource, /paymentMethodOptions\(selectedMethod, \{ allowCreditTransfer, allowSalary, creditBalance \}\)/);
+  assert.match(appSource, /selectedMethodValue === "salary" && customer\?\.type !== "Ажилтан"/);
+});
+
+test("customer registration age fields are numeric text inputs without spinner controls", () => {
+  const htmlSource = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(htmlSource, /id="inlineCustomerAge"[^>]*type="text"[^>]*inputmode="numeric"[^>]*maxlength="3"/);
+  assert.match(appSource, /id="modalCustomerAge"[^>]*type="text"[^>]*inputmode="numeric"[^>]*maxlength="3"/);
+  assert.match(appSource, /inlineCustomerAge"\)\?\.addEventListener\("input"[\s\S]*replace\(\/\\D\/g, ""\)\.slice\(0, 3\)/);
 });
 
 test("payment and close controls adapt to the profile column instead of viewport width", () => {

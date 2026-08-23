@@ -18,6 +18,13 @@ test("dashboard and performance use a bounded analytics source instead of full s
   assert.doesNotMatch(app, /invalidatePerformanceCaches\(\)/);
 });
 
+test("performance month choices exclude empty booking-only months", () => {
+  assert.match(api, /\$availableMonths = \$mode === 'dashboard' \? \[\$today->format\('Y-m'\) => true\] : \[\]/);
+  assert.match(api, /if \(\$mode === 'dashboard' && \$date !== ''\) \$availableMonths/);
+  assert.match(api, /if \(empty\(\$item\['deleted'\]\)\) analytics_months_from_service/);
+  assert.match(app, /latestDataMonth[\s\S]*return loadPerformanceAnalyticsSource\(latestDataMonth, effectiveSalon\)/);
+});
+
 test("analytics source enforces salon scope on the server", () => {
   assert.match(api, /\(\$user\['role'\] \?\? ''\) === 'salon'/);
   assert.match(api, /\$itemSalon !== \$salon/);
