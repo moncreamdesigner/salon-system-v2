@@ -25,6 +25,11 @@ DirectoryIndex booking.html
 
 RewriteEngine On
 
+# Development tests and internal operational documents stay in Git for
+# maintenance, but must never be served from production public_html.
+RewriteRule ^tests(?:/|$) - [F,L,NC]
+RewriteRule \.md$ - [F,L,NC]
+
 RewriteCond %{REQUEST_URI} \.(html|json)$ [NC]
 RewriteRule .* - [E=Cache-Control:no-cache]
 

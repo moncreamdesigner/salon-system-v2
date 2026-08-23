@@ -29,6 +29,11 @@ test("admin build, assets and server version stay synchronized", () => {
   assert.ok(assetVersions.every(assetVersion => assetVersion === build));
 });
 
+test("production blocks internal tests and operational markdown documents", () => {
+  assert.ok(htaccess.includes("RewriteRule ^tests(?:/|$) - [F,L,NC]"));
+  assert.ok(htaccess.includes("RewriteRule \\.md$ - [F,L,NC]"));
+});
+
 test("initialization loads data once and renders only the selected view", () => {
   const initializer = publicSource.slice(publicSource.indexOf("async function initializePublicApp("));
   assert.equal((initializer.match(/await loadPublicData\(\)/g) || []).length, 1);
