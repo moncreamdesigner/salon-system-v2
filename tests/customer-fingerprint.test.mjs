@@ -72,5 +72,10 @@ assert.match(
   /storedSyncedFingerprint/,
   "A full conflict fingerprint is calculated lazily when that customer is edited"
 );
+assert.match(
+  captureSource,
+  /!replace && !merge/,
+  "An authoritative customer-detail subset must merge fingerprints without dropping other pending profile bases"
+);
 
 console.log("customer-fingerprint.test: OK");

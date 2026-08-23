@@ -1427,13 +1427,13 @@ function markPendingGiftCardSections() {
   pendingServerSections.set("giftCards", Math.max(localStateMutationVersion, ...versions));
 }
 
-function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) {
+function captureSyncedCustomerFingerprints(data = {}, { replace = false, merge = false } = {}) {
   if (replace) {
     lastSyncedCustomerFingerprints.clear();
     lastSyncedGroupFingerprints.clear();
   }
   if (Array.isArray(data.customers)) {
-    if (!replace) lastSyncedCustomerFingerprints.clear();
+    if (!replace && !merge) lastSyncedCustomerFingerprints.clear();
     const snapshots = structuredClone(data.customers);
     snapshots.forEach(customer => {
       if (!customer?.id) return;
@@ -1442,7 +1442,7 @@ function captureSyncedCustomerFingerprints(data = {}, { replace = false } = {}) 
     });
   }
   if (Array.isArray(data.customerGroups)) {
-    if (!replace) lastSyncedGroupFingerprints.clear();
+    if (!replace && !merge) lastSyncedGroupFingerprints.clear();
     const snapshots = structuredClone(data.customerGroups);
     snapshots.forEach(group => {
       if (!group?.id) return;
@@ -12464,6 +12464,17 @@ async function loadProfileDirectory(customerId, { silent = false } = {}) {
         if (groupIndex >= 0) state.customerGroups[groupIndex] = result.group;
         else state.customerGroups.push(result.group);
       }
+      // customer-detail.php returns an authoritative subset instead of the
+      // complete customer sections. Record that subset as the optimistic-lock
+      // base without clearing fingerprints for other pending profiles. Without
+      // this, the first visit/product edit after opening a paged profile is
+      // incorrectly sent with a null base and the server rejects it as if the
+      // customer had been created concurrently.
+      captureSyncedCustomerFingerprints({
+        customers: related,
+        customerGroups: result.group && typeof result.group === "object" ? [result.group] : []
+      }, { merge: true });
+      applyServerSectionRevisions(result.sectionRevisions || {});
       profileDirectoryCustomerRevision = Math.max(0, Number(result.sectionRevisions?.customers) || 0);
       profileDirectoryGroupRevision = Math.max(0, Number(result.sectionRevisions?.customerGroups) || 0);
       profileDirectoryLoadedCustomerId = requestedId;

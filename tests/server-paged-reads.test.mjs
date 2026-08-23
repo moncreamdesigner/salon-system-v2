@@ -26,6 +26,16 @@ assert.match(app, /customers: \["customerGroups", "salons"/, "Customer view must
 assert.match(customerDetail, /'relatedCustomers'/, "Customer detail must include only the selected group context");
 assert.match(customerDetail, /section_key IN \('customers', 'customerGroups'\)/, "Customer detail must read its authoritative sections on the server");
 assert.match(app, /customer-detail\.php\?id=/, "Profile must load the selected customer instead of the complete directory");
+assert.match(
+  app,
+  /captureSyncedCustomerFingerprints\(\{[\s\S]*?customers: related,[\s\S]*?\}, \{ merge: true \}\)/,
+  "Customer detail must register its authoritative subset as the optimistic-lock base"
+);
+assert.match(
+  app,
+  /applyServerSectionRevisions\(result\.sectionRevisions \|\| \{\}\)/,
+  "Customer detail must retain the authoritative customer section revisions"
+);
 assert.match(app, /profile: \["giftCards"/, "Profile view must not download every customer and group");
 assert.match(customerPhone, /!empty\(\$customer\['deleted'\]\)/, "Duplicate phone lookup must ignore deleted profiles only");
 assert.match(app, /customer-phone\.php\?phone=/, "Partial customer views must verify duplicate phones against the server");
