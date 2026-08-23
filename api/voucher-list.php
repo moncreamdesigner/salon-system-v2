@@ -18,7 +18,6 @@ if ($from !== '' && $to !== '' && $from > $to) json_response(['ok' => false, 'me
 $customer = mb_strtolower(trim((string)($_GET['customer'] ?? '')), 'UTF-8');
 $phone = preg_replace('/\D+/', '', (string)($_GET['phone'] ?? '')) ?? '';
 $role = trim((string)($_GET['role'] ?? ''));
-$salon = ($user['role'] ?? '') === 'salon' ? trim((string)($user['salon'] ?? '')) : '';
 $page = max(1, (int)($_GET['page'] ?? 1));
 $pageSize = min(100, max(10, (int)($_GET['pageSize'] ?? 100)));
 
@@ -55,7 +54,6 @@ foreach ($logs as $log) {
         $seen[$roleKey] = true;
     }
     $date = substr(trim((string)($log['date'] ?? $log['createdAt'] ?? '')), 0, 10);
-    if ($salon !== '' && trim((string)($log['salon'] ?? '')) !== $salon) continue;
     if ($from !== '' && $date < $from) continue;
     if ($to !== '' && $date > $to) continue;
     if ($customer !== '' && mb_stripos((string)($log['customer'] ?? ''), $customer, 0, 'UTF-8') === false) continue;

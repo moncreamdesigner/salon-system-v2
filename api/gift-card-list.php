@@ -4,9 +4,6 @@ require __DIR__ . '/bootstrap.php';
 
 verify_same_origin();
 $user = require_auth();
-if (($user['role'] ?? '') === 'salon') {
-    json_response(['ok' => false, 'message' => 'Бэлгийн картын жагсаалтыг харах эрхгүй байна.'], 403);
-}
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     json_response(['ok' => false, 'message' => 'Method зөвшөөрөгдөөгүй.'], 405);
 }

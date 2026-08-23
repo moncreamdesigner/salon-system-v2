@@ -15582,17 +15582,18 @@ function nextVoucherRoleId() {
 }
 
 function voucherDirectoryQuery() {
-  const defaultRange = currentMonthDateRange();
   const params = new URLSearchParams({
     page: String(voucherPage),
-    pageSize: "100",
-    from: submittedListSearchValue("voucherFromFilter") || defaultRange.from,
-    to: submittedListSearchValue("voucherToFilter") || defaultRange.to
+    pageSize: "100"
   });
+  const from = submittedListSearchValue("voucherFromFilter");
+  const to = submittedListSearchValue("voucherToFilter");
   const customer = submittedListSearchValue("voucherCustomerFilter").trim();
   const phone = submittedListSearchValue("voucherPhoneFilter").trim();
   const selectedRole = submittedListSearchValue("voucherRoleFilter");
   const role = selectedRole === "all" ? "" : selectedRole;
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
   if (customer) params.set("customer", customer);
   if (phone) params.set("phone", phone);
   if (role) params.set("role", role);
@@ -15682,9 +15683,8 @@ function renderVouchers() {
     </div>
   `).join("");
 
-  const defaultRange = currentMonthDateRange();
-  const fromDate = submittedListSearchValue("voucherFromFilter") || defaultRange.from;
-  const toDate = submittedListSearchValue("voucherToFilter") || defaultRange.to;
+  const fromDate = submittedListSearchValue("voucherFromFilter");
+  const toDate = submittedListSearchValue("voucherToFilter");
   const customerFilter = submittedListSearchValue("voucherCustomerFilter").trim().toLowerCase();
   const phoneFilter = submittedListSearchValue("voucherPhoneFilter").trim();
   const roleFilter = submittedListSearchValue("voucherRoleFilter");
