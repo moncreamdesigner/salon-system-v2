@@ -15,6 +15,7 @@ assert.match(stateApi, /if \(\$keys === \[\]\)[\s\S]*бүх мэдээллийг
 assert.match(stateApi, /\$allowed = \[[\s\S]*'giftCards'/, "Branch state reads must use a positive section allowlist");
 assert.match(stateApi, /\$copy\['serviceHistory'\] = \$scopedHistory/, "Branch report payloads must strip other branches' customer history");
 assert.match(stateApi, /'voucherLogs'.*'performanceStatements'/s, "Branch payloads must scope voucher and performance rows on the server");
+assert.match(stateApi, /'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'/, "Branch accounts must be able to read their scoped performance history");
 assert.match(smsApi, /\$user = require_admin\(\)/, "SMS settings and history must be admin-only");
 assert.match(smsApi, /\$pageSize = 100/, "SMS history must stay server-paginated");
 assert.match(revenueApi, /\$pageSize = min\(100, max\(10,/, "Revenue rows must be server-paginated");

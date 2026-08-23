@@ -69,10 +69,16 @@ $filtered = array_values(array_filter($rows, static function (array $row) use ($
     return true;
 }));
 
-usort($filtered, static function (array $left, array $right) use ($historyRequested): int {
+usort($filtered, static function (array $left, array $right) use ($historyRequested, $date): int {
     $a = (string)($left['date'] ?? '') . ' ' . (string)($left['time'] ?? '');
     $b = (string)($right['date'] ?? '') . ' ' . (string)($right['time'] ?? '');
-    $order = $historyRequested ? strcmp($b, $a) : strcmp($a, $b);
+    // An exact-day view is used as the branch's working schedule, so show it
+    // chronologically from the earliest appointment to the latest. Other
+    // history searches remain newest-first, while the default upcoming list
+    // remains oldest-first.
+    $order = $date !== ''
+        ? strcmp($a, $b)
+        : ($historyRequested ? strcmp($b, $a) : strcmp($a, $b));
     if ($order !== 0) return $order;
     return strcmp((string)($left['id'] ?? ''), (string)($right['id'] ?? ''));
 });

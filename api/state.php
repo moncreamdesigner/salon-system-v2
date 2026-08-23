@@ -425,7 +425,7 @@ function assert_sections_readable_by_user(array $keys, array $user): void
     $allowed = [
         'customers', 'customerGroups', 'bookings', 'kassSchedules', 'services',
         'holidays', 'assignments', 'staff', 'voucherLogs',
-        'performanceStatements', 'performanceAdjustments', 'salons',
+        'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments', 'salons',
         'generalSettings', 'pricePolicy', 'discounts', 'voucherRoles', 'catalog',
         '_serviceSettings', 'diagnosisTypes', 'customerTypes',
         'customerTypeRules', 'giftCards',
