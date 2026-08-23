@@ -82,11 +82,10 @@ foreach ($rows as $customer) {
     if (customer_list_active_today($customer, $today, $salon)) $activeRows[] = $customer;
 }
 
-$todayRows = array_values(array_filter($rows, static function (array $customer) use ($today, $salon): bool {
+$todayRows = array_values(array_filter($rows, static function (array $customer) use ($today): bool {
     return empty($customer['deleted'])
         && empty($customer['deletedAt'])
-        && customer_list_registered_date($customer) === $today
-        && ($salon === '' || customer_list_salon($customer) === $salon);
+        && customer_list_registered_date($customer) === $today;
 }));
 $serviceCounts = ['single' => 0, 'course' => 0, 'kass' => 0];
 foreach ($rows as $customer) {
@@ -107,7 +106,6 @@ $filtered = array_values(array_filter($rows, static function (array $customer) u
     if (!empty($customer['deleted']) || !empty($customer['deletedAt'])) return false;
     $registered = customer_list_registered_date($customer);
     if (!$historyRequested && $registered !== $today) return false;
-    if (!$historyRequested && $salon !== '' && customer_list_salon($customer) !== $salon) return false;
     if ($from !== '' && $registered < $from) return false;
     if ($to !== '' && $registered > $to) return false;
     if ($type !== '' && $type !== 'all' && (string)($customer['type'] ?? '') !== $type) return false;

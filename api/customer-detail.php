@@ -34,21 +34,6 @@ foreach ($customers as $customer) {
 }
 if ($selected === null) json_response(['ok' => false, 'message' => 'Хэрэглэгч олдсонгүй.'], 404);
 
-if (($user['role'] ?? '') === 'salon') {
-    $salon = trim((string)($user['salon'] ?? ''));
-    $registeredSalon = trim((string)($selected['registeredSalon'] ?? $selected['salon'] ?? ''));
-    $queueSalon = trim((string)($selected['dailyQueueSalon'] ?? ''));
-    $hasSalonHistory = false;
-    foreach ((is_array($selected['serviceHistory'] ?? null) ? $selected['serviceHistory'] : []) as $historyItem) {
-        if (trim((string)($historyItem['salon'] ?? $historyItem['branch'] ?? '')) === $salon) {
-            $hasSalonHistory = true;
-            break;
-        }
-    }
-    if ($salon === '' || ($registeredSalon !== $salon && $queueSalon !== $salon && !$hasSalonHistory)) {
-        json_response(['ok' => false, 'message' => 'Энэ хэрэглэгчийн мэдээллийг харах эрхгүй байна.'], 403);
-    }
-}
 
 $group = null;
 $groupId = trim((string)($selected['groupId'] ?? ''));

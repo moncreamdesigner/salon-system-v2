@@ -22,7 +22,8 @@ assert.match(audit, /\$pageSize = min\(100, max\(10,/, "Audit reads must be serv
 assert.match(audit, /\$actionTypes/, "Audit filters must receive action types without downloading every row");
 assert.match(customers, /\$pageSize = min\(100, max\(10,/, "Customer reads must be server-paginated with a bounded page size");
 assert.match(customers, /'activeCustomers'/, "Customer list must return the live-service strip separately");
-assert.match(customers, /\(\$user\['role'\] \?\? ''\) === 'salon'/, "Salon customer reads must enforce branch scope on the server");
+assert.doesNotMatch(customers, /!\$historyRequested && \$salon !== '' && customer_list_salon/, "Customer directory visibility must be shared across branches");
+assert.match(customers, /customer_list_active_today\(\$customer, \$today, \$salon\)/, "The live-service strip must remain branch scoped");
 assert.match(customers, /!\$historyRequested && \$registered !== \$today/, "Customer history must stay server-side until searched");
 assert.match(app, /customer-list\.php/, "Customer view must use the paged endpoint");
 assert.match(app, /customers: \["customerGroups", "salons"/, "Customer view must not download the complete customer section");

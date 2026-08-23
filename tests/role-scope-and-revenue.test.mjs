@@ -29,7 +29,7 @@ assert.match(groupSummaryApi, /require_admin\(\)/, "Group summary must remain ad
 assert.match(giftCardApi, /\$pageSize = min\(100, max\(10,/, "Gift cards must be server-paginated");
 assert.match(giftCardApi, /\$user = require_auth\(\)/, "Gift-card browsing must remain limited to authenticated accounts");
 assert.doesNotMatch(giftCardApi, /\$user\['role'\].*=== 'salon'/s, "Branch accounts must be able to browse the global gift-card directory");
-assert.match(customerDetailApi, /\$registeredSalon !== \$salon.*\$queueSalon !== \$salon.*!\$hasSalonHistory/s, "Customer detail must enforce branch relationship on the server");
+assert.doesNotMatch(customerDetailApi, /Энэ хэрэглэгчийн мэдээллийг харах эрхгүй байна/, "Customer detail, course visits, and edits must be shared across branches");
 assert.match(app, /revenue-list\.php\?/, "Revenue UI must use the server-side filtered endpoint");
 assert.match(app, /voucher-list\.php\?/, "Voucher history UI must use the server-side filtered endpoint");
 assert.match(app, /function voucherDirectoryQuery\(\)[\s\S]*pageSize: "100"/, "Voucher history must request one hundred rows per page");
