@@ -22,7 +22,9 @@ $decoded = json_decode((string)($stored['payload'] ?? '[]'), true);
 $rows = is_array($decoded) ? array_values(array_filter($decoded, 'is_array')) : [];
 
 $timezone = new DateTimeZone('Asia/Ulaanbaatar');
-$today = (new DateTimeImmutable('today', $timezone))->format('Y-m-d');
+$todayDate = new DateTimeImmutable('today', $timezone);
+$today = $todayDate->format('Y-m-d');
+$maxBookingDate = booking_max_advance_date($todayDate)->format('Y-m-d');
 $query = preg_replace('/\D+/', '', trim((string)($_GET['q'] ?? ''))) ?? '';
 $salon = trim((string)($_GET['salon'] ?? ''));
 $status = trim((string)($_GET['status'] ?? ''));
@@ -35,6 +37,24 @@ $historyRequested = $query !== '' || $date !== '' || $from !== '' || $to !== '';
 
 if (($user['role'] ?? '') === 'salon') {
     $salon = trim((string)($user['salon'] ?? ''));
+}
+
+// Slot capacity must never depend on the current paginated/filter result.
+// Return compact counts for the active one-month booking window so the browser
+// can disable occupied seats without downloading historical booking rows.
+$availability = [];
+foreach ($rows as $row) {
+    if (!is_array($row)) continue;
+    $rowSalon = trim((string)($row['salon'] ?? ''));
+    $rowDate = (string)($row['date'] ?? '');
+    $rowTime = (string)($row['time'] ?? '');
+    $rowStatus = (string)($row['status'] ?? '');
+    if ($rowSalon === '' || $rowDate < $today || $rowDate > $maxBookingDate || preg_match('/^\d{2}:\d{2}$/', $rowTime) !== 1) continue;
+    if (in_array($rowStatus, ['cancelled', 'rejected'], true)) continue;
+    if (($user['role'] ?? '') === 'salon' && $rowSalon !== trim((string)($user['salon'] ?? ''))) continue;
+    if (!isset($availability[$rowSalon])) $availability[$rowSalon] = [];
+    if (!isset($availability[$rowSalon][$rowDate])) $availability[$rowSalon][$rowDate] = [];
+    $availability[$rowSalon][$rowDate][$rowTime] = (int)($availability[$rowSalon][$rowDate][$rowTime] ?? 0) + 1;
 }
 
 $filtered = array_values(array_filter($rows, static function (array $row) use ($query, $salon, $status, $date, $from, $to, $today, $historyRequested): bool {
@@ -77,5 +97,6 @@ json_response([
     'total' => $total,
     'historyRequested' => $historyRequested,
     'summary' => $summary,
+    'availability' => $availability,
     'revision' => (int)($stored['revision'] ?? 0),
 ]);

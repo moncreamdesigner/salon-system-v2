@@ -14,6 +14,8 @@ assert.match(app, /const VIEW_SERVER_SECTIONS = \{[\s\S]*?giftCards: \["generalS
 
 assert.match(bookings, /\$pageSize = min\(100, max\(10,/, "Booking reads must be server-paginated with a bounded page size");
 assert.match(bookings, /!\$historyRequested && \$rowDate < \$today/, "Past bookings must stay server-side until history is searched");
+assert.match(bookings, /'availability' => \$availability/, "Booking reads must return compact authoritative slot occupancy");
+assert.match(bookings, /foreach \(\$rows as \$row\)[\s\S]*\$availability\[\$rowSalon\]\[\$rowDate\]\[\$rowTime\]/, "Slot occupancy must be calculated before pagination from every active booking");
 assert.match(bookings, /\(\$user\['role'\] \?\? ''\) === 'salon'/, "Salon booking reads must enforce branch scope on the server");
 assert.match(audit, /\$pageSize = min\(100, max\(10,/, "Audit reads must be server-paginated with a bounded page size");
 assert.match(audit, /\$actionTypes/, "Audit filters must receive action types without downloading every row");
@@ -41,6 +43,7 @@ assert.match(customerPhone, /!empty\(\$customer\['deleted'\]\)/, "Duplicate phon
 assert.match(app, /customer-phone\.php\?phone=/, "Partial customer views must verify duplicate phones against the server");
 assert.match(app, /customerDirectoryLoadingKey === requestKey/, "Customer filtering must reuse only an identical in-flight request");
 assert.match(app, /bookingDirectoryLoadingKey === requestKey/, "Booking filtering must reuse only an identical in-flight request");
+assert.match(app, /bookingDirectoryAvailability\?\.\[salonName\]\?\.\[date\]\?\.\[time\]/, "Booking slots must use server occupancy instead of the unloaded full booking section");
 assert.match(app, /booking-detail\.php\?id=/, "Booking editing must load the authoritative selected booking from the server");
 assert.match(app, /bookingInlineEditingRecord/, "Booking editing must preserve its selected record across list refreshes");
 assert.match(app, /requestSequence !== bookingEditRequestSequence/, "A stale booking detail response must not open the wrong editor");

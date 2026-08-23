@@ -541,6 +541,7 @@ let bookingDirectoryPageCount = 1;
 let bookingDirectoryTotal = 0;
 let bookingDirectoryRevision = 0;
 let bookingDirectorySummary = { total: 0, confirmed: 0, pending: 0, today: 0 };
+let bookingDirectoryAvailability = {};
 let bookingInlineEditingId = null;
 let bookingInlineEditingRecord = null;
 let bookingEditRequestSequence = 0;
@@ -15300,6 +15301,7 @@ async function loadBookingDirectory({ silent = false } = {}) {
       bookingDirectoryTotal = Math.max(0, Number(result.total) || 0);
       bookingDirectoryRevision = Math.max(0, Number(result.revision) || 0);
       bookingDirectorySummary = result.summary && typeof result.summary === "object" ? result.summary : bookingDirectorySummary;
+      bookingDirectoryAvailability = result.availability && typeof result.availability === "object" ? result.availability : {};
       bookingPage = Math.min(Math.max(1, Number(result.page) || bookingPage), bookingDirectoryPageCount);
       bookingDirectoryLoaded = true;
       if (activeView === "bookings") renderBookings();
@@ -17982,13 +17984,26 @@ function getSalonCapacity(salonName) {
 }
 
 function bookedCountForSlot(salonName, date, time, editingId) {
-  return state.bookings.filter(booking =>
-    booking.salon === salonName &&
-    booking.date === date &&
-    booking.time === time &&
-    !["cancelled", "rejected"].includes(booking.status) &&
-    String(booking.id) !== String(editingId)
-  ).length;
+  if (IS_LOCAL_RUNTIME) {
+    return state.bookings.filter(booking =>
+      booking.salon === salonName &&
+      booking.date === date &&
+      booking.time === time &&
+      !["cancelled", "rejected"].includes(booking.status) &&
+      String(booking.id) !== String(editingId)
+    ).length;
+  }
+  let occupied = Math.max(0, Number(bookingDirectoryAvailability?.[salonName]?.[date]?.[time]) || 0);
+  const editing = editingId ? loadedBookingById(editingId) : null;
+  if (editing &&
+    editing.salon === salonName &&
+    editing.date === date &&
+    editing.time === time &&
+    !["cancelled", "rejected"].includes(editing.status)
+  ) {
+    occupied = Math.max(0, occupied - 1);
+  }
+  return occupied;
 }
 
 function bookingSlotMarkup(index, values, editing = false) {
