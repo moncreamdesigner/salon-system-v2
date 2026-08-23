@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/daily-queue.php';
 
 function customer_mutation_index(array $rows): array
 {
@@ -15,7 +16,7 @@ function customer_mutation_index(array $rows): array
 
 function customer_mutation_fingerprint(array $value): string
 {
-    return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+    return json_encode(daily_queue_without_derived_fields($value), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
 }
 
 function customer_mutation_phone(array $value): string
@@ -65,6 +66,7 @@ function apply_customer_entity_mutations(array $current, array $mutations): arra
             : null;
         unset($mutation['mutationVersion'], $mutation['baseFingerprint']);
         $existing = $customerIndex[$id] ?? null;
+        $mutation = daily_queue_prepare_customer_mutation($existing['value'] ?? null, $mutation);
         $phoneChanged = $existing === null
             || customer_mutation_phone($existing['value']) !== customer_mutation_phone($mutation);
         $duplicatePhoneCustomer = $phoneChanged

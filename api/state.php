@@ -637,11 +637,17 @@ try {
     $incomingKeys = array_keys($sections);
     $currentSectionRevisions = load_section_revisions($pdo, $incomingKeys, true);
     $conflictingSections = [];
+    $hasProfileMutations = count(is_array($customerMutations['profiles'] ?? null) ? $customerMutations['profiles'] : []) > 0;
+    $hasGroupMutations = count(is_array($customerMutations['groups'] ?? null) ? $customerMutations['groups'] : []) > 0;
     if ($clientSectionRevisions !== null) {
         foreach ($incomingKeys as $key) {
             // Audit is append-only and is merged below. A write from another
             // workstation must not reject an unrelated business operation.
             if ((string)$key === 'audit') continue;
+            // Customer mutations are protected by their own entity fingerprint.
+            // Do not reject an unrelated customer saved by another workstation.
+            if ((string)$key === 'customers' && $hasProfileMutations) continue;
+            if ((string)$key === 'customerGroups' && $hasGroupMutations) continue;
             $expected = filter_var($clientSectionRevisions[$key] ?? null, FILTER_VALIDATE_INT);
             if ($expected === false || $expected === null || (int)$expected !== (int)($currentSectionRevisions[$key] ?? 0)) {
                 $conflictingSections[] = (string)$key;
@@ -719,6 +725,10 @@ try {
         && ($payload['allowBulkRemoval'] ?? false) === true
         && trim((string)($payload['removalReason'] ?? '')) !== '';
     if (!$allowProtectedOverride) assert_operational_lock($currentSections, $sections);
+    if (array_key_exists('customers', $sections) && is_array($sections['customers'])) {
+        $queueNormalization = daily_queue_normalize_customers($sections['customers']);
+        $sections['customers'] = $queueNormalization['customers'];
+    }
     $nextRevision = $currentRevision + 1;
     $changeEvents = customer_mutation_change_events($currentSections, $sections, $customerMutations);
 

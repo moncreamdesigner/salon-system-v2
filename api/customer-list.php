@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/daily-queue.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -62,6 +63,8 @@ $statement->execute();
 $stored = $statement->fetch() ?: [];
 $decoded = json_decode((string)($stored['payload'] ?? '[]'), true);
 $rows = is_array($decoded) ? array_values(array_filter($decoded, 'is_array')) : [];
+$queueNormalization = daily_queue_normalize_customers($rows);
+$rows = $queueNormalization['customers'];
 
 $timezone = new DateTimeZone('Asia/Ulaanbaatar');
 $today = (new DateTimeImmutable('today', $timezone))->format('Y-m-d');

@@ -1209,6 +1209,11 @@ function syncedCustomerFingerprint(customer) {
   if (!customer) return syncedEntityFingerprint(customer);
   const snapshot = structuredClone(customer);
   clearCustomerUiState(snapshot);
+  [
+    "dailyQueueDate", "dailyQueueAssignedAt", "dailyQueueSalon", "dailyQueueSequence",
+    "dailyQueueActiveUntil", "dailyQueueHadService", "dailyQueueServiceDeleted",
+    "dailyQueueVacant", "dailyQueueLastTreatment"
+  ].forEach(key => delete snapshot[key]);
   return syncedEntityFingerprint(snapshot);
 }
 
@@ -1469,10 +1474,10 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
     const baseFingerprint = update.baseFingerprint ?? null;
     const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, ...profile } = update;
     const alreadyApplied = Boolean(remoteCustomer) &&
-      syncedEntityFingerprint(remoteCustomer) === syncedEntityFingerprint(profile);
+      syncedCustomerFingerprint(remoteCustomer) === syncedCustomerFingerprint(profile);
     const safe = alreadyApplied || (baseFingerprint === null
       ? !remoteCustomer
-      : Boolean(remoteCustomer) && syncedEntityFingerprint(remoteCustomer) === baseFingerprint);
+      : Boolean(remoteCustomer) && syncedCustomerFingerprint(remoteCustomer) === baseFingerprint);
     if (safe) return;
     unsafeVersions.add(Number(update.mutationVersion || 0));
     pendingCustomerProfileUpdates.delete(customerId);
@@ -8615,6 +8620,9 @@ function trimVacantDailyQueueTail(date = todayText(), salon = "") {
 }
 
 function ensureDailyQueueSequences(date = todayText()) {
+  // Live browsers only contain a paged/scoped customer subset. The server
+  // transaction is the sole authority for canonical queue numbering.
+  if (!IS_LOCAL_RUNTIME) return false;
   const grouped = new Map();
   let changed = false;
   (state.customers || []).forEach(customer => {
