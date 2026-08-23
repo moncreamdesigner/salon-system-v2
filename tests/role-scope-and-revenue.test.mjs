@@ -22,6 +22,8 @@ assert.match(revenueApi, /\(\$user\['role'\] \?\? ''\) === 'salon'/, "Revenue mu
 assert.match(voucherApi, /\$pageSize = min\(100, max\(10,/, "Voucher history must be server-paginated");
 assert.match(voucherApi, /\$user = require_auth\(\)/, "Voucher history must remain limited to authenticated accounts");
 assert.doesNotMatch(voucherApi, /\$salon = \(\$user\['role'\]/, "Voucher history is global and must not be restricted to one branch");
+assert.match(voucherApi, /section_key IN \('voucherLogs','voucherRoles','customers'\)/, "Voucher history must rebuild its read model from authoritative customer payments");
+assert.match(voucherApi, /\$paymentItem\['method'\][\s\S]*\['voucher', 'ваучер'\]/, "Voucher history must recover voucher payments even when the legacy log section is empty");
 assert.match(groupSummaryApi, /require_admin\(\)/, "Group summary must remain admin-only");
 assert.match(giftCardApi, /\$pageSize = min\(100, max\(10,/, "Gift cards must be server-paginated");
 assert.match(giftCardApi, /\$user = require_auth\(\)/, "Gift-card browsing must remain limited to authenticated accounts");
@@ -33,11 +35,15 @@ assert.match(app, /function voucherDirectoryQuery\(\)[\s\S]*pageSize: "100"/, "V
 assert.doesNotMatch(app, /function voucherDirectoryQuery\(\)[\s\S]*?currentMonthDateRange\(\)[\s\S]*?async function loadVoucherDirectory/, "Voucher history must show the newest global rows before a date filter is submitted");
 assert.match(app, /vouchers: \["voucherRoles"\]/, "Opening vouchers must not download every historical voucher row");
 assert.match(app, /Voucher history is a paged read model[\s\S]*vouchers: \["voucherRoles"\]/, "Voucher page must never write a paged history back as the full section");
+assert.match(app, /eligibilityChanged \? \["voucherRoles", "pricePolicy"\] : \["voucherRoles"\]/, "Ordinary voucher-role saves must not write an unloaded pricing policy");
+assert.match(app, /eligibilityChanged[\s\S]*loadedServerSections\.has\("pricePolicy"\)[\s\S]*synchronizeServerState\(null, \["pricePolicy"\]/, "Cashier eligibility changes must load pricing policy before saving it");
+assert.match(app, /voucherLog = \{[\s\S]*salon: historyItem\.salon \|\| historyItem\.branch \|\| activeAccount\.salon/, "New voucher usage rows must carry their branch ownership");
 assert.match(app, /groups: \["customerTypes", "customerTypeRules", "pricePolicy"\]/, "Opening groups must not download all customer history");
 assert.match(app, /group-summary\.php/, "Group counts must come from a lightweight server summary");
 assert.match(app, /giftCards: \["generalSettings"\]/, "Opening gift cards must not download the full section");
 assert.match(app, /gift-card-list\.php\?/, "Gift card browsing must use the paged endpoint");
 assert.match(app, /function giftCardDirectoryQuery\(\)[\s\S]*pageSize: "100"/, "Gift cards must request one hundred rows per page");
+assert.match(stateApi, /function merge_salon_sections[\s\S]*foreach \(\['bookings',[\s\S]*'voucherLogs',[\s\S]*\] as \$section\)/, "Branch voucher writes must merge only their owned rows instead of replacing the global history");
 assert.match(app, /ensureGiftCardDirectorySections\(\)/, "Gift card mutations must first load the authoritative full section");
 assert.match(app, /performance: \["salons", "generalSettings"\]/, "Opening revenue must not download all customer history");
 assert.match(app, /settingsUsers: \["salons"\]/, "User settings must not download audit history");

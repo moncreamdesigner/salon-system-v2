@@ -21,7 +21,7 @@ $role = trim((string)($_GET['role'] ?? ''));
 $page = max(1, (int)($_GET['page'] ?? 1));
 $pageSize = min(100, max(10, (int)($_GET['pageSize'] ?? 100)));
 
-$statement = $pdo->query("SELECT section_key, payload, revision FROM app_sections WHERE section_key IN ('voucherLogs','voucherRoles')");
+$statement = $pdo->query("SELECT section_key, payload, revision FROM app_sections WHERE section_key IN ('voucherLogs','voucherRoles','customers')");
 $sections = [];
 $revisions = [];
 foreach ($statement->fetchAll() as $stored) {
@@ -29,8 +29,64 @@ foreach ($statement->fetchAll() as $stored) {
     $sections[(string)$stored['section_key']] = is_array($decoded) ? $decoded : [];
     $revisions[(string)$stored['section_key']] = (int)($stored['revision'] ?? 0);
 }
-$logs = array_values(array_filter($sections['voucherLogs'] ?? [], 'is_array'));
+$storedLogs = array_values(array_filter($sections['voucherLogs'] ?? [], 'is_array'));
 $roles = array_values(array_filter($sections['voucherRoles'] ?? [], 'is_array'));
+$customers = array_values(array_filter($sections['customers'] ?? [], 'is_array'));
+
+$rolesById = [];
+foreach ($roles as $roleItem) {
+    $roleId = trim((string)($roleItem['id'] ?? ''));
+    if ($roleId !== '') $rolesById[$roleId] = $roleItem;
+}
+$storedByPayment = [];
+$storedWithoutPayment = [];
+foreach ($storedLogs as $storedLog) {
+    $paymentId = trim((string)($storedLog['paymentId'] ?? ''));
+    if ($paymentId !== '') $storedByPayment[$paymentId] = $storedLog;
+    else $storedWithoutPayment[] = $storedLog;
+}
+
+// Payment history is the authoritative voucher source. The separate legacy
+// log can be lost by an old scoped browser write, while the actual payment
+// remains attached to the customer's service. Rebuild the read model without
+// mutating customer or payment data.
+$logs = [];
+$seenPayments = [];
+foreach ($customers as $customerItem) {
+    $history = is_array($customerItem['serviceHistory'] ?? null) ? $customerItem['serviceHistory'] : [];
+    foreach ($history as $serviceItem) {
+        if (!is_array($serviceItem)) continue;
+        $payments = is_array($serviceItem['payments'] ?? null) ? $serviceItem['payments'] : [];
+        foreach ($payments as $paymentItem) {
+            if (!is_array($paymentItem)) continue;
+            $method = mb_strtolower(trim((string)($paymentItem['method'] ?? '')), 'UTF-8');
+            if (!in_array($method, ['voucher', 'ваучер'], true)) continue;
+            $paymentId = trim((string)($paymentItem['id'] ?? ''));
+            if ($paymentId === '' || isset($seenPayments[$paymentId])) continue;
+            $seenPayments[$paymentId] = true;
+            $snapshot = $storedByPayment[$paymentId] ?? [];
+            $roleId = trim((string)($paymentItem['voucherRoleId'] ?? $snapshot['roleId'] ?? ''));
+            $roleItem = $rolesById[$roleId] ?? [];
+            $createdAt = trim((string)($paymentItem['createdAt'] ?? ''));
+            $logs[] = [
+                'id' => (string)($snapshot['id'] ?? $paymentItem['voucherLogId'] ?? ('voucher-payment-' . $paymentId)),
+                'paymentId' => $paymentId,
+                'date' => (string)($paymentItem['date'] ?? $snapshot['date'] ?? substr($createdAt, 0, 10)),
+                'time' => (string)($snapshot['time'] ?? (strlen($createdAt) >= 16 ? substr($createdAt, 11, 5) : '')),
+                'salon' => (string)($snapshot['salon'] ?? $serviceItem['salon'] ?? $serviceItem['branch'] ?? ''),
+                'customer' => (string)($snapshot['customer'] ?? $customerItem['name'] ?? ''),
+                'phone' => (string)($snapshot['phone'] ?? $customerItem['phone'] ?? ''),
+                'roleId' => $roleId,
+                'roleName' => (string)($snapshot['roleName'] ?? $roleItem['name'] ?? $paymentItem['referenceLabel'] ?? ''),
+                'rolePosition' => (string)($snapshot['rolePosition'] ?? $roleItem['position'] ?? ''),
+                'amount' => (float)($paymentItem['paidAmount'] ?? $paymentItem['amount'] ?? $snapshot['amount'] ?? 0),
+                'note' => (string)($snapshot['note'] ?? $serviceItem['service'] ?? $serviceItem['title'] ?? ''),
+            ];
+        }
+    }
+}
+// Preserve truly historical rows that predate payment identifiers.
+$logs = array_merge($logs, $storedWithoutPayment);
 
 $roleEntries = [];
 $seen = [];

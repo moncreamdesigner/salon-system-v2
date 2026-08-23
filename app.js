@@ -13685,6 +13685,7 @@ function bindInlinePaymentForms(customer) {
           paymentId,
           date: paidDate,
           time: currentTimeText(),
+          salon: historyItem.salon || historyItem.branch || activeAccount.salon || "",
           customer: customer.name,
           phone: customer.phone,
           roleId: role.id,
@@ -18434,19 +18435,35 @@ function bindEvents() {
   document.getElementById("holidayForm")?.addEventListener("submit", saveHoliday);
   document.getElementById("hrStaffForm")?.addEventListener("submit", saveHumanResourceStaff);
   document.getElementById("hrAssignmentForm")?.addEventListener("submit", saveHumanResourceAssignment);
-  document.getElementById("voucherRoleForm")?.addEventListener("submit", event => {
+  document.getElementById("voucherRoleForm")?.addEventListener("submit", async event => {
     event.preventDefault();
     const name = formValue("voucherRoleName");
     const position = formValue("voucherRolePosition");
     const cashierCommissionEligible = Boolean(document.getElementById("voucherRoleCashierEligible")?.checked);
     if (!name) return;
     const wasEditing = Boolean(voucherRoleEditingId);
+    const existingRole = wasEditing
+      ? state.voucherRoles.find(item => Number(item.id) === Number(voucherRoleEditingId))
+      : null;
+    const eligibilityChanged = wasEditing
+      ? Boolean(existingRole?.cashierCommissionEligible) !== cashierCommissionEligible
+      : cashierCommissionEligible;
+    if (eligibilityChanged && !IS_LOCAL_RUNTIME && !fullServerStateLoaded && !loadedServerSections.has("pricePolicy")) {
+      const submit = document.getElementById("voucherRoleSubmit");
+      if (submit) submit.disabled = true;
+      try {
+        await synchronizeServerState(null, ["pricePolicy"], "voucherRolePolicy");
+      } catch (error) {
+        showToast(error.message || "Үнийн бодлогын мэдээлэл ачаалсангүй", "error");
+        return;
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    }
     let savedRole = null;
-    let eligibilityChanged = false;
     if (wasEditing) {
       const role = state.voucherRoles.find(item => Number(item.id) === Number(voucherRoleEditingId));
       if (role) {
-        eligibilityChanged = Boolean(role.cashierCommissionEligible) !== cashierCommissionEligible;
         Object.assign(role, { name, position, cashierCommissionEligible });
         savedRole = role;
       }
@@ -18454,7 +18471,6 @@ function bindEvents() {
     } else {
       savedRole = { id: nextVoucherRoleId(), name, position, cashierCommissionEligible };
       state.voucherRoles.unshift(savedRole);
-      eligibilityChanged = cashierCommissionEligible;
     }
     if (savedRole && eligibilityChanged) {
       const current = currentPerformancePolicy();
@@ -18472,7 +18488,7 @@ function bindEvents() {
       });
       setCurrentPerformancePolicyVersion(nextPolicy);
     }
-    saveState(["voucherRoles", "pricePolicy"]);
+    saveState(eligibilityChanged ? ["voucherRoles", "pricePolicy"] : ["voucherRoles"]);
     event.target.reset();
     renderVouchers();
     renderInfoHeader(activeView);

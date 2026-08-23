@@ -316,7 +316,7 @@ function merge_salon_sections(array $current, array $incoming, array $user, bool
         elseif (array_key_exists($section, $current)) $incoming[$section] = $current[$section];
         else unset($incoming[$section]);
     }
-    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
+    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'voucherLogs', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
         if ($partial && !array_key_exists($section, $incoming)) continue;
         $oldRows = is_array($current[$section] ?? null) ? $current[$section] : [];
         $newRows = is_array($incoming[$section] ?? null) ? $incoming[$section] : [];
