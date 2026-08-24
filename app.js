@@ -18616,7 +18616,7 @@ function bindEvents() {
   });
   document.getElementById("smsCharacterLimit")?.addEventListener("input", event => {
     const value = Number(event.target.value);
-    if (Number.isFinite(value) && value > 70) event.target.value = "70";
+    if (Number.isFinite(value) && value > 1000) event.target.value = "1000";
     Object.keys(SMS_EVENT_FIELDS).forEach(updateSmsLengthCounter);
   });
   Object.entries(SMS_EVENT_FIELDS).forEach(([smsEvent, [checkboxId, templateId]]) => {

@@ -101,6 +101,7 @@ test("provider business failures and Unicode limits cannot be marked sent", () =
   assert.match(settingsApi, /\$normalized\['characterLimit'\]/);
   assert.match(html, /data-sms-counter="confirmed"/);
   assert.match(app, /Тооцоолсон урт/);
+  assert.match(app, /value > 1000/);
   assert.match(service, /min\(SMS_ADMIN_LIMIT_MAX, \(int\)\(\$stored\['characterLimit'\]/);
   assert.match(service, /sms_message_length_error\(\$message, \(int\)\(\$settings\['characterLimit'\]/);
 });
