@@ -4480,13 +4480,19 @@ const SMS_STATUS_LABELS = {
 
 const SMS_TEMPLATE_SAMPLE_VALUES = {
   "{customer_name}": "Хэрэглэгч",
-  "{date}": "12/31",
+  "{date}": "12 sariin 31",
+  "{month}": "12",
+  "{day}": "31",
   "{time}": "18:00",
-  "{branch}": "Чингэлтэй салбар",
+  "{branch}": "Chingeltei salon",
   "{branch_phone}": "99112233",
-  "{old_date}": "12/31",
+  "{old_date}": "12 sariin 31",
+  "{old_month}": "12",
+  "{old_day}": "31",
   "{old_time}": "18:00",
-  "{new_date}": "12/31",
+  "{new_date}": "12 sariin 31",
+  "{new_month}": "12",
+  "{new_day}": "31",
   "{new_time}": "18:00"
 };
 
@@ -4494,10 +4500,8 @@ function smsEstimatedMessage(template) {
   return Object.entries(SMS_TEMPLATE_SAMPLE_VALUES).reduce((value, [key, replacement]) => value.split(key).join(replacement), String(template || ""));
 }
 
-function smsMessageLimit(message) {
-  const providerLimit = /[^\x00-\x7F]/.test(message) ? 70 : 160;
-  const configured = Math.max(1, Math.min(70, Number(document.getElementById("smsCharacterLimit")?.value || smsSettingsCache?.characterLimit || 70)));
-  return Math.min(providerLimit, configured);
+function smsMessageLimit() {
+  return Math.max(1, Math.min(1000, Number(document.getElementById("smsCharacterLimit")?.value || smsSettingsCache?.characterLimit || 70)));
 }
 
 function updateSmsLengthCounter(event) {
@@ -4508,7 +4512,9 @@ function updateSmsLengthCounter(event) {
   const limit = smsMessageLimit(message);
   const counter = document.querySelector(`[data-sms-counter="${event}"]`);
   if (!counter) return;
-  counter.textContent = `Тооцоолсон урт ${length}/${limit}`;
+  const segmentSize = /[^\x00-\x7F]/.test(message) ? (length > 70 ? 67 : 70) : (length > 160 ? 153 : 160);
+  const segments = Math.max(1, Math.ceil(length / segmentSize));
+  counter.textContent = `Тооцоолсон урт ${length}/${limit} · ${segments} SMS`;
   counter.classList.toggle("is-over", length > limit);
 }
 
@@ -4527,7 +4533,7 @@ function renderSmsSettings() {
     token.placeholder = settings.tokenConfigured ? "Хадгалсан token ••••••••" : "Token оруулах";
   }
   if (reminderHours) reminderHours.value = Math.max(1, Math.min(3, Number(settings.reminderHours) || 3));
-  if (characterLimit) characterLimit.value = Math.max(1, Math.min(70, Number(settings.characterLimit) || 70));
+  if (characterLimit) characterLimit.value = Math.max(1, Math.min(1000, Number(settings.characterLimit) || 70));
   Object.entries(SMS_EVENT_FIELDS).forEach(([event, [checkboxId, templateId]]) => {
     const checkbox = document.getElementById(checkboxId);
     const template = document.getElementById(templateId);
@@ -4664,7 +4670,7 @@ function smsSettingsFormPayload() {
     apiUrl: formValue("smsApiUrl"),
     token: formValue("smsToken"),
     reminderHours: Math.max(1, Math.min(3, Number(formValue("smsReminderHours")) || 3)),
-    characterLimit: Math.max(1, Math.min(70, Number(formValue("smsCharacterLimit")) || 70)),
+    characterLimit: Math.max(1, Math.min(1000, Number(formValue("smsCharacterLimit")) || 70)),
     events,
     templates
   };

@@ -36,7 +36,7 @@ test("all booking lifecycle events have independent controls and templates", () 
   assert.match(html, /id="smsEnabled"/);
   assert.match(html, /id="smsApiUrl"/);
   assert.match(html, /id="smsToken"[^>]+type="password"/);
-  assert.match(html, /id="smsCharacterLimit"[^>]+max="70"/);
+  assert.match(html, /id="smsCharacterLimit"[^>]+max="1000"/);
   assert.doesNotMatch(html, /Шинэ token оруулаагүй бол хадгалсныг хэвээр ашиглана/);
   assert.ok(html.indexOf('id="smsTestButton"') < html.indexOf('id="smsCharacterLimit"'), "SMS limit controls must follow the test SMS action");
   assert.match(html, /id="smsHistoryRows"/);
@@ -88,6 +88,11 @@ test("change and cancellation invalidate old reminders without duplicate sends",
 test("provider business failures and Unicode limits cannot be marked sent", () => {
   assert.match(service, /const SMS_UNICODE_LIMIT = 70/);
   assert.match(service, /sms_message_length_error/);
+  assert.match(service, /sms_date_parts/);
+  assert.match(service, /sms_latinize/);
+  assert.match(service, /sariin/);
+  assert.match(html, /\{month\}/);
+  assert.match(html, /\{day\}/);
   assert.match(service, /array_key_exists\('status', \$decoded\)/);
   assert.match(service, /\(int\)\$decoded\['status'\] === 1/);
   assert.match(service, /\(int\)\$decoded\['sent_count'\] > 0/);
@@ -96,7 +101,7 @@ test("provider business failures and Unicode limits cannot be marked sent", () =
   assert.match(settingsApi, /\$normalized\['characterLimit'\]/);
   assert.match(html, /data-sms-counter="confirmed"/);
   assert.match(app, /Тооцоолсон урт/);
-  assert.match(service, /min\(SMS_UNICODE_LIMIT, \(int\)\(\$stored\['characterLimit'\]/);
+  assert.match(service, /min\(SMS_ADMIN_LIMIT_MAX, \(int\)\(\$stored\['characterLimit'\]/);
   assert.match(service, /sms_message_length_error\(\$message, \(int\)\(\$settings\['characterLimit'\]/);
 });
 

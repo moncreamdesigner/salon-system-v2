@@ -5,6 +5,7 @@ const SMS_TIMEZONE = 'Asia/Ulaanbaatar';
 const SMS_FIRST_CHECK_HOUR = 6;
 const SMS_UNICODE_LIMIT = 70;
 const SMS_LATIN_LIMIT = 160;
+const SMS_ADMIN_LIMIT_MAX = 1000;
 
 function sms_legacy_templates(): array
 {
@@ -60,7 +61,7 @@ function sms_normalize_settings(array $stored): array
         $defaults['templates'][$event] = mb_substr($template !== '' ? $template : $defaults['templates'][$event], 0, 1000);
     }
     $defaults['reminderHours'] = max(1, min(3, (int)($stored['reminderHours'] ?? 3)));
-    $defaults['characterLimit'] = max(1, min(SMS_UNICODE_LIMIT, (int)($stored['characterLimit'] ?? SMS_UNICODE_LIMIT)));
+    $defaults['characterLimit'] = max(1, min(SMS_ADMIN_LIMIT_MAX, (int)($stored['characterLimit'] ?? SMS_UNICODE_LIMIT)));
     return $defaults;
 }
 
@@ -127,9 +128,25 @@ function sms_normalize_phone(string $value): string
 function sms_mn_date(string $date): string
 {
     $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date, new DateTimeZone(SMS_TIMEZONE));
-    return $parsed ? $parsed->format('n/j') : $date;
+    return $parsed ? $parsed->format('n') . ' sariin ' . $parsed->format('j') : $date;
 }
 
+function sms_date_parts(string $date, string $prefix = ''): array
+{
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date, new DateTimeZone(SMS_TIMEZONE));
+    $keyPrefix = $prefix !== '' ? $prefix . '_' : '';
+    return [
+        '{' . $keyPrefix . 'month}' => $parsed ? $parsed->format('n') : '',
+        '{' . $keyPrefix . 'day}' => $parsed ? $parsed->format('j') : '',
+    ];
+}
+function sms_latinize(string $value): string
+{
+    return strtr($value, [
+        'А'=>'A','Б'=>'B','В'=>'V','Г'=>'G','Д'=>'D','Е'=>'E','Ё'=>'Yo','Ж'=>'J','З'=>'Z','И'=>'I','Й'=>'I','К'=>'K','Л'=>'L','М'=>'M','Н'=>'N','О'=>'O','Ө'=>'U','П'=>'P','Р'=>'R','С'=>'S','Т'=>'T','У'=>'U','Ү'=>'U','Ф'=>'F','Х'=>'Kh','Ц'=>'Ts','Ч'=>'Ch','Ш'=>'Sh','Щ'=>'Sh','Ъ'=>'','Ы'=>'Y','Ь'=>'','Э'=>'E','Ю'=>'Yu','Я'=>'Ya',
+        'а'=>'a','б'=>'b','в'=>'v','г'=>'g','д'=>'d','е'=>'e','ё'=>'yo','ж'=>'j','з'=>'z','и'=>'i','й'=>'i','к'=>'k','л'=>'l','м'=>'m','н'=>'n','о'=>'o','ө'=>'u','п'=>'p','р'=>'r','с'=>'s','т'=>'t','у'=>'u','ү'=>'u','ф'=>'f','х'=>'kh','ц'=>'ts','ч'=>'ch','ш'=>'sh','щ'=>'sh','ъ'=>'','ы'=>'y','ь'=>'','э'=>'e','ю'=>'yu','я'=>'ya',
+    ]);
+}
 function sms_message_limit(string $message): int
 {
     return preg_match('/[^\x00-\x7F]/', $message) === 1 ? SMS_UNICODE_LIMIT : SMS_LATIN_LIMIT;
@@ -138,8 +155,7 @@ function sms_message_limit(string $message): int
 function sms_message_length_error(string $message, ?int $configuredLimit = null): string
 {
     $length = mb_strlen($message);
-    $providerLimit = sms_message_limit($message);
-    $limit = $configuredLimit === null ? $providerLimit : min($providerLimit, max(1, $configuredLimit));
+    $limit = max(1, min(SMS_ADMIN_LIMIT_MAX, $configuredLimit ?? SMS_UNICODE_LIMIT));
     return $length > $limit ? "SMS агуулга {$length}/{$limit} тэмдэгт байна. Загварыг богиносгоно уу." : '';
 }
 
@@ -147,13 +163,19 @@ function sms_template_estimated_message(string $template): string
 {
     return strtr($template, [
         '{customer_name}' => 'Хэрэглэгч',
-        '{date}' => '12/31',
+        '{date}' => '12 sariin 31',
+        '{month}' => '12',
+        '{day}' => '31',
         '{time}' => '18:00',
-        '{branch}' => 'Чингэлтэй салбар',
+        '{branch}' => 'Chingeltei salon',
         '{branch_phone}' => '99112233',
-        '{old_date}' => '12/31',
+        '{old_date}' => '12 sariin 31',
+        '{old_month}' => '12',
+        '{old_day}' => '31',
         '{old_time}' => '18:00',
-        '{new_date}' => '12/31',
+        '{new_date}' => '12 sariin 31',
+        '{new_month}' => '12',
+        '{new_day}' => '31',
         '{new_time}' => '18:00',
     ]);
 }
@@ -187,23 +209,26 @@ function sms_booking_context(PDO $pdo, array $booking, ?array $before = null): a
         $branchPhone = sms_normalize_phone((string)($salon['phone'] ?? ''));
         break;
     }
-    return [
-        '{customer_name}' => $customerName,
+    return array_merge([
+        '{customer_name}' => sms_latinize($customerName),
         '{date}' => sms_mn_date((string)($booking['date'] ?? '')),
         '{time}' => (string)($booking['time'] ?? ''),
-        '{branch}' => (string)($booking['salon'] ?? ''),
+        '{branch}' => sms_latinize((string)($booking['salon'] ?? '')),
         '{branch_phone}' => $branchPhone,
         '{old_date}' => sms_mn_date((string)($before['date'] ?? '')),
         '{old_time}' => (string)($before['time'] ?? ''),
         '{new_date}' => sms_mn_date((string)($booking['date'] ?? '')),
         '{new_time}' => (string)($booking['time'] ?? ''),
-    ];
+    ],
+        sms_date_parts((string)($booking['date'] ?? '')),
+        sms_date_parts((string)($before['date'] ?? ''), 'old'),
+        sms_date_parts((string)($booking['date'] ?? ''), 'new'));
 }
 
 function sms_render_booking_template(PDO $pdo, array $settings, string $event, array $booking, ?array $before = null): string
 {
     $template = (string)($settings['templates'][$event] ?? sms_default_templates()[$event] ?? '');
-    return trim(strtr($template, sms_booking_context($pdo, $booking, $before)));
+    return sms_latinize(trim(strtr($template, sms_booking_context($pdo, $booking, $before))));
 }
 
 function sms_booking_datetime(array $booking): ?DateTimeImmutable
