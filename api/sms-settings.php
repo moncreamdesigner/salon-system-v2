@@ -136,6 +136,7 @@ if ($method === 'PUT') {
         $statement->execute([$enabled ? 1 : 0, $apiUrl, $tokenCipher, $configJson, (string)($user['username'] ?? '')]);
         if (!$enabled) {
             $pdo->exec("UPDATE app_sms_messages SET status = 'cancelled', last_error = 'SMS үйлчилгээ унтраасан', updated_at = CURRENT_TIMESTAMP WHERE status IN ('pending', 'failed')");
+            $pdo->exec("UPDATE app_sms_campaigns SET status = 'paused', lease_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE status = 'running'");
         } else {
             foreach ($normalized['events'] as $event => $eventEnabled) {
                 if ($eventEnabled) continue;

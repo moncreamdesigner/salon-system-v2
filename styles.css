@@ -9180,6 +9180,195 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   display: none;
 }
 
+.sms-campaign-compose,
+.sms-campaign-history-panel {
+  padding: 20px;
+}
+
+.sms-campaign-history-panel {
+  margin-top: 14px;
+}
+
+.sms-campaign-form-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 180px;
+  gap: 12px;
+}
+
+.sms-campaign-form-grid > label,
+.sms-campaign-message-label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sms-campaign-message-label {
+  margin-top: 14px;
+}
+
+.sms-campaign-message-label textarea {
+  min-height: 92px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.sms-campaign-audience {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sms-campaign-audience > span,
+.sms-campaign-detail-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sms-campaign-list {
+  display: grid;
+  gap: 12px;
+}
+
+.sms-campaign-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.sms-campaign-card-head,
+.sms-campaign-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sms-campaign-card-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.sms-campaign-card-head > div > strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.sms-campaign-card-head > div > span,
+.sms-campaign-message-preview {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sms-campaign-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sms-campaign-status.running,
+.sms-campaign-status.completed {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sms-campaign-status.cancelled {
+  background: rgba(180, 35, 24, .08);
+  color: var(--danger);
+}
+
+.sms-campaign-message-preview {
+  margin: 14px 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.sms-campaign-metrics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.sms-campaign-metrics > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sms-campaign-metrics strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.sms-campaign-metrics strong.is-success {
+  color: var(--accent);
+}
+
+.sms-campaign-metrics strong.is-danger,
+.sms-campaign-error {
+  color: var(--danger);
+}
+
+.sms-campaign-progress {
+  height: 6px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.sms-campaign-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.sms-campaign-error {
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+
+.sms-campaign-card-actions {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sms-campaign-card-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sms-campaign-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sms-campaign-recipients .sms-message-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#smsCampaignPagination:empty {
+  display: none;
+}
+
 @media (max-width: 1100px) {
   .sms-connection-grid,
   .sms-template-grid {
@@ -9217,6 +9406,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .sms-campaign-form-grid {
+    grid-template-columns: minmax(0, 1fr) 150px;
+  }
+
   .sms-history-filter-actions {
     justify-content: flex-end;
   }
@@ -9235,6 +9428,25 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .sms-history-filter-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sms-campaign-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sms-campaign-compose-actions,
+  .sms-campaign-card-head,
+  .sms-campaign-card-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sms-campaign-card-actions > div {
+    width: 100%;
+  }
+
+  .sms-campaign-card-actions > div > button {
+    flex: 1;
   }
 
   .sms-history-filter-actions {

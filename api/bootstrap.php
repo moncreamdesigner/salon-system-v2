@@ -96,7 +96,7 @@ function ensure_schema(PDO $pdo): void
     if ($ready) return;
     try {
         $schemaVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'schema_version'")->fetchColumn();
-        if ($schemaVersion >= 7) {
+        if ($schemaVersion >= 8) {
             $ready = true;
             return;
         }
@@ -259,6 +259,45 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_sms_booking (booking_id),
         INDEX idx_sms_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_sms_campaigns (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(120) NOT NULL,
+        message TEXT NOT NULL,
+        batch_size SMALLINT UNSIGNED NOT NULL DEFAULT 50,
+        status VARCHAR(20) NOT NULL DEFAULT 'draft',
+        total_count INT UNSIGNED NOT NULL DEFAULT 0,
+        pending_count INT UNSIGNED NOT NULL DEFAULT 0,
+        sent_count INT UNSIGNED NOT NULL DEFAULT 0,
+        failed_count INT UNSIGNED NOT NULL DEFAULT 0,
+        cancelled_count INT UNSIGNED NOT NULL DEFAULT 0,
+        created_by VARCHAR(64) NOT NULL DEFAULT '',
+        last_error VARCHAR(500) NOT NULL DEFAULT '',
+        started_at DATETIME NULL,
+        completed_at DATETIME NULL,
+        next_run_at DATETIME NULL,
+        lease_until DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_sms_campaign_status_due (status, next_run_at),
+        INDEX idx_sms_campaign_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_sms_campaign_recipients (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        campaign_id BIGINT UNSIGNED NOT NULL,
+        phone VARCHAR(32) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        max_attempts TINYINT UNSIGNED NOT NULL DEFAULT 3,
+        next_attempt_at DATETIME NULL,
+        last_error VARCHAR(500) NOT NULL DEFAULT '',
+        provider_response TEXT NULL,
+        sent_at DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY idx_sms_campaign_phone (campaign_id, phone),
+        INDEX idx_sms_campaign_recipient_due (campaign_id, status, next_attempt_at),
+        INDEX idx_sms_campaign_recipient_status (status, updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('revision', '0')");
     $pdo->exec("INSERT IGNORE INTO app_scope_revisions (scope_key, revision) VALUES ('global', 0)");
     $pdo->exec("INSERT IGNORE INTO app_meta (meta_key, meta_value) VALUES ('backup_interval_days', '1')");
@@ -288,7 +327,7 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec("UPDATE app_meta SET meta_value = '6' WHERE meta_key = 'backup_interval_hours'");
         $pdo->exec("UPDATE app_meta SET meta_value = '3' WHERE meta_key = 'backup_policy_version'");
     }
-    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '7') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
+    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '8') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
     $ready = true;
 }
 

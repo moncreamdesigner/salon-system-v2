@@ -16,7 +16,7 @@ test("SMS configuration and outbox are server-owned and recoverable", () => {
   assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS app_sms_settings/);
   assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS app_sms_messages/);
   assert.match(bootstrap, /dedupe_key VARCHAR\(190\) NOT NULL UNIQUE/);
-  assert.match(bootstrap, /'schema_version', '7'/);
+  assert.match(bootstrap, /'schema_version', '8'/);
   assert.match(fullBackups, /'app_sms_settings'/);
   assert.match(fullBackups, /'app_sms_messages'/);
 });

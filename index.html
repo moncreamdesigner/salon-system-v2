@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202608241624">
+  <meta name="app-build" content="202608251340">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202608241624">
+  <link rel="stylesheet" href="styles.css?v=202608251340">
 </head>
 <body>
   <div class="app-shell">
@@ -54,6 +54,7 @@
         <button class="nav-item" data-view="giftCards">Бэлгийн карт</button>
         <button class="nav-item" data-view="settingsDiscounts">Хямдрал</button>
         <button class="nav-item" data-view="dashboard">Хяналтын самбар</button>
+        <button class="nav-item" data-view="smsCampaigns" data-admin-only>SMS</button>
         <button class="nav-item" data-view="settingsHumanResources">Хүний нөөц</button>
         <button class="nav-item" data-view="settingsSchedule">Цагийн хуваарь</button>
         <div class="nav-group" data-admin-only>
@@ -67,7 +68,7 @@
             <button class="nav-subitem" data-view="groups">Групп</button>
             <button class="nav-subitem" data-view="settingsUsers" data-admin-only>Хэрэглэгчийн эрх</button>
             <button class="nav-subitem" data-view="settingsDatabase">Өгөгдлийн сан</button>
-            <button class="nav-subitem" data-view="settingsSms">SMS</button>
+            <button class="nav-subitem" data-view="settingsSms">SMS тохиргоо</button>
             <button class="nav-subitem" data-view="settingsGeneral">Ерөнхий</button>
             <button class="nav-subitem" data-view="audit">Үйлдлийн түүх</button>
           </div>
@@ -859,6 +860,48 @@
           <div class="service-category-list diagnosis-list" id="diagnosisTypeList"></div>
         </section>
       </section>
+      <section class="view" id="smsCampaignsView">
+        <section class="panel sms-campaign-compose">
+          <div class="sms-section-head">
+            <div>
+              <h2>Сурталчилгааны SMS</h2>
+              <p>Зөвхөн баталгаажуулж эхлүүлсэн илгээлт серверийн дарааллаар явна.</p>
+            </div>
+            <span class="sms-status-chip">09:00–18:59</span>
+          </div>
+          <form id="smsCampaignForm" autocomplete="off" data-form-type="other">
+            <div class="sms-campaign-form-grid">
+              <label>Илгээлтийн нэр
+                <input class="input" id="smsCampaignTitle" maxlength="120" placeholder="Жишээ: Намрын хямдрал">
+              </label>
+              <label>Минутанд илгээх тоо
+                <input class="input" id="smsCampaignBatchSize" type="number" min="10" max="100" step="1" value="50">
+              </label>
+            </div>
+            <label class="sms-campaign-message-label">SMS агуулга
+              <textarea class="input" id="smsCampaignMessage" maxlength="1000" rows="4" placeholder="Хэрэглэгчид илгээх мессежээ бичнэ үү"></textarea>
+              <small class="sms-length-counter" id="smsCampaignMessageCounter">0/1000 тэмдэгт · 1 SMS</small>
+            </label>
+            <div class="sms-settings-actions sms-campaign-compose-actions">
+              <div class="sms-campaign-audience">
+                <button class="secondary-btn" id="smsCampaignAudienceButton" type="button">Хүлээн авагч шалгах</button>
+                <span id="smsCampaignAudienceCount">Зөвхөн шаардлагатай үед тооцоолно.</span>
+              </div>
+              <button class="primary-btn" type="submit">Илгээлт бэлтгэх</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel sms-campaign-history-panel">
+          <div class="sms-section-head">
+            <div><h2>SMS илгээлтүүд</h2><p id="smsCampaignTotal">Нийт 0 илгээлт</p></div>
+            <button class="secondary-btn" id="smsCampaignRefresh" type="button">Шинэчлэх</button>
+          </div>
+          <div class="sms-campaign-list" id="smsCampaignRows"></div>
+          <p class="sms-history-empty" id="smsCampaignEmpty">SMS илгээлт бүртгэгдээгүй байна.</p>
+          <div class="pagination-row" id="smsCampaignPagination"></div>
+        </section>
+      </section>
       <section class="view" id="settingsSmsView">
         <div class="sms-section-tabs service-settings-tabs" role="tablist" aria-label="SMS хэсэг">
           <button class="sms-section-tab service-main-tab active" type="button" role="tab" data-sms-tab="settings" aria-selected="true">SMS тохиргоо</button>
@@ -1549,9 +1592,10 @@
       <p class="action-code-error" id="actionCodeError" role="alert"></p>
     </form>
   </div>
-  <script src="fliphtml5.js?v=202608241624"></script>
-  <script src="diagnostics.js?v=202608241624"></script>
-  <script src="app.js?v=202608241624"></script>
+  <script src="fliphtml5.js?v=202608251340"></script>
+  <script src="diagnostics.js?v=202608251340"></script>
+  <script src="sms-campaigns.js?v=202608251340"></script>
+  <script src="app.js?v=202608251340"></script>
 </body>
 </html>
 

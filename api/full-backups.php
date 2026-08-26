@@ -99,13 +99,15 @@ function database_full_snapshot(PDO $pdo): array
         'bookingArchive' => $pdo->query('SELECT * FROM app_booking_archive ORDER BY id')->fetchAll(),
         'smsSettings' => $pdo->query('SELECT * FROM app_sms_settings ORDER BY id')->fetchAll(),
         'smsMessages' => $pdo->query('SELECT * FROM app_sms_messages ORDER BY id')->fetchAll(),
+        'smsCampaigns' => $pdo->query('SELECT * FROM app_sms_campaigns ORDER BY id')->fetchAll(),
+        'smsCampaignRecipients' => $pdo->query('SELECT * FROM app_sms_campaign_recipients ORDER BY id')->fetchAll(),
         'sections' => $sections,
     ];
 }
 
 function database_sql_dump(PDO $pdo): string
 {
-    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log', 'app_operations', 'app_change_events', 'app_booking_archive', 'app_sms_settings', 'app_sms_messages'];
+    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log', 'app_operations', 'app_change_events', 'app_booking_archive', 'app_sms_settings', 'app_sms_messages', 'app_sms_campaigns', 'app_sms_campaign_recipients'];
     $lines = [
         '-- Khalgai Salon System full backup',
         '-- Created: ' . date('c'),

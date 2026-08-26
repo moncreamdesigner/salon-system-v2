@@ -955,6 +955,7 @@ function dirtySectionsForView(viewName = "") {
     groups: ["customers", "customerGroups"],
     settingsGeneral: ["generalSettings", "diagnosisTypes"],
     settingsUsers: [],
+    smsCampaigns: [],
     settingsSms: [],
     staff: ["staff"],
     catalog: ["catalog"],
@@ -2269,6 +2270,7 @@ const VIEW_SERVER_SECTIONS = {
   settingsResults: ["homepageSettings"],
   settingsUsers: ["salons"],
   settingsDatabase: ["generalSettings"],
+  smsCampaigns: ["generalSettings"],
   settingsSms: ["generalSettings"],
   settingsGeneral: ["generalSettings", "diagnosisTypes", "customerTypes", "customerTypeRules"],
   groups: ["customerTypes", "customerTypeRules", "pricePolicy"],
@@ -6047,6 +6049,12 @@ function infoForView(name) {
       ["Зургийн хэмжээ", generalSettings().diagnosisCaptureMode === "native" ? "Камерын үндсэн" : generalSettings().diagnosisCaptureSize],
       ["Оношилгоо", state.diagnosisTypes.length]
     ]],
+    smsCampaigns: ["SMS ИЛГЭЭЛТ", [
+      ["Нийт илгээлт", Number(smsCampaignPagination.total || 0).toLocaleString("en-US")],
+      ["Идэвхтэй", smsCampaignRows.filter(item => item.status === "running").length],
+      ["Хүлээгдэж буй", smsCampaignRows.reduce((sum, item) => sum + Number(item.pending_count || 0), 0).toLocaleString("en-US")],
+      ["Илгээсэн", smsCampaignRows.reduce((sum, item) => sum + Number(item.sent_count || 0), 0).toLocaleString("en-US")]
+    ]],
     settingsSms: ["SMS ТОХИРГОО", [
       ["Төлөв", smsSettingsCache?.enabled ? "Идэвхтэй" : "Идэвхгүй"],
       ["Хэсэг", activeSmsTab === "history" ? "Илгээсэн түүх" : "Тохиргоо"],
@@ -7208,6 +7216,7 @@ function renderActiveView(name = activeView, { force = false } = {}) {
   else if (name === "groups") renderGroupDirectory();
   else if (name === "settingsUsers") loadSystemUsers();
   else if (name === "settingsDatabase") renderDatabaseSettings();
+  else if (name === "smsCampaigns") void loadSmsCampaigns();
   else if (name === "settingsSms") void loadSmsSettings();
   else if (name === "settingsGeneral") renderGeneralSettings();
   else if (name === "audit") renderAudit();
@@ -7240,7 +7249,7 @@ function releaseRenderedView(name) {
 
 function setView(name) {
   releaseDiagnosisCameraSession();
-  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsSms", "settingsGeneral", "audit"];
+  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "smsCampaigns", "settingsSms", "settingsGeneral", "audit"];
   const requestedScheduleSection = name === "settingsHolidays" ? "holidays" : null;
   if (name === "settingsHolidays") name = "settingsSchedule";
   if (retiredViews.has(name)) name = "bookings";
@@ -7250,6 +7259,7 @@ function setView(name) {
   }
   const previousView = activeView;
   if (previousView !== name) {
+    if (previousView === "smsCampaigns") stopSmsCampaignPolling();
     if (previousView === "profile") {
       const selected = state.customers.find(customer => Number(customer.id) === Number(state.selectedCustomerId));
       if (selected) clearCustomerUiState(selected);
@@ -7280,7 +7290,7 @@ function setView(name) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
   document.querySelectorAll(".nav-subitem").forEach(item => item.classList.toggle("active", item.dataset.view === name));
-  const isSettingsView = adminViews.includes(name);
+  const isSettingsView = adminViews.includes(name) && name !== "smsCampaigns";
   document.getElementById("settingsToggle")?.classList.toggle("active", isSettingsView);
   document.getElementById("settingsSubmenu")?.classList.toggle("open", isSettingsView);
   document.getElementById("settingsToggle")?.setAttribute("aria-expanded", String(isSettingsView));
@@ -7626,7 +7636,7 @@ function applyActiveAccount(account = {}) {
     const field = document.getElementById(id);
     if (field) delete field.dataset.ready;
   });
-  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "settingsSms", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
+  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "smsCampaigns", "settingsSms", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
 }
 
 function systemUserRoleLabel(role) {
@@ -18590,6 +18600,7 @@ function bindEvents() {
   document.getElementById("discountForm")?.addEventListener("submit", saveDiscount);
   document.getElementById("generalSettingsForm")?.addEventListener("submit", saveGeneralSettings);
   document.getElementById("smsSettingsForm")?.addEventListener("submit", saveSmsSettings);
+  bindSmsCampaignEvents();
   document.getElementById("smsTestButton")?.addEventListener("click", sendTestSms);
   document.querySelectorAll(".sms-section-tab").forEach(button => {
     button.addEventListener("click", () => setSmsTab(button.dataset.smsTab));
