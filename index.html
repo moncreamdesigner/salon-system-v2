@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202608251340">
+  <meta name="app-build" content="202608262322">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202608251340">
+  <link rel="stylesheet" href="styles.css?v=202608262322">
 </head>
 <body>
   <div class="app-shell">
@@ -882,6 +882,14 @@
               <textarea class="input" id="smsCampaignMessage" maxlength="1000" rows="4" placeholder="Хэрэглэгчид илгээх мессежээ бичнэ үү"></textarea>
               <small class="sms-length-counter" id="smsCampaignMessageCounter">0/1000 тэмдэгт · 1 SMS</small>
             </label>
+            <div class="sms-campaign-test-controls">
+              <label>Туршилтын дугаар
+                <input class="input" id="smsCampaignTestPhone" inputmode="numeric" maxlength="8" placeholder="99112233">
+              </label>
+              <button class="secondary-btn" id="smsCampaignTestButton" type="button">Туршилтын SMS илгээх</button>
+              <span>Зөвхөн энэ дугаарт илгээнэ. Нийт хэрэглэгчийн дараалал үүсэхгүй.</span>
+            </div>
+
             <div class="sms-settings-actions sms-campaign-compose-actions">
               <div class="sms-campaign-audience">
                 <button class="secondary-btn" id="smsCampaignAudienceButton" type="button">Хүлээн авагч шалгах</button>
@@ -1592,10 +1600,10 @@
       <p class="action-code-error" id="actionCodeError" role="alert"></p>
     </form>
   </div>
-  <script src="fliphtml5.js?v=202608251340"></script>
-  <script src="diagnostics.js?v=202608251340"></script>
-  <script src="sms-campaigns.js?v=202608251340"></script>
-  <script src="app.js?v=202608251340"></script>
+  <script src="fliphtml5.js?v=202608262322"></script>
+  <script src="diagnostics.js?v=202608262322"></script>
+  <script src="sms-campaigns.js?v=202608262322"></script>
+  <script src="app.js?v=202608262322"></script>
 </body>
 </html>
 

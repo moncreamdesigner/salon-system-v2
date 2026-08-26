@@ -70,6 +70,26 @@ $action = trim((string)($payload['action'] ?? ''));
 $now = new DateTimeImmutable('now', new DateTimeZone(SMS_TIMEZONE));
 $timestamp = $now->format('Y-m-d H:i:s');
 
+if ($action === 'test') {
+    $settings = sms_load_settings($pdo, true);
+    if (($settings['enabled'] ?? false) !== true || trim((string)($settings['apiUrl'] ?? '')) === '' || trim((string)($settings['token'] ?? '')) === '') {
+        json_response(['ok' => false, 'message' => 'Эхлээд SMS тохиргоогоо идэвхжүүлж хадгална уу.'], 409);
+    }
+    $phone = sms_normalize_phone((string)($payload['phone'] ?? ''));
+    $message = sms_latinize(trim((string)($payload['message'] ?? '')));
+    if ($phone === '') json_response(['ok' => false, 'message' => 'Туршилтын утас 8 оронтой байна.'], 422);
+    if ($message === '') json_response(['ok' => false, 'message' => 'Эхлээд SMS агуулгаа бичнэ үү.'], 422);
+    $lengthError = sms_message_length_error($message, (int)($settings['characterLimit'] ?? SMS_UNICODE_LIMIT));
+    if ($lengthError !== '') json_response(['ok' => false, 'message' => $lengthError], 422);
+    $booking = ['id' => 'campaign-test-' . bin2hex(random_bytes(6)), 'phone' => $phone, 'salon' => 'Сурталчилгаа', 'date' => $now->format('Y-m-d'), 'time' => $now->format('H:i')];
+    $id = sms_enqueue_row($pdo, 'campaign:test:' . bin2hex(random_bytes(16)), 'test', $booking, $message, $now);
+    $result = $id ? sms_dispatch_message($pdo, $id) : ['ok' => false, 'error' => 'Туршилтын SMS үүссэнгүй.'];
+    if (($result['ok'] ?? false) !== true) {
+        json_response(['ok' => false, 'message' => (string)($result['error'] ?? $result['message'] ?? 'SMS илгээгдсэнгүй.')], 502);
+    }
+    json_response(['ok' => true, 'message' => 'Сурталчилгааны туршилтын SMS амжилттай илгээгдлээ.']);
+}
+
 if ($action === 'create') {
     $settings = sms_load_settings($pdo, true);
     if (($settings['enabled'] ?? false) !== true || trim((string)($settings['apiUrl'] ?? '')) === '' || trim((string)($settings['token'] ?? '')) === '') {

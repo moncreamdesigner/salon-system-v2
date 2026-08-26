@@ -149,6 +149,29 @@ async function previewSmsCampaignAudience() {
   }
 }
 
+async function sendSmsCampaignTest() {
+  const phone = formValue("smsCampaignTestPhone").replace(/\D/g, "").slice(0, 8);
+  const message = formValue("smsCampaignMessage");
+  if (phone.length !== 8) return showToast("Туршилтын утас 8 оронтой байна", "error");
+  if (!message) return showToast("Эхлээд SMS агуулгаа бичнэ үү", "error");
+  if (Array.from(message).length > smsCampaignCharacterLimit) return showToast("SMS агуулга тохируулсан хязгаараас урт байна", "error");
+  const code = await requireEditCodeValue();
+  if (!code) return;
+  const button = document.getElementById("smsCampaignTestButton");
+  if (button) button.disabled = true;
+  try {
+    const result = await serverApi("sms-campaigns.php", {
+      method: "POST",
+      body: JSON.stringify({ action: "test", phone, message, code })
+    });
+    showToast(result.message || "Туршилтын SMS илгээгдлээ");
+  } catch (error) {
+    showToast(error.message || "Туршилтын SMS илгээгдсэнгүй", "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function createSmsCampaign(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -224,6 +247,10 @@ async function loadSmsCampaignRecipients(id, page = 1) {
 
 function bindSmsCampaignEvents() {
   document.getElementById("smsCampaignForm")?.addEventListener("submit", createSmsCampaign);
+  document.getElementById("smsCampaignTestButton")?.addEventListener("click", () => void sendSmsCampaignTest());
+  document.getElementById("smsCampaignTestPhone")?.addEventListener("input", event => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 8);
+  });
   document.getElementById("smsCampaignAudienceButton")?.addEventListener("click", () => void previewSmsCampaignAudience());
   document.getElementById("smsCampaignRefresh")?.addEventListener("click", () => void loadSmsCampaigns());
   document.getElementById("smsCampaignMessage")?.addEventListener("input", updateSmsCampaignMessageCounter);

@@ -86,3 +86,15 @@ test("SMS settings stays separate and campaign submit preserves its form across 
   assert.match(client, /form\.reset\(\)/);
   assert.doesNotMatch(client, /event\.currentTarget\.reset\(\)/);
 });
+test("campaign test SMS uses the exact draft without creating an audience queue", () => {
+  assert.match(html, /id="smsCampaignTestPhone"/);
+  assert.match(html, /id="smsCampaignTestButton"/);
+  assert.match(client, /async function sendSmsCampaignTest\(\)/);
+  assert.match(client, /action: "test", phone, message, code/);
+  assert.match(api, /if \(\$action === 'test'\)/);
+  assert.match(api, /sms_latinize\(trim\(\(string\)\(\$payload\['message'\]/);
+  assert.match(api, /sms_enqueue_row\(\$pdo, 'campaign:test:'/);
+  assert.match(api, /sms_dispatch_message\(\$pdo, \$id\)/);
+  const testBlock = api.slice(api.indexOf("if ($action === 'test')"), api.indexOf("if ($action === 'create')"));
+  assert.doesNotMatch(testBlock, /app_sms_campaign_recipients|sms_campaign_audience/);
+});

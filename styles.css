@@ -9214,6 +9214,37 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   line-height: 1.55;
 }
 
+.sms-campaign-test-controls {
+  display: grid;
+  grid-template-columns: minmax(190px, 250px) auto minmax(220px, 1fr);
+  align-items: end;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+}
+
+.sms-campaign-test-controls > label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sms-campaign-test-controls > button {
+  min-height: 40px;
+}
+
+.sms-campaign-test-controls > span {
+  align-self: center;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .sms-campaign-audience {
   display: flex;
   align-items: center;
@@ -9410,6 +9441,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     grid-template-columns: minmax(0, 1fr) 150px;
   }
 
+  .sms-campaign-test-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .sms-history-filter-actions {
     justify-content: flex-end;
   }
@@ -9432,6 +9467,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .sms-campaign-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sms-campaign-test-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sms-campaign-test-controls > button {
+    width: 100%;
   }
 
   .sms-campaign-compose-actions,
