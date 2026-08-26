@@ -31,6 +31,9 @@ test("campaign access and all mutations remain admin-only and code-confirmed", (
   assert.match(api, /if \(!sms_campaign_code_matches/);
   assert.ok(api.indexOf("sms_campaign_code_matches($pdo") < api.indexOf("if ($action === 'create')"));
   assert.match(html, /data-view="smsCampaigns" data-admin-only/);
+  const adminMenu = html.slice(html.indexOf('id="settingsSubmenu"'), html.indexOf("</div>", html.indexOf('id="settingsSubmenu"')));
+  assert.match(adminMenu, /data-view="smsCampaigns" data-admin-only>SMS<\/button>/);
+  assert.doesNotMatch(html.slice(0, html.indexOf('id="settingsSubmenu"')), /data-view="smsCampaigns"/);
   assert.match(app, /"smsCampaigns", "settingsSms"/);
   assert.match(client, /const code = await requireEditCodeValue\(\)/);
 });
