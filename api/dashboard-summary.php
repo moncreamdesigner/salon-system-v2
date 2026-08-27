@@ -112,8 +112,8 @@ function dashboard_paid_amount(array $item): float
 function dashboard_empty_snapshot(): array
 {
     return [
-        'revenue' => 0, 'payments' => 0, 'visits' => 0, 'products' => 0,
-        'newCustomers' => 0, 'outstanding' => 0, 'completion' => 0, 'occupancy' => 0,
+        'revenue' => 0, 'serviceRevenue' => 0, 'payments' => 0, 'visits' => 0,
+        'products' => 0, 'newCustomers' => 0, 'outstanding' => 0, 'completion' => 0, 'occupancy' => 0,
     ];
 }
 
@@ -130,9 +130,81 @@ function dashboard_age(array $customer, int $year): int
     return $birthYear > 1900 ? max(0, $year - $birthYear) : 0;
 }
 
+function dashboard_periods(string $month, bool $includeTotal): array
+{
+    $periods = $month !== '' ? [$month] : [];
+    if ($includeTotal) $periods[] = 'all';
+    return array_values(array_unique($periods));
+}
+
+function dashboard_minutes(string $value): int
+{
+    $parts = array_map('intval', explode(':', $value));
+    return (($parts[0] ?? 0) * 60) + ($parts[1] ?? 0);
+}
+
+function dashboard_holiday_closed(array $holidays, string $salon, string $date): bool
+{
+    foreach ($holidays as $holiday) {
+        if (!is_array($holiday) || trim((string)($holiday['date'] ?? '')) !== $date) continue;
+        $singleSalon = trim((string)($holiday['salon'] ?? ''));
+        $scope = $holiday['salons'] ?? null;
+        if ($singleSalon !== '' && ($singleSalon === $salon || $singleSalon === '*')) return true;
+        if ($singleSalon === '' && is_array($scope) && (in_array($salon, $scope, true) || in_array('*', $scope, true))) return true;
+    }
+    return false;
+}
+
+function dashboard_month_capacity(array $salon, array $holidays, string $month, DateTimeImmutable $today): int
+{
+    if (preg_match('/^\d{4}-\d{2}$/', $month) !== 1) return 0;
+    $timezone = new DateTimeZone('Asia/Ulaanbaatar');
+    $start = new DateTimeImmutable($month . '-01', $timezone);
+    if ($start > $today) return 0;
+    $end = $start->modify('last day of this month');
+    if ($end > $today) $end = $today;
+    $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
+    $duration = max(5, (int)($schedule['duration'] ?? 30));
+    $capacity = max(1, (int)($salon['slotCapacity'] ?? 1));
+    $salonName = trim((string)($salon['name'] ?? ''));
+    $total = 0;
+    for ($date = $start; $date <= $end; $date = $date->modify('+1 day')) {
+        $dateText = $date->format('Y-m-d');
+        if (dashboard_holiday_closed($holidays, $salonName, $dateText)) continue;
+        $weekend = in_array((int)$date->format('w'), [0, 6], true);
+        $open = dashboard_minutes((string)($schedule[$weekend ? 'weekendStart' : 'workStart'] ?? ($weekend ? '10:00' : '09:00')));
+        $close = dashboard_minutes((string)($schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00'));
+        $latest = $close - 120;
+        if ($latest < $open) continue;
+        $slotTimes = intdiv($latest - $open, $duration) + 1;
+        $total += $slotTimes * $capacity;
+    }
+    return $total;
+}
+
+function dashboard_total_capacity(array $salons, array $holidays, array $firstBookingMonths, string $scope, DateTimeImmutable $today): int
+{
+    $total = 0;
+    foreach ($salons as $salon) {
+        if (!is_array($salon)) continue;
+        $name = trim((string)($salon['name'] ?? ''));
+        if ($scope !== '' && $name !== $scope) continue;
+        $firstMonth = trim((string)($firstBookingMonths[$name] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}$/', $firstMonth) !== 1) continue;
+        $cursor = new DateTimeImmutable($firstMonth . '-01', new DateTimeZone('Asia/Ulaanbaatar'));
+        $lastMonth = new DateTimeImmutable($today->format('Y-m') . '-01', new DateTimeZone('Asia/Ulaanbaatar'));
+        for (; $cursor <= $lastMonth; $cursor = $cursor->modify('+1 month')) {
+            $total += dashboard_month_capacity($salon, $holidays, $cursor->format('Y-m'), $today);
+        }
+    }
+    return $total;
+}
+
 $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
-$requestedMonth = preg_match('/^\d{4}-\d{2}$/', (string)($_GET['month'] ?? '')) === 1
-    ? (string)$_GET['month']
+$requestedPeriod = trim((string)($_GET['month'] ?? ''));
+$isTotal = $requestedPeriod === 'all';
+$requestedMonth = preg_match('/^\d{4}-\d{2}$/', $requestedPeriod) === 1
+    ? $requestedPeriod
     : $today->format('Y-m');
 $requestedSalon = trim((string)($_GET['salon'] ?? ''));
 $salon = ($user['role'] ?? '') === 'salon' ? trim((string)($user['salon'] ?? '')) : $requestedSalon;
@@ -140,7 +212,7 @@ $monthStart = new DateTimeImmutable($requestedMonth . '-01', new DateTimeZone('A
 $fromMonth = $monthStart->modify('-5 months')->format('Y-m');
 $toMonth = $requestedMonth;
 
-$keys = ['customers', 'customerGroups', 'bookings', 'staff', 'assignments', 'salons'];
+$keys = ['customers', 'customerGroups', 'bookings', 'holidays', 'staff', 'assignments', 'salons'];
 $placeholders = implode(',', array_fill(0, count($keys), '?'));
 $statement = db()->prepare("SELECT section_key, payload, revision FROM app_sections WHERE section_key IN ($placeholders)");
 $statement->execute($keys);
@@ -167,6 +239,7 @@ $monthKeys = [];
 for ($cursor = $monthStart->modify('-5 months'); $cursor <= $monthStart; $cursor = $cursor->modify('+1 month')) {
     $monthKeys[] = $cursor->format('Y-m');
 }
+if ($isTotal) $monthKeys[] = 'all';
 
 $snapshots = [];
 $serviceCounts = [];
@@ -174,6 +247,7 @@ $paymentTotals = [];
 $sourceTotals = [];
 $topServices = [];
 $bookingCounts = [];
+$firstBookingMonths = [];
 foreach ($monthKeys as $monthKey) {
     foreach ($scopes as $scope) {
         $key = dashboard_scope_key($monthKey, $scope);
@@ -182,7 +256,7 @@ foreach ($monthKeys as $monthKey) {
         $paymentTotals[$key] = [];
         $sourceTotals[$key] = ['single' => 0, 'course' => 0, 'product' => 0];
         $topServices[$key] = [];
-        $bookingCounts[$key] = ['total' => 0, 'active' => 0, 'confirmed' => 0];
+        $bookingCounts[$key] = ['total' => 0, 'active' => 0, 'confirmed' => 0, 'occupied' => 0];
     }
 }
 
@@ -246,8 +320,10 @@ foreach ((array)$source['customers'] as $customer) {
         $registeredMonth = dashboard_month($registeredDate);
         if ($registeredMonth !== '') $monthsFound[$registeredMonth] = true;
         $registeredSalon = trim((string)($customer['registeredSalon'] ?? $customer['salon'] ?? ''));
-        if (isset($snapshots[dashboard_scope_key($registeredMonth, '')])) $snapshots[dashboard_scope_key($registeredMonth, '')]['newCustomers']++;
-        if ($registeredSalon !== '' && isset($snapshots[dashboard_scope_key($registeredMonth, $registeredSalon)])) $snapshots[dashboard_scope_key($registeredMonth, $registeredSalon)]['newCustomers']++;
+        foreach (dashboard_periods($registeredMonth, $isTotal) as $period) {
+            if (isset($snapshots[dashboard_scope_key($period, '')])) $snapshots[dashboard_scope_key($period, '')]['newCustomers']++;
+            if ($registeredSalon !== '' && isset($snapshots[dashboard_scope_key($period, $registeredSalon)])) $snapshots[dashboard_scope_key($period, $registeredSalon)]['newCustomers']++;
+        }
     }
 
     $hasActiveCourse = !$isDeleted && !empty($customer['activeCourse']);
@@ -266,9 +342,11 @@ foreach ((array)$source['customers'] as $customer) {
         $kind = (string)($item['kind'] ?? 'single');
         if ($includeOperationalData) {
             foreach ($targetScopes as $scope) {
-                $key = dashboard_scope_key($itemMonth, $scope);
+              foreach (dashboard_periods($itemMonth, $isTotal) as $period) {
+                $key = dashboard_scope_key($period, $scope);
                 if (!isset($snapshots[$key])) continue;
                 $snapshots[$key]['outstanding'] += max(0, dashboard_number($item['balance'] ?? 0));
+              }
             }
         }
 
@@ -280,8 +358,10 @@ foreach ((array)$source['customers'] as $customer) {
                 if ($visitMonth !== '') $monthsFound[$visitMonth] = true;
                 $visitSalon = trim((string)($visit['salon'] ?? $itemSalon));
                 foreach (array_values(array_unique(['', $visitSalon])) as $scope) {
-                    $key = dashboard_scope_key($visitMonth, $scope);
-                    if (isset($serviceCounts[$key])) $serviceCounts[$key]['course']++;
+                    foreach (dashboard_periods($visitMonth, $isTotal) as $period) {
+                        $key = dashboard_scope_key($period, $scope);
+                        if (isset($serviceCounts[$key])) $serviceCounts[$key]['course']++;
+                    }
                 }
             }
         } elseif ($includeOperationalData && in_array($kind, ['kass', 'product'], true)) {
@@ -292,13 +372,17 @@ foreach ((array)$source['customers'] as $customer) {
             }
             $qty = $qty ?: 1;
             foreach ($targetScopes as $scope) {
-                $key = dashboard_scope_key($itemMonth, $scope);
-                if (isset($serviceCounts[$key])) $serviceCounts[$key]['kass'] += $qty;
+                foreach (dashboard_periods($itemMonth, $isTotal) as $period) {
+                    $key = dashboard_scope_key($period, $scope);
+                    if (isset($serviceCounts[$key])) $serviceCounts[$key]['kass'] += $qty;
+                }
             }
         } elseif ($includeOperationalData) {
             foreach ($targetScopes as $scope) {
-                $key = dashboard_scope_key($itemMonth, $scope);
-                if (isset($serviceCounts[$key])) $serviceCounts[$key]['single']++;
+                foreach (dashboard_periods($itemMonth, $isTotal) as $period) {
+                    $key = dashboard_scope_key($period, $scope);
+                    if (isset($serviceCounts[$key])) $serviceCounts[$key]['single']++;
+                }
             }
         }
         if ($includeOperationalData) {
@@ -306,8 +390,10 @@ foreach ((array)$source['customers'] as $customer) {
                 if (!is_array($diagnosis)) continue;
                 $diagnosisMonth = dashboard_month(dashboard_event_date($diagnosis));
                 foreach ($targetScopes as $scope) {
-                    $key = dashboard_scope_key($diagnosisMonth, $scope);
-                    if (isset($serviceCounts[$key])) $serviceCounts[$key]['diagnosis']++;
+                    foreach (dashboard_periods($diagnosisMonth, $isTotal) as $period) {
+                        $key = dashboard_scope_key($period, $scope);
+                        if (isset($serviceCounts[$key])) $serviceCounts[$key]['diagnosis']++;
+                    }
                 }
             }
         }
@@ -336,11 +422,13 @@ foreach ((array)$source['customers'] as $customer) {
             $paymentMonth = dashboard_month($paymentRow['date']);
             if ($paymentMonth !== '') $monthsFound[$paymentMonth] = true;
             foreach ($targetScopes as $scope) {
-                $key = dashboard_scope_key($paymentMonth, $scope);
+              foreach (dashboard_periods($paymentMonth, $isTotal) as $period) {
+                $key = dashboard_scope_key($period, $scope);
                 if (!isset($snapshots[$key])) continue;
                 dashboard_add_number($sourceTotals[$key], $sourceKind, $paymentRow['amount']);
                 if (!dashboard_actual_payment($paymentRow['method'])) continue;
                 $snapshots[$key]['revenue'] += $paymentRow['amount'];
+                if ($sourceKind !== 'product') $snapshots[$key]['serviceRevenue'] += $paymentRow['amount'];
                 $snapshots[$key]['payments']++;
                 if ($sourceKind === 'product') $snapshots[$key]['products'] += $paymentRow['amount'];
                 $label = dashboard_payment_label($paymentRow['method']);
@@ -348,6 +436,7 @@ foreach ((array)$source['customers'] as $customer) {
                 if (!isset($topServices[$key][$serviceName])) $topServices[$key][$serviceName] = ['name' => $serviceName, 'count' => 0, 'revenue' => 0];
                 $topServices[$key][$serviceName]['count']++;
                 $topServices[$key][$serviceName]['revenue'] += $paymentRow['amount'];
+              }
             }
         }
     }
@@ -360,12 +449,19 @@ foreach ((array)$source['bookings'] as $booking) {
     $month = dashboard_month($date);
     if ($month !== '') $monthsFound[$month] = true;
     $bookingSalon = trim((string)($booking['salon'] ?? ''));
+    if ($month !== '' && $bookingSalon !== '' && (!isset($firstBookingMonths[$bookingSalon]) || $month < $firstBookingMonths[$bookingSalon])) {
+        $firstBookingMonths[$bookingSalon] = $month;
+    }
+    $bookingIsPastOrToday = $date !== '' && $date <= $today->format('Y-m-d');
     foreach (array_values(array_unique(['', $bookingSalon])) as $scope) {
-        $key = dashboard_scope_key($month, $scope);
-        if (!isset($bookingCounts[$key])) continue;
-        $bookingCounts[$key]['total']++;
-        if (($booking['status'] ?? '') !== 'cancelled') $bookingCounts[$key]['active']++;
-        if (($booking['status'] ?? '') === 'confirmed') $bookingCounts[$key]['confirmed']++;
+        foreach (dashboard_periods($month, $isTotal) as $period) {
+            $key = dashboard_scope_key($period, $scope);
+            if (!isset($bookingCounts[$key])) continue;
+            $bookingCounts[$key]['total']++;
+            if (!in_array((string)($booking['status'] ?? ''), ['cancelled', 'rejected'], true)) $bookingCounts[$key]['active']++;
+            if (($booking['status'] ?? '') === 'confirmed') $bookingCounts[$key]['confirmed']++;
+            if ($bookingIsPastOrToday && !in_array((string)($booking['status'] ?? ''), ['cancelled', 'rejected'], true)) $bookingCounts[$key]['occupied']++;
+        }
     }
 }
 
@@ -380,12 +476,20 @@ $serviceRows = [];
 $paymentRows = [];
 $topRows = [];
 foreach ($snapshots as $key => &$snapshot) {
-    $counts = $bookingCounts[$key] ?? ['total' => 0, 'active' => 0, 'confirmed' => 0];
+    [$period, $scopeToken] = array_pad(explode('|', $key, 2), 2, 'all');
+    $scopeName = $scopeToken === 'all' ? '' : $scopeToken;
+    $counts = $bookingCounts[$key] ?? ['total' => 0, 'active' => 0, 'confirmed' => 0, 'occupied' => 0];
     $snapshot['completion'] = $counts['active'] ? (int)round($counts['confirmed'] / $counts['active'] * 100) : 0;
-    $snapshot['occupancy'] = $counts['total'] ? (int)round($counts['active'] / $counts['total'] * 100) : 0;
+    $availableCapacity = $period === 'all'
+        ? dashboard_total_capacity($allSalons, (array)$source['holidays'], $firstBookingMonths, $scopeName, $today)
+        : array_sum(array_map(
+            static fn(array $item): int => dashboard_month_capacity($item, (array)$source['holidays'], $period, $today),
+            array_values(array_filter($allSalons, static fn(array $item): bool => $scopeName === '' || trim((string)($item['name'] ?? '')) === $scopeName))
+        ));
+    $snapshot['occupancy'] = $availableCapacity ? min(100, (int)round($counts['occupied'] / $availableCapacity * 100)) : 0;
     $countMap = $serviceCounts[$key] ?? [];
-    $serviceTotal = array_sum($countMap);
-    $snapshot['visits'] = $serviceTotal;
+    $snapshot['visits'] = (int)($countMap['course'] ?? 0) + (int)($countMap['single'] ?? 0) + (int)($countMap['diagnosis'] ?? 0);
+    $serviceTotal = $snapshot['visits'];
     $serviceRows[$key] = [];
     foreach ($serviceTemplates as $kind => $template) {
         $count = (int)($countMap[$kind] ?? 0);
@@ -499,7 +603,7 @@ $summary = [
 json_response([
     'ok' => true,
     'mode' => 'dashboard-summary',
-    'month' => $requestedMonth,
+    'month' => $isTotal ? 'all' : $requestedMonth,
     'salon' => $salon,
     'months' => $months,
     'salons' => $allSalons,
