@@ -8111,6 +8111,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: transparent;
 }
 
+.schedule-selector-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  min-width: 0;
+}
+
 .schedule-selector label {
   display: grid;
   align-items: start;
@@ -8128,6 +8135,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .schedule-selector .custom-select {
   width: 310px;
+}
+
+.schedule-selector .schedule-effective-field .input {
+  width: 190px;
 }
 
 .settings-fields .schedule-time-proxy {
@@ -10327,7 +10338,17 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     gap: 10px;
   }
 
+  .schedule-selector-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
   .schedule-selector .input {
+    width: 100%;
+  }
+
+  .schedule-selector .schedule-effective-field .input {
     width: 100%;
   }
 

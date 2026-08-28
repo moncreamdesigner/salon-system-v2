@@ -71,6 +71,7 @@ test("reminders use Mongolia time, branch schedules, daytime checks and bounded 
   assert.match(service, /const SMS_TIMEZONE = 'Asia\/Ulaanbaatar'/);
   assert.match(service, /const SMS_FIRST_CHECK_HOUR = 6/);
   assert.match(service, /sms_last_bookable_minutes/);
+  assert.match(service, /salon_schedule_for_date\(\$salon, \$date->format\('Y-m-d'\)\)/);
   assert.match(service, /weekendEnd' : 'workEnd'/);
   assert.match(service, /max_attempts, next_attempt_at/);
   assert.match(service, /'pending', 3/);

@@ -120,7 +120,7 @@ try {
         json_response(['ok' => false, 'message' => 'Зөвхөн өнөөдрөөс хойш нэг сарын дотор цаг захиалах боломжтой.'], 422);
     }
 
-    $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
+    $schedule = salon_schedule_for_date($salon, $booking['date']);
     $isWeekend = in_array((int)$bookingDate->format('N'), [6, 7], true);
     $startText = (string)($schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
     $endText = (string)($schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
@@ -173,8 +173,7 @@ try {
     }
 
     // Тухайн цагийн багтаамж шалгах.
-    $capacity = (int)($salon['slotCapacity'] ?? 4);
-    if ($capacity < 1) $capacity = 4;
+    $capacity = salon_capacity_for_date($salon, $booking['date']);
     $slotCount = 0;
     foreach ($bookings as $existing) {
         if (!is_array($existing)) continue;

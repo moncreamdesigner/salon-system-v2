@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202608271209">
+  <meta name="app-build" content="202608281308">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202608271209">
+  <link rel="stylesheet" href="styles.css?v=202608281308">
 </head>
 <body>
   <div class="app-shell">
@@ -749,11 +749,16 @@
         </div>
         <div class="schedule-section-panel hidden" id="scheduleSettingsPanel" role="tabpanel">
         <section class="panel wide schedule-selector">
-          <label>Салбар
-            <select class="input" id="scheduleSalon">
-              <option value="" disabled>Салбар сонгох</option>
-            </select>
-          </label>
+          <div class="schedule-selector-fields">
+            <label>Салбар
+              <select class="input" id="scheduleSalon">
+                <option value="" disabled>Салбар сонгох</option>
+              </select>
+            </label>
+            <label class="schedule-effective-field">Хэрэгжиж эхлэх
+              <input class="input" id="scheduleEffectiveFrom" type="date">
+            </label>
+          </div>
           <button class="primary-btn schedule-save" id="scheduleSave" type="button">Хадгалах</button>
         </section>
         <div class="schedule-grid">
@@ -1600,10 +1605,10 @@
       <p class="action-code-error" id="actionCodeError" role="alert"></p>
     </form>
   </div>
-  <script src="fliphtml5.js?v=202608271209"></script>
-  <script src="diagnostics.js?v=202608271209"></script>
-  <script src="sms-campaigns.js?v=202608271209"></script>
-  <script src="app.js?v=202608271209"></script>
+  <script src="fliphtml5.js?v=202608281308"></script>
+  <script src="diagnostics.js?v=202608281308"></script>
+  <script src="sms-campaigns.js?v=202608281308"></script>
+  <script src="app.js?v=202608281308"></script>
 </body>
 </html>
 

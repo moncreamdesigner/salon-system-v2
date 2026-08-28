@@ -163,14 +163,14 @@ function dashboard_month_capacity(array $salon, array $holidays, string $month, 
     if ($start > $today) return 0;
     $end = $start->modify('last day of this month');
     if ($end > $today) $end = $today;
-    $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
-    $duration = max(5, (int)($schedule['duration'] ?? 30));
-    $capacity = max(1, (int)($salon['slotCapacity'] ?? 1));
     $salonName = trim((string)($salon['name'] ?? ''));
     $total = 0;
     for ($date = $start; $date <= $end; $date = $date->modify('+1 day')) {
         $dateText = $date->format('Y-m-d');
         if (dashboard_holiday_closed($holidays, $salonName, $dateText)) continue;
+        $schedule = salon_schedule_for_date($salon, $dateText);
+        $duration = max(5, (int)($schedule['duration'] ?? 30));
+        $capacity = salon_capacity_for_date($salon, $dateText);
         $weekend = in_array((int)$date->format('w'), [0, 6], true);
         $open = dashboard_minutes((string)($schedule[$weekend ? 'weekendStart' : 'workStart'] ?? ($weekend ? '10:00' : '09:00')));
         $close = dashboard_minutes((string)($schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00'));

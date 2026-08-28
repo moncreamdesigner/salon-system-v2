@@ -36,6 +36,15 @@ assert.match(publicApi, /booking_date_within_advance_window/, "Public bookings m
 assert.match(publicApi, /new DateTimeZone\('Asia\/Ulaanbaatar'\)/, "Public booking date validation must use Mongolia time");
 assert.match(app, /max="\$\{bookingMaxDateText\(\)\}"/, "Admin booking dates must expose the one-month maximum in the UI");
 assert.match(publicApp, /date > bookingMaxDate\(\)/, "Public booking dates beyond one month must be disabled");
+assert.match(bootstrap, /function salon_schedule_for_date/, "The server must resolve the schedule that applies on the booking date");
+assert.match(bootstrap, /scheduleVersions/, "Future schedule versions must remain date-effective instead of overwriting history");
+assert.match(api, /salon_schedule_for_date\(\$salon, \(string\)\$candidate\['date'\]\)/, "Admin booking validation must use the date-effective schedule");
+assert.match(api, /salon_capacity_for_date/, "Admin booking capacity must follow the date-effective schedule");
+assert.match(publicApi, /salon_schedule_for_date\(\$salon, \$booking\['date'\]\)/, "Public booking validation must use the date-effective schedule");
+assert.match(publicApi, /salon_capacity_for_date\(\$salon, \$booking\['date'\]\)/, "Public booking capacity must follow the date-effective schedule");
+assert.match(app, /scheduleEffectiveFrom/, "Schedule settings must expose an effective-from calendar");
+assert.match(app, /salon\.scheduleVersions/, "Schedule saves must append or replace a dated version");
+assert.match(publicApp, /salon\.scheduleVersions/, "The public booking UI must resolve dated schedules");
 
 const statusFunction = app.slice(app.indexOf("async function updateBookingStatus"), app.indexOf("let actionCodeDialogOpen"));
 assert.doesNotMatch(statusFunction, /saveState\(/, "Booking status must not write the full section");

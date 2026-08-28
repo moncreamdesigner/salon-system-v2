@@ -463,7 +463,7 @@ function sms_dispatch_immediate(PDO $pdo, array $ids): void
 
 function sms_last_bookable_minutes(array $salon, DateTimeImmutable $date): ?int
 {
-    $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
+    $schedule = salon_schedule_for_date($salon, $date->format('Y-m-d'));
     $weekend = in_array((int)$date->format('N'), [6, 7], true);
     $end = (string)($schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
     if (preg_match('/^(\d{2}):(\d{2})$/', $end, $parts) !== 1) return null;

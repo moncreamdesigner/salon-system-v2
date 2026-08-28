@@ -2770,9 +2770,19 @@ function selectedScheduleSalonName() {
   return document.getElementById("scheduleSalon")?.value || state.salons[0]?.name || "";
 }
 
-function scheduleConfig(salonName = selectedScheduleSalonName()) {
+function scheduleConfig(salonName = selectedScheduleSalonName(), date = todayText()) {
   const salon = state.salons.find(item => item.name === salonName) || state.salons[0];
-  return ensureSalonSchedule(salon);
+  const base = ensureSalonSchedule(salon);
+  const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : todayText();
+  const selected = (Array.isArray(salon?.scheduleVersions) ? salon.scheduleVersions : [])
+    .filter(item => item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) && item.effectiveFrom <= targetDate)
+    .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)))
+    .at(-1);
+  return {
+    ...base,
+    ...(selected || {}),
+    capacity: Math.max(Number(selected?.capacity ?? salon?.slotCapacity) || 4, 1)
+  };
 }
 
 function timeToMinutes(value) {
@@ -2800,7 +2810,7 @@ function generateTimeOptions(start, end, duration) {
 }
 
 function bookingOptionsForSalon(salonName, date = todayText()) {
-  const config = scheduleConfig(salonName || state.salons[0]?.name);
+  const config = scheduleConfig(salonName || state.salons[0]?.name, date);
   const selectedDate = new Date(`${date}T00:00:00`);
   const weekend = [0, 6].includes(selectedDate.getDay());
   return generateTimeOptions(
@@ -2816,7 +2826,8 @@ function refreshBookingTimeOptions(salonName) {
 }
 
 function scheduleFormConfig() {
-  const config = scheduleConfig();
+  const effectiveFrom = document.getElementById("scheduleEffectiveFrom")?.value || todayText();
+  const config = scheduleConfig(selectedScheduleSalonName(), effectiveFrom);
   return {
     workStart: document.getElementById("scheduleWorkStart")?.value || config.workStart,
     workEnd: document.getElementById("scheduleWorkEnd")?.value || config.workEnd,
@@ -2837,7 +2848,7 @@ function renderSchedulePreview() {
   if (hint) hint.textContent = `${config.duration} мин → ${slots.slice(0, 3).join(", ")}... · нэг цагт ${document.getElementById("scheduleCapacity")?.value || 4} хүн`;
 }
 
-function renderScheduleSettings(selectedName = selectedScheduleSalonName()) {
+function renderScheduleSettings(selectedName = selectedScheduleSalonName(), effectiveFrom = document.getElementById("scheduleEffectiveFrom")?.value || todayText()) {
   const scheduleSalon = document.getElementById("scheduleSalon");
   if (!scheduleSalon) return;
   const salons = accountSalons();
@@ -2846,13 +2857,18 @@ function renderScheduleSettings(selectedName = selectedScheduleSalonName()) {
   scheduleSalon.innerHTML = salons.map(salon => `<option value="${salon.name}">${salon.name}</option>`).join("");
   scheduleSalon.value = selectedSalon;
   scheduleSalon.disabled = isSalonAccount();
-  const config = scheduleConfig(scheduleSalon.value);
+  const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(effectiveFrom || "")) ? effectiveFrom : todayText();
+  const targetDate = requestedDate < todayText() ? todayText() : requestedDate;
+  const config = scheduleConfig(scheduleSalon.value, targetDate);
+  const effectiveInput = document.getElementById("scheduleEffectiveFrom");
+  effectiveInput.min = todayText();
+  effectiveInput.value = targetDate;
   document.getElementById("scheduleWorkStart").value = config.workStart;
   document.getElementById("scheduleWorkEnd").value = config.workEnd;
   document.getElementById("scheduleWeekendStart").value = config.weekendStart;
   document.getElementById("scheduleWeekendEnd").value = config.weekendEnd;
   document.getElementById("scheduleDuration").value = config.duration;
-  document.getElementById("scheduleCapacity").value = getSalonCapacity(scheduleSalon.value);
+  document.getElementById("scheduleCapacity").value = config.capacity;
   renderSchedulePreview();
   enhanceNativeSelects(["scheduleSalon"]);
   enhanceScheduleTimeInputs();
@@ -2879,20 +2895,28 @@ function saveScheduleSettings() {
   const salon = state.salons.find(item => item.name === salonName);
   if (!salon) return;
   if (!canAccessSalon(salon.name)) return showToast("Зөвхөн өөрийн салбарын хуваарийг засна");
-  salon.schedule = {
+  const effectiveFrom = document.getElementById("scheduleEffectiveFrom")?.value || "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) return showToast("Хэрэгжиж эхлэх огноог сонгоно уу");
+  if (effectiveFrom < todayText()) return showToast("Өнгөрсөн огнооноос шинэ хуваарь хэрэгжүүлэх боломжгүй");
+  const nextSchedule = {
+    effectiveFrom,
     workStart: document.getElementById("scheduleWorkStart").value || "09:00",
     workEnd: document.getElementById("scheduleWorkEnd").value || "19:00",
     weekendStart: document.getElementById("scheduleWeekendStart").value || "10:00",
     weekendEnd: document.getElementById("scheduleWeekendEnd").value || "19:00",
-    duration: Math.max(Number(document.getElementById("scheduleDuration").value) || 30, 5)
+    duration: Math.max(Number(document.getElementById("scheduleDuration").value) || 30, 5),
+    capacity: Math.max(Number(document.getElementById("scheduleCapacity").value) || 1, 1)
   };
-  salon.slotCapacity = Math.max(Number(document.getElementById("scheduleCapacity").value) || 1, 1);
+  salon.scheduleVersions = (Array.isArray(salon.scheduleVersions) ? salon.scheduleVersions : [])
+    .filter(item => item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) && item.effectiveFrom !== effectiveFrom)
+    .concat(nextSchedule)
+    .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)));
   delete state.scheduleSettings;
   refreshBookingTimeOptions(salon.name);
   saveState();
-  renderScheduleSettings(salon.name);
+  renderScheduleSettings(salon.name, effectiveFrom);
   renderInfoHeader(activeView);
-  showToast("Цагийн хуваарь хадгалагдлаа");
+  showToast(`${effectiveFrom}-с хэрэгжих цагийн хуваарь хадгалагдлаа`);
 }
 
 const titles = {
@@ -18065,9 +18089,9 @@ function closeBookingForm() {
   if (slot) slot.innerHTML = "";
 }
 
-function getSalonCapacity(salonName) {
+function getSalonCapacity(salonName, date = todayText()) {
   const salon = state.salons.find(item => item.name === salonName);
-  if (salon?.slotCapacity) return Number(salon.slotCapacity);
+  if (salon) return Math.max(Number(scheduleConfig(salonName, date).capacity) || 1, 1);
   return String(salonName || "").includes("Төв") ? 6 : 4;
 }
 
@@ -18142,7 +18166,7 @@ function renderBookingTimeOptionsForRow(editingId, slotRow, preferFirstAvailable
   const salonName = slotRow.querySelector(".booking-salon")?.value || "";
   const date = slotRow.querySelector(".booking-date")?.value || "";
   if (!dropdown || !menu || !input || !triggerText) return;
-  const capacity = getSalonCapacity(salonName);
+  const capacity = getSalonCapacity(salonName, date);
   const timeOptions = bookingOptionsForSalon(salonName, date);
   const closedHoliday = holidayForDate(salonName, date);
   let firstAvailable = "";
@@ -18353,7 +18377,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
         other.date === item.date &&
         other.time === item.time
       ).length;
-      return bookedCountForSlot(item.salon, item.date, item.time, editId) + selectedCount > getSalonCapacity(item.salon);
+      return bookedCountForSlot(item.salon, item.date, item.time, editId) + selectedCount > getSalonCapacity(item.salon, item.date);
     });
     if (overCapacitySlot) {
       showToast("Суудлын багтаамжаас хэтэрсэн байна");
@@ -18923,7 +18947,10 @@ function bindEvents() {
 
   document.getElementById("scheduleSave")?.addEventListener("click", saveScheduleSettings);
   document.getElementById("scheduleSalon")?.addEventListener("change", event => {
-    renderScheduleSettings(event.target.value);
+    renderScheduleSettings(event.target.value, document.getElementById("scheduleEffectiveFrom")?.value || todayText());
+  });
+  document.getElementById("scheduleEffectiveFrom")?.addEventListener("change", event => {
+    renderScheduleSettings(selectedScheduleSalonName(), event.target.value || todayText());
   });
   ["scheduleWorkStart", "scheduleWorkEnd", "scheduleWeekendStart", "scheduleWeekendEnd", "scheduleDuration", "scheduleCapacity"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", renderSchedulePreview);

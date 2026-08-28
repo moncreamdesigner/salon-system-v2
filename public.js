@@ -315,11 +315,29 @@ function salonConfig(salon) {
   };
 }
 
-function salonSchedule(salon, date = new Date()) {
+function salonScheduleConfig(salon, date = new Date()) {
   const defaults = { workStart: "09:00", workEnd: "19:00", weekendStart: "10:00", weekendEnd: "19:00", duration: 30 };
-  const config = { ...defaults, ...(salon.schedule || {}) };
+  const targetDate = date instanceof Date ? dateText(date) : String(date || "");
+  const selected = (Array.isArray(salon.scheduleVersions) ? salon.scheduleVersions : [])
+    .filter(item => item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) && item.effectiveFrom <= targetDate)
+    .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)))
+    .at(-1);
+  return {
+    ...defaults,
+    ...(salon.schedule || {}),
+    ...(selected || {}),
+    capacity: Math.max(Number(selected?.capacity ?? salon.slotCapacity) || 4, 1)
+  };
+}
+
+function salonSchedule(salon, date = new Date()) {
+  const config = salonScheduleConfig(salon, date);
   const weekend = [0, 6].includes(date.getDay());
   return { start: weekend ? config.weekendStart : config.workStart, end: weekend ? config.weekendEnd : config.workEnd, duration: Number(config.duration) || 30 };
+}
+
+function salonCapacity(salon, date) {
+  return salonScheduleConfig(salon, date).capacity;
 }
 
 function renderSalonDetail(salonId, { preserveSelection = false, preserveScroll = false } = {}) {
@@ -338,8 +356,9 @@ function renderSalonDetail(salonId, { preserveSelection = false, preserveScroll 
   activeHeroSlide = 0;
   savePublicUiState();
   const config = salonConfig(salon);
-  const weekdaySchedule = salonSchedule(salon, new Date(2026, 6, 13));
-  const weekendSchedule = salonSchedule(salon, new Date(2026, 6, 12));
+  const activeSchedule = salonScheduleConfig(salon, new Date());
+  const weekdaySchedule = { start: activeSchedule.workStart, end: activeSchedule.workEnd };
+  const weekendSchedule = { start: activeSchedule.weekendStart, end: activeSchedule.weekendEnd };
   document.getElementById("salonDirectory").classList.add("hidden");
   const detail = document.getElementById("salonDetail");
   detail.classList.remove("hidden");
@@ -433,7 +452,7 @@ function timeOptions(salon, date) {
 
 function slotFull(salon, date, time) {
   const count = (publicState.bookings || []).filter(item => item.salon === salon.name && item.date === date && item.time === time && !["cancelled", "rejected"].includes(item.status)).length;
-  return count >= Math.max(Number(salon.slotCapacity) || 1, 1);
+  return count >= salonCapacity(salon, date);
 }
 
 function dateHoliday(salon, date) {

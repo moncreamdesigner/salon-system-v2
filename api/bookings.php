@@ -77,11 +77,11 @@ function booking_unique_id(array $rows): string
     return $id;
 }
 
-function booking_capacity(array $salons, string $salonName): int
+function booking_capacity(array $salons, string $salonName, string $date): int
 {
     foreach ($salons as $salon) {
         if (is_array($salon) && trim((string)($salon['name'] ?? '')) === $salonName) {
-            return max(1, (int)($salon['slotCapacity'] ?? 4));
+            return salon_capacity_for_date($salon, $date);
         }
     }
     return 4;
@@ -140,7 +140,7 @@ function booking_assert_slot_rules(array $candidate, array $salons, array $holid
         }
     }
 
-    $schedule = is_array($salon['schedule'] ?? null) ? $salon['schedule'] : [];
+    $schedule = salon_schedule_for_date($salon, (string)$candidate['date']);
     $isWeekend = in_array((int)$bookingDate->format('N'), [6, 7], true);
     $startText = (string)($schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
     $endText = (string)($schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
@@ -180,7 +180,7 @@ function booking_assert_capacity(array $rows, array $candidate, array $salons, s
             $occupied++;
         }
     }
-    if ($occupied >= booking_capacity($salons, (string)$candidate['salon'])) {
+    if ($occupied >= booking_capacity($salons, (string)$candidate['salon'], (string)$candidate['date'])) {
         throw new DomainException('Сонгосон цаг дүүрсэн байна.');
     }
 }

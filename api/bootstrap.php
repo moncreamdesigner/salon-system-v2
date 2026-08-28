@@ -34,6 +34,39 @@ function booking_date_within_advance_window(DateTimeImmutable $date, DateTimeImm
     return $date >= $today && $date <= booking_max_advance_date($today);
 }
 
+function salon_schedule_for_date(array $salon, string $date): array
+{
+    $defaults = [
+        'workStart' => '09:00',
+        'workEnd' => '19:00',
+        'weekendStart' => '10:00',
+        'weekendEnd' => '19:00',
+        'duration' => 30,
+    ];
+    $base = array_merge($defaults, is_array($salon['schedule'] ?? null) ? $salon['schedule'] : []);
+    $selected = null;
+    $selectedDate = '';
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1) {
+        foreach ((array)($salon['scheduleVersions'] ?? []) as $version) {
+            if (!is_array($version)) continue;
+            $effectiveFrom = trim((string)($version['effectiveFrom'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $effectiveFrom) !== 1 || $effectiveFrom > $date || $effectiveFrom < $selectedDate) continue;
+            $selected = $version;
+            $selectedDate = $effectiveFrom;
+        }
+    }
+    $result = array_merge($base, is_array($selected) ? $selected : []);
+    $result['duration'] = max(5, (int)($result['duration'] ?? 30));
+    $result['capacity'] = max(1, (int)($result['capacity'] ?? $salon['slotCapacity'] ?? 4));
+    return $result;
+}
+
+function salon_capacity_for_date(array $salon, string $date): int
+{
+    $schedule = salon_schedule_for_date($salon, $date);
+    return max(1, (int)($schedule['capacity'] ?? $salon['slotCapacity'] ?? 4));
+}
+
 function private_config(): array
 {
     if (!is_file(KHALGAI_PRIVATE_CONFIG)) {
