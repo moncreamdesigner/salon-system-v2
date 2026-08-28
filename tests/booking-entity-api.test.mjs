@@ -45,6 +45,9 @@ assert.match(publicApi, /salon_capacity_for_date\(\$salon, \$booking\['date'\]\)
 assert.match(app, /scheduleEffectiveFrom/, "Schedule settings must expose an effective-from calendar");
 assert.match(app, /salon\.scheduleVersions/, "Schedule saves must append or replace a dated version");
 assert.match(publicApp, /salon\.scheduleVersions/, "The public booking UI must resolve dated schedules");
+assert.match(app, /workDuration[\s\S]*weekendDuration[\s\S]*workCapacity[\s\S]*weekendCapacity/, "Admin schedules must keep separate workday and weekend booking rules");
+assert.match(publicApp, /weekend \? weekendDuration : workDuration/, "Public slots must apply the duration for the selected day type");
+assert.match(bootstrap, /\$weekend \? \$result\['weekendCapacity'\] : \$result\['workCapacity'\]/, "Server capacity must apply the selected date's day type");
 
 const statusFunction = app.slice(app.indexOf("async function updateBookingStatus"), app.indexOf("let actionCodeDialogOpen"));
 assert.doesNotMatch(statusFunction, /saveState\(/, "Booking status must not write the full section");

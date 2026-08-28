@@ -2778,10 +2778,26 @@ function scheduleConfig(salonName = selectedScheduleSalonName(), date = todayTex
     .filter(item => item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) && item.effectiveFrom <= targetDate)
     .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)))
     .at(-1);
-  return {
+  const merged = {
     ...base,
-    ...(selected || {}),
-    capacity: Math.max(Number(selected?.capacity ?? salon?.slotCapacity) || 4, 1)
+    ...(selected || {})
+  };
+  const legacyDuration = Math.max(Number(merged.duration) || 30, 5);
+  const legacyCapacity = Math.max(Number(merged.capacity ?? salon?.slotCapacity) || 4, 1);
+  const workDuration = Math.max(Number(merged.workDuration) || legacyDuration, 5);
+  const weekendDuration = Math.max(Number(merged.weekendDuration) || legacyDuration, 5);
+  const workCapacity = Math.max(Number(merged.workCapacity) || legacyCapacity, 1);
+  const weekendCapacity = Math.max(Number(merged.weekendCapacity) || legacyCapacity, 1);
+  const selectedDate = new Date(`${targetDate}T00:00:00`);
+  const weekend = [0, 6].includes(selectedDate.getDay());
+  return {
+    ...merged,
+    workDuration,
+    weekendDuration,
+    workCapacity,
+    weekendCapacity,
+    duration: weekend ? weekendDuration : workDuration,
+    capacity: weekend ? weekendCapacity : workCapacity
   };
 }
 
@@ -2833,19 +2849,29 @@ function scheduleFormConfig() {
     workEnd: document.getElementById("scheduleWorkEnd")?.value || config.workEnd,
     weekendStart: document.getElementById("scheduleWeekendStart")?.value || config.weekendStart,
     weekendEnd: document.getElementById("scheduleWeekendEnd")?.value || config.weekendEnd,
-    duration: Math.max(Number(document.getElementById("scheduleDuration")?.value) || config.duration, 5)
+    workDuration: Math.max(Number(document.getElementById("scheduleWorkDuration")?.value) || config.workDuration, 5),
+    weekendDuration: Math.max(Number(document.getElementById("scheduleWeekendDuration")?.value) || config.weekendDuration, 5),
+    workCapacity: Math.max(Number(document.getElementById("scheduleWorkCapacity")?.value) || config.workCapacity, 1),
+    weekendCapacity: Math.max(Number(document.getElementById("scheduleWeekendCapacity")?.value) || config.weekendCapacity, 1)
   };
 }
 
 function renderSchedulePreview() {
   const config = scheduleFormConfig();
-  const slots = generateTimeOptions(config.workStart, config.workEnd, config.duration);
-  const previewCount = document.getElementById("schedulePreviewCount");
-  const previewSlots = document.getElementById("schedulePreviewSlots");
-  const hint = document.getElementById("scheduleHint");
-  if (previewCount) previewCount.textContent = `Нийт ${slots.length} цагийн сонголт:`;
-  if (previewSlots) previewSlots.innerHTML = slots.map(time => `<span>${time}</span>`).join("");
-  if (hint) hint.textContent = `${config.duration} мин → ${slots.slice(0, 3).join(", ")}... · нэг цагт ${document.getElementById("scheduleCapacity")?.value || 4} хүн`;
+  const workSlots = generateTimeOptions(config.workStart, config.workEnd, config.workDuration);
+  const weekendSlots = generateTimeOptions(config.weekendStart, config.weekendEnd, config.weekendDuration);
+  const workPreviewCount = document.getElementById("scheduleWorkPreviewCount");
+  const weekendPreviewCount = document.getElementById("scheduleWeekendPreviewCount");
+  const workPreviewSlots = document.getElementById("scheduleWorkPreviewSlots");
+  const weekendPreviewSlots = document.getElementById("scheduleWeekendPreviewSlots");
+  if (workPreviewCount) workPreviewCount.textContent = `Нийт ${workSlots.length} цагийн сонголт:`;
+  if (weekendPreviewCount) weekendPreviewCount.textContent = `Нийт ${weekendSlots.length} цагийн сонголт:`;
+  if (workPreviewSlots) workPreviewSlots.innerHTML = workSlots.map(time => `<span>${time}</span>`).join("");
+  if (weekendPreviewSlots) weekendPreviewSlots.innerHTML = weekendSlots.map(time => `<span>${time}</span>`).join("");
+  const workHint = document.getElementById("scheduleWorkHint");
+  const weekendHint = document.getElementById("scheduleWeekendHint");
+  if (workHint) workHint.textContent = `${config.workDuration} мин → ${workSlots.slice(0, 3).join(", ")}... · нэг цагт ${config.workCapacity} хүн`;
+  if (weekendHint) weekendHint.textContent = `${config.weekendDuration} мин → ${weekendSlots.slice(0, 3).join(", ")}... · нэг цагт ${config.weekendCapacity} хүн`;
 }
 
 function renderScheduleSettings(selectedName = selectedScheduleSalonName(), effectiveFrom = document.getElementById("scheduleEffectiveFrom")?.value || todayText()) {
@@ -2867,8 +2893,10 @@ function renderScheduleSettings(selectedName = selectedScheduleSalonName(), effe
   document.getElementById("scheduleWorkEnd").value = config.workEnd;
   document.getElementById("scheduleWeekendStart").value = config.weekendStart;
   document.getElementById("scheduleWeekendEnd").value = config.weekendEnd;
-  document.getElementById("scheduleDuration").value = config.duration;
-  document.getElementById("scheduleCapacity").value = config.capacity;
+  document.getElementById("scheduleWorkDuration").value = config.workDuration;
+  document.getElementById("scheduleWeekendDuration").value = config.weekendDuration;
+  document.getElementById("scheduleWorkCapacity").value = config.workCapacity;
+  document.getElementById("scheduleWeekendCapacity").value = config.weekendCapacity;
   renderSchedulePreview();
   enhanceNativeSelects(["scheduleSalon"]);
   enhanceScheduleTimeInputs();
@@ -2904,9 +2932,13 @@ function saveScheduleSettings() {
     workEnd: document.getElementById("scheduleWorkEnd").value || "19:00",
     weekendStart: document.getElementById("scheduleWeekendStart").value || "10:00",
     weekendEnd: document.getElementById("scheduleWeekendEnd").value || "19:00",
-    duration: Math.max(Number(document.getElementById("scheduleDuration").value) || 30, 5),
-    capacity: Math.max(Number(document.getElementById("scheduleCapacity").value) || 1, 1)
+    workDuration: Math.max(Number(document.getElementById("scheduleWorkDuration").value) || 30, 5),
+    weekendDuration: Math.max(Number(document.getElementById("scheduleWeekendDuration").value) || 30, 5),
+    workCapacity: Math.max(Number(document.getElementById("scheduleWorkCapacity").value) || 1, 1),
+    weekendCapacity: Math.max(Number(document.getElementById("scheduleWeekendCapacity").value) || 1, 1)
   };
+  nextSchedule.duration = nextSchedule.workDuration;
+  nextSchedule.capacity = nextSchedule.workCapacity;
   salon.scheduleVersions = (Array.isArray(salon.scheduleVersions) ? salon.scheduleVersions : [])
     .filter(item => item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) && item.effectiveFrom !== effectiveFrom)
     .concat(nextSchedule)
@@ -18952,7 +18984,7 @@ function bindEvents() {
   document.getElementById("scheduleEffectiveFrom")?.addEventListener("change", event => {
     renderScheduleSettings(selectedScheduleSalonName(), event.target.value || todayText());
   });
-  ["scheduleWorkStart", "scheduleWorkEnd", "scheduleWeekendStart", "scheduleWeekendEnd", "scheduleDuration", "scheduleCapacity"].forEach(id => {
+  ["scheduleWorkStart", "scheduleWorkEnd", "scheduleWeekendStart", "scheduleWeekendEnd", "scheduleWorkDuration", "scheduleWeekendDuration", "scheduleWorkCapacity", "scheduleWeekendCapacity"].forEach(id => {
     document.getElementById(id)?.addEventListener("input", renderSchedulePreview);
   });
 

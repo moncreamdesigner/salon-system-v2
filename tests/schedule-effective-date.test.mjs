@@ -14,8 +14,8 @@ const salon = {
   slotCapacity: 4,
   schedule: { workStart: "09:00", workEnd: "19:00", weekendStart: "10:00", weekendEnd: "19:00", duration: 60 },
   scheduleVersions: [
-    { effectiveFrom: "2026-09-01", workStart: "08:00", workEnd: "18:00", weekendStart: "09:00", weekendEnd: "18:00", duration: 30, capacity: 6 },
-    { effectiveFrom: "2026-10-01", workStart: "10:00", workEnd: "20:00", weekendStart: "10:00", weekendEnd: "20:00", duration: 60, capacity: 3 },
+    { effectiveFrom: "2026-09-01", workStart: "08:00", workEnd: "18:00", weekendStart: "09:00", weekendEnd: "18:00", workDuration: 30, weekendDuration: 90, workCapacity: 6, weekendCapacity: 2 },
+    { effectiveFrom: "2026-10-01", workStart: "10:00", workEnd: "20:00", weekendStart: "10:00", weekendEnd: "20:00", workDuration: 60, weekendDuration: 120, workCapacity: 3, weekendCapacity: 1 },
   ],
 };
 
@@ -32,6 +32,8 @@ test("admin schedule resolver preserves the old schedule and activates dated ver
   assert.equal(context.scheduleConfig(salon.name, "2026-08-31").workStart, "09:00");
   assert.equal(context.scheduleConfig(salon.name, "2026-09-01").workStart, "08:00");
   assert.equal(context.scheduleConfig(salon.name, "2026-09-30").capacity, 6);
+  assert.equal(context.scheduleConfig(salon.name, "2026-09-05").duration, 90);
+  assert.equal(context.scheduleConfig(salon.name, "2026-09-05").capacity, 2);
   assert.equal(context.scheduleConfig(salon.name, "2026-10-01").capacity, 3);
 });
 
@@ -46,6 +48,8 @@ test("public booking resolver uses the same effective-date rule", () => {
   assert.equal(context.salonScheduleConfig(salon, new Date(2026, 7, 31)).workStart, "09:00");
   assert.equal(context.salonScheduleConfig(salon, new Date(2026, 8, 1)).workStart, "08:00");
   assert.equal(context.salonCapacity(salon, "2026-09-15"), 6);
+  assert.equal(context.salonScheduleConfig(salon, new Date(2026, 8, 5)).duration, 90);
+  assert.equal(context.salonCapacity(salon, "2026-09-05"), 2);
 });
 
 test("server booking, dashboard and SMS paths share the date-effective resolver", () => {

@@ -56,8 +56,18 @@ function salon_schedule_for_date(array $salon, string $date): array
         }
     }
     $result = array_merge($base, is_array($selected) ? $selected : []);
-    $result['duration'] = max(5, (int)($result['duration'] ?? 30));
-    $result['capacity'] = max(1, (int)($result['capacity'] ?? $salon['slotCapacity'] ?? 4));
+    $legacyDuration = max(5, (int)($result['duration'] ?? 30));
+    $legacyCapacity = max(1, (int)($result['capacity'] ?? $salon['slotCapacity'] ?? 4));
+    $result['workDuration'] = max(5, (int)($result['workDuration'] ?? $legacyDuration));
+    $result['weekendDuration'] = max(5, (int)($result['weekendDuration'] ?? $legacyDuration));
+    $result['workCapacity'] = max(1, (int)($result['workCapacity'] ?? $legacyCapacity));
+    $result['weekendCapacity'] = max(1, (int)($result['weekendCapacity'] ?? $legacyCapacity));
+    $dayOfWeek = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1
+        ? (int)(new DateTimeImmutable($date))->format('w')
+        : 1;
+    $weekend = $dayOfWeek === 0 || $dayOfWeek === 6;
+    $result['duration'] = $weekend ? $result['weekendDuration'] : $result['workDuration'];
+    $result['capacity'] = $weekend ? $result['weekendCapacity'] : $result['workCapacity'];
     return $result;
 }
 

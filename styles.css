@@ -8156,9 +8156,30 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .schedule-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.schedule-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.schedule-preview-group {
+  min-width: 0;
+}
+
+.schedule-preview-group + .schedule-preview-group {
+  border-left: 1px solid var(--line);
+  padding-left: 18px;
+}
+
+.schedule-preview-group h3 {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 14px;
 }
 
 .schedule-box h3 {
@@ -10326,6 +10347,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .schedule-grid {
     grid-template-columns: 1fr;
+  }
+
+  .schedule-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-preview-group + .schedule-preview-group {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 16px 0 0;
   }
 
   .schedule-selector label {

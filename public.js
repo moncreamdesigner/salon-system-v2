@@ -322,11 +322,27 @@ function salonScheduleConfig(salon, date = new Date()) {
     .filter(item => item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.effectiveFrom || "")) && item.effectiveFrom <= targetDate)
     .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)))
     .at(-1);
-  return {
+  const merged = {
     ...defaults,
     ...(salon.schedule || {}),
-    ...(selected || {}),
-    capacity: Math.max(Number(selected?.capacity ?? salon.slotCapacity) || 4, 1)
+    ...(selected || {})
+  };
+  const legacyDuration = Math.max(Number(merged.duration) || 30, 5);
+  const legacyCapacity = Math.max(Number(merged.capacity ?? salon.slotCapacity) || 4, 1);
+  const workDuration = Math.max(Number(merged.workDuration) || legacyDuration, 5);
+  const weekendDuration = Math.max(Number(merged.weekendDuration) || legacyDuration, 5);
+  const workCapacity = Math.max(Number(merged.workCapacity) || legacyCapacity, 1);
+  const weekendCapacity = Math.max(Number(merged.weekendCapacity) || legacyCapacity, 1);
+  const selectedDate = date instanceof Date ? date : new Date(`${targetDate}T00:00:00`);
+  const weekend = [0, 6].includes(selectedDate.getDay());
+  return {
+    ...merged,
+    workDuration,
+    weekendDuration,
+    workCapacity,
+    weekendCapacity,
+    duration: weekend ? weekendDuration : workDuration,
+    capacity: weekend ? weekendCapacity : workCapacity
   };
 }
 
