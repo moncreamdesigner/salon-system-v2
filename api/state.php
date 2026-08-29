@@ -404,7 +404,7 @@ function assert_dated_section_unlocked(array $current, array $incoming, string $
 
 function service_core_for_lock(array $service): array
 {
-    $derived = ['payments', 'visits', 'diagnosisHistory', 'creditTransfers', 'balance', 'transferClosed', 'transferClosedAt', 'transferClosedBy', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'diagnosisAddOpen', 'diagnosisDetailId', 'signatureOpen'];
+    $derived = ['payments', 'visits', 'diagnosisHistory', 'creditTransfers', 'balance', 'transferClosed', 'transferClosedAt', 'transferClosedBy', 'transferCloseReason', 'courseClosedWithoutTransfer', 'courseClosedCancelledBalance', 'courseClosurePricing', 'closurePerformanceAdjustments', 'singleVisitPrice', 'paymentFormOpen', 'expandedVisit', 'diagnosisOpen', 'diagnosisExpanded', 'diagnosisWorkOpen', 'diagnosisAddOpen', 'diagnosisDetailId', 'signatureOpen'];
     if (($service['kind'] ?? '') === 'course') {
         $derived = array_merge($derived, ['staff', 'price']);
     }

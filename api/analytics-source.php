@@ -30,7 +30,7 @@ function analytics_in_range(string $date, string $from, string $to): bool
 function analytics_service_relevant(array $item, string $from, string $to): bool
 {
     if (analytics_in_range(analytics_event_date($item), $from, $to)) return true;
-    foreach (['payments', 'visits', 'diagnosisHistory'] as $key) {
+    foreach (['payments', 'visits', 'diagnosisHistory', 'closurePerformanceAdjustments'] as $key) {
         foreach ((is_array($item[$key] ?? null) ? $item[$key] : []) as $entry) {
             if (is_array($entry) && analytics_in_range(analytics_event_date($entry), $from, $to)) return true;
         }
@@ -42,7 +42,7 @@ function analytics_months_from_service(array $item, array &$months): void
 {
     $date = analytics_event_date($item);
     if ($date !== '') $months[substr($date, 0, 7)] = true;
-    foreach (['payments', 'visits', 'diagnosisHistory'] as $key) {
+    foreach (['payments', 'visits', 'diagnosisHistory', 'closurePerformanceAdjustments'] as $key) {
         foreach ((is_array($item[$key] ?? null) ? $item[$key] : []) as $entry) {
             if (!is_array($entry)) continue;
             $entryDate = analytics_event_date($entry);
@@ -72,13 +72,22 @@ function analytics_compact_visit(array $visit): array
     ]);
 }
 
+function analytics_compact_closure_adjustment(array $adjustment): array
+{
+    return analytics_pick($adjustment, [
+        'id', 'sourceId', 'staff', 'staffId', 'salon', 'date', 'originalVisitDate',
+        'type', 'sourceType', 'title', 'customer', 'revenue', 'rate', 'commission',
+        'policyVersion', 'policyEffectiveFrom', 'adjustment', 'deleted'
+    ]);
+}
+
 function analytics_compact_service(array $item): array
 {
     $copy = analytics_pick($item, [
         'id', 'kind', 'deleted', 'date', 'createdAt', 'time', 'salon', 'branch',
         'title', 'service', 'staff', 'staffId', 'visitsTotal', 'basePrice', 'price',
         'total', 'balance', 'employeeDiscountAmount', 'vipRoomFee', 'masterStaffFee',
-        'paymentMethod', 'referenceLabel'
+        'paymentMethod', 'referenceLabel', 'singleVisitPrice', 'analyticsSkipKassPayments'
     ]);
     $copy['payments'] = array_values(array_map(
         static fn(array $payment): array => analytics_compact_payment($payment),
@@ -87,6 +96,10 @@ function analytics_compact_service(array $item): array
     $copy['visits'] = array_values(array_map(
         static fn(array $visit): array => analytics_compact_visit($visit),
         array_values(array_filter(is_array($item['visits'] ?? null) ? $item['visits'] : [], 'is_array'))
+    ));
+    $copy['closurePerformanceAdjustments'] = array_values(array_map(
+        static fn(array $adjustment): array => analytics_compact_closure_adjustment($adjustment),
+        array_values(array_filter(is_array($item['closurePerformanceAdjustments'] ?? null) ? $item['closurePerformanceAdjustments'] : [], 'is_array'))
     ));
     $copy['diagnosisHistory'] = array_values(array_map(
         static fn(array $entry): array => analytics_pick($entry, ['date', 'createdAt']),
@@ -175,15 +188,35 @@ foreach ((array)$source['customers'] as $customer) {
     foreach ((is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : []) as $item) {
         if (!is_array($item)) continue;
         $itemSalon = trim((string)($item['salon'] ?? $item['branch'] ?? $customer['salon'] ?? ''));
-        if ($salon !== '' && $itemSalon !== $salon) continue;
-        if (empty($item['deleted'])) analytics_months_from_service($item, $availableMonths);
-        if (!analytics_service_relevant($item, $from, $to)) continue;
-        foreach ((is_array($item['payments'] ?? null) ? $item['payments'] : []) as $payment) {
+        $scopedItem = $item;
+        if ($salon !== '') {
+            $parentSalonMatches = $itemSalon === $salon;
+            if (($item['kind'] ?? '') !== 'course') {
+                if (!$parentSalonMatches) continue;
+            } else {
+                $scopedItem['visits'] = array_values(array_filter(
+                    is_array($item['visits'] ?? null) ? $item['visits'] : [],
+                    static fn($visit): bool => is_array($visit) && trim((string)($visit['salon'] ?? $itemSalon)) === $salon
+                ));
+                $scopedItem['closurePerformanceAdjustments'] = array_values(array_filter(
+                    is_array($item['closurePerformanceAdjustments'] ?? null) ? $item['closurePerformanceAdjustments'] : [],
+                    static fn($adjustment): bool => is_array($adjustment) && trim((string)($adjustment['salon'] ?? '')) === $salon
+                ));
+                if (!$parentSalonMatches && $scopedItem['visits'] === [] && $scopedItem['closurePerformanceAdjustments'] === []) continue;
+                if (!$parentSalonMatches) {
+                    $scopedItem['payments'] = [];
+                    $scopedItem['analyticsSkipKassPayments'] = true;
+                }
+            }
+        }
+        if (empty($scopedItem['deleted'])) analytics_months_from_service($scopedItem, $availableMonths);
+        if (!analytics_service_relevant($scopedItem, $from, $to)) continue;
+        foreach ((is_array($scopedItem['payments'] ?? null) ? $scopedItem['payments'] : []) as $payment) {
             if (is_array($payment) && trim((string)($payment['voucherLogId'] ?? '')) !== '') {
                 $voucherLogIds[(string)$payment['voucherLogId']] = true;
             }
         }
-        $history[] = $item;
+        $history[] = $scopedItem;
     }
     $registeredDate = analytics_event_date($customer);
     if ($mode === 'dashboard' && $registeredDate !== '') $availableMonths[substr($registeredDate, 0, 7)] = true;
@@ -231,6 +264,13 @@ foreach ($compactCustomers as $customer) {
             $visitStaffName = trim((string)($visit['staff'] ?? ''));
             if ($visitStaffId !== '') $referencedStaffIds[$visitStaffId] = true;
             if ($visitStaffName !== '') $referencedStaffNames[$visitStaffName] = true;
+        }
+        foreach ((is_array($item['closurePerformanceAdjustments'] ?? null) ? $item['closurePerformanceAdjustments'] : []) as $adjustment) {
+            if (!is_array($adjustment)) continue;
+            $adjustmentStaffId = trim((string)($adjustment['staffId'] ?? ''));
+            $adjustmentStaffName = trim((string)($adjustment['staff'] ?? ''));
+            if ($adjustmentStaffId !== '') $referencedStaffIds[$adjustmentStaffId] = true;
+            if ($adjustmentStaffName !== '') $referencedStaffNames[$adjustmentStaffName] = true;
         }
     }
 }

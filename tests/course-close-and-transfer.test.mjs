@@ -32,17 +32,23 @@ function functionSource(name) {
 
 const context = {
   result: null,
+  activeAccount: { salon: "Salon 1" },
+  todayText() { return "2026-08-29"; },
+  performancePolicyForDate() {
+    return { version: 1, effectiveFrom: "2026-01-01", service: { basis: "base", rate: 10, serviceKinds: ["course", "single"] } };
+  },
   servicePaidAmount(item = {}) {
     return (item.payments || []).reduce((sum, payment) => sum + Number(payment.amount || payment.paidAmount || 0), 0);
   }
 };
 vm.createContext(context);
-vm.runInContext(`${functionSource("courseEligiblePaidAmount")}\n${functionSource("courseTransferInfo")}`, context);
+vm.runInContext(`${functionSource("courseEligiblePaidAmount")}\n${functionSource("configuredCourseSingleVisitPrice")}\n${functionSource("courseTransferInfo")}\n${functionSource("courseClosurePerformanceAdjustments")}`, context);
 
-function course({ paid, visits = 4, price = 800000, totalVisits = 8, employeeDiscountAmount = 0 }) {
+function course({ paid, visits = 4, price = 800000, totalVisits = 8, employeeDiscountAmount = 0, singleVisitPrice = price / totalVisits }) {
   return {
     kind: "course",
     basePrice: price,
+    singleVisitPrice,
     employeeDiscountAmount,
     visitsTotal: totalVisits,
     visits: Array.from({ length: visits }, (_, index) => ({ number: index + 1 })),
@@ -75,6 +81,33 @@ test("transfer and close is offered only for a paid course with an overpayment",
   assert.match(appSource, /allowCreditTransfer = item\.kind === "course" && transferInfo\.unusedVisits > 0 && transferInfo\.paid > 0 && transferInfo\.available > 0/);
   assert.match(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0 \|\| transfer\.available <= 0/);
   assert.match(appSource, /if \(transfer\.available > 0\) \{[\s\S]*customer\.creditLedger\.unshift\(closureEntry\)/);
+});
+
+test("closing a course reprices consumed visits at the stored single-visit price", () => {
+  const info = context.courseTransferInfo(course({ paid: 800000, singleVisitPrice: 150000 }));
+  assert.deepEqual(
+    { originalUsedValue: info.originalUsedValue, usedValue: info.usedValue, difference: info.repricingDifference, available: info.available },
+    { originalUsedValue: 400000, usedValue: 600000, difference: 200000, available: 200000 }
+  );
+});
+
+test("course closure adjustments follow each visit staff and use the closure date", () => {
+  const item = course({ paid: 800000, visits: 3, singleVisitPrice: 150000 });
+  item.id = "course-1";
+  item.service = "Massage course";
+  item.visits = [
+    { id: "v1", number: 1, date: "2026-01-05", salon: "Salon 1", staff: "A", staffId: 1 },
+    { id: "v2", number: 2, date: "2026-02-05", salon: "Salon 2", staff: "B", staffId: 2 },
+    { id: "v3", number: 3, date: "2026-03-05", salon: "Salon 1", staff: "A", staffId: 1 }
+  ];
+  const transfer = context.courseTransferInfo(item, 150000);
+  const rows = context.courseClosurePerformanceAdjustments(item, { name: "Customer" }, transfer, "2026-08-29", "close-1");
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map(row => [row.staff, row.salon, row.date, row.revenue, row.commission]), [
+    ["A", "Salon 1", "2026-08-29", 50000, 5000],
+    ["B", "Salon 2", "2026-08-29", 50000, 5000],
+    ["A", "Salon 1", "2026-08-29", 50000, 5000]
+  ]);
 });
 
 test("salary deduction is offered only to employee customers", () => {

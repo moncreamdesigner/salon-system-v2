@@ -5447,6 +5447,7 @@ function resetServiceForm() {
   if (!form) return;
   form.reset();
   document.getElementById("serviceVisits").value = "4";
+  document.getElementById("serviceSingleVisitPrice").value = "";
   document.getElementById("serviceSaleQty").value = "3";
   document.getElementById("serviceSubmitBtn").textContent = "Нэмэх";
   serviceEditingRef = null;
@@ -5465,6 +5466,7 @@ function fillServiceFormForEdit(kind, index, group = "") {
   document.getElementById("servicePrice").value = item.price || "";
   document.getElementById("serviceCustomerType").value = item.customer || "Том хүн";
   document.getElementById("serviceVisits").value = parseInt(item.visits, 10) || 4;
+  document.getElementById("serviceSingleVisitPrice").value = Number(item.singleVisitPrice || 0) || "";
   document.getElementById("serviceSaleQty").value = parseInt(item.saleNote, 10) || 3;
   document.getElementById("serviceSalePrice").value = item.sale || "";
   document.getElementById("serviceBrand").value = group || activeProductGroup;
@@ -5535,6 +5537,11 @@ function bindServiceSettingsForm() {
       const name = formValue("serviceName");
       const price = Number(formValue("servicePrice")) || 0;
       if (!name || !price) return;
+      const singleVisitPrice = Number(formValue("serviceSingleVisitPrice")) || 0;
+      if (selectedKind === "course" && singleVisitPrice <= 0) {
+        showToast("Курс хаах үед тооцох нэг удаагийн үнийг оруулна уу", "error");
+        return;
+      }
       const wasEditing = Boolean(serviceEditingRef);
       const beforeItem = serviceEditingRef
         ? structuredClone(serviceCollectionForRef(serviceEditingRef)[serviceEditingRef.index] || null)
@@ -5569,7 +5576,10 @@ function bindServiceSettingsForm() {
           customer: document.getElementById("serviceCustomerType").value,
           price
         };
-        if (selectedKind === "course") item.visits = `${Number(formValue("serviceVisits")) || 1} удаа`;
+        if (selectedKind === "course") {
+          item.visits = `${Number(formValue("serviceVisits")) || 1} удаа`;
+          item.singleVisitPrice = singleVisitPrice;
+        }
         if (serviceEditingRef) {
           const oldCollection = serviceCollectionForRef(serviceEditingRef);
           if (serviceEditingRef.kind === selectedKind) oldCollection[serviceEditingRef.index] = item;
@@ -5673,7 +5683,7 @@ function renderSettingsServices() {
         <th>Нэр</th>
         <th>Хэрэглэгч</th>
         <th>Үнэ</th>
-        ${isCourse ? "<th>Оролт</th>" : ""}
+        ${isCourse ? "<th>Оролт</th><th>Нэг удаагийн үнэ</th>" : ""}
         <th></th>
       </tr>
     `;
@@ -5683,7 +5693,7 @@ function renderSettingsServices() {
         <td><strong>${standardServiceName(item.name, activeServiceMainTab)}</strong></td>
         <td><span class="service-customer-text">${item.customer}</span></td>
         <td><strong>${money(item.price)}</strong></td>
-        ${isCourse ? `<td><span class="service-visit-text">${serviceVisitText(item)}</span></td>` : ""}
+        ${isCourse ? `<td><span class="service-visit-text">${serviceVisitText(item)}</span></td><td><strong>${Number(item.singleVisitPrice || 0) > 0 ? money(item.singleVisitPrice) : "Тохируулаагүй"}</strong></td>` : ""}
         <td>${serviceActionButtons(activeServiceMainTab, index)}</td>
       </tr>
     `).join("");
@@ -9787,15 +9797,31 @@ function courseEligiblePaidAmount(item = {}) {
   }, 0);
 }
 
-function courseTransferInfo(item = {}) {
-  if (item.kind !== "course") return { totalVisits: 0, usedVisits: 0, unusedVisits: 0, paid: 0, usedValue: 0, shortfall: 0, transferred: 0, available: 0 };
+function configuredCourseSingleVisitPrice(item = {}) {
+  const storedPrice = Number(item.singleVisitPrice || 0);
+  if (storedPrice > 0) return storedPrice;
+  const serviceName = standardServiceName(item.service || item.title || item.name || "", "course");
+  const configured = serviceSettingsData.course.find(entry =>
+    standardServiceName(entry.name || "", "course") === serviceName
+  );
+  return Math.max(0, Number(configured?.singleVisitPrice || 0));
+}
+
+function courseTransferInfo(item = {}, requestedSingleVisitPrice = null) {
+  if (item.kind !== "course") return { totalVisits: 0, usedVisits: 0, unusedVisits: 0, paid: 0, usedValue: 0, originalUsedValue: 0, repricingDifference: 0, singleVisitPrice: 0, requiresSingleVisitPrice: false, shortfall: 0, transferred: 0, available: 0 };
   const visits = (Array.isArray(item.visits) ? item.visits : []).filter(visit => !visit.deleted);
   const totalVisits = Math.max(1, Number(item.visitsTotal || visits.length || 1));
   const netCoursePrice = Math.max(0, Number(item.basePrice || item.price || 0) - Number(item.employeeDiscountAmount || 0));
   const paid = Math.min(netCoursePrice, courseEligiblePaidAmount(item));
   const usedVisits = Math.min(totalVisits, visits.length);
   const unusedVisits = Math.max(0, totalVisits - usedVisits);
-  const usedValue = Math.min(netCoursePrice, Math.round((netCoursePrice / totalVisits) * usedVisits));
+  const configuredPrice = configuredCourseSingleVisitPrice(item);
+  const suppliedPrice = requestedSingleVisitPrice === null ? configuredPrice : Number(requestedSingleVisitPrice || 0);
+  const requiresSingleVisitPrice = suppliedPrice <= 0;
+  const fallbackAverage = totalVisits > 0 ? netCoursePrice / totalVisits : 0;
+  const singleVisitPrice = requiresSingleVisitPrice ? fallbackAverage : suppliedPrice;
+  const originalUsedValue = Math.min(netCoursePrice, Math.round((netCoursePrice / totalVisits) * usedVisits));
+  const usedValue = Math.min(netCoursePrice, Math.round(singleVisitPrice * usedVisits));
   const shortfall = Math.max(0, usedValue - paid);
   const transferred = (Array.isArray(item.creditTransfers) ? item.creditTransfers : [])
     .reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0);
@@ -9805,10 +9831,53 @@ function courseTransferInfo(item = {}) {
     unusedVisits,
     paid,
     usedValue,
+    originalUsedValue,
+    repricingDifference: Math.max(0, usedValue - originalUsedValue),
+    singleVisitPrice: Math.round(singleVisitPrice),
+    requiresSingleVisitPrice,
     shortfall,
     transferred,
     available: Math.max(0, paid - usedValue - transferred)
   };
+}
+
+function courseClosurePerformanceAdjustments(item = {}, customer = {}, transfer = {}, transferDate = todayText(), transferId = "") {
+  const visits = (Array.isArray(item.visits) ? item.visits : []).filter(visit => !visit.deleted);
+  if (!visits.length || Number(transfer.singleVisitPrice || 0) <= 0) return [];
+  const totalVisits = Math.max(1, Number(item.visitsTotal || visits.length || 1));
+  const grossCoursePrice = Math.max(0, Number(item.basePrice || item.price || 0));
+  const grossFinalUsedValue = Math.min(grossCoursePrice, Math.round(Number(transfer.singleVisitPrice) * visits.length));
+  const finalPerVisit = grossFinalUsedValue / visits.length;
+  return visits.map((visit, index) => {
+    const visitDate = visit.date || item.date || transferDate;
+    const policy = performancePolicyForDate(visitDate);
+    if (!(policy.service.serviceKinds || []).includes("course")) return null;
+    const originalBasis = policy.service.basis === "paid"
+      ? Math.min(grossCoursePrice, servicePaidAmount(item))
+      : grossCoursePrice;
+    const originalPerVisit = originalBasis / totalVisits;
+    const revenue = Math.max(0, Math.round(finalPerVisit - originalPerVisit));
+    const rate = Number(policy.service.rate || 0);
+    return {
+      id: `course-close:${transferId}:${visit.id || visit.number || index + 1}`,
+      sourceId: visit.id || item.id || "",
+      staff: visit.staff || item.staff || "",
+      staffId: visit.staffId || item.staffId || null,
+      salon: visit.salon || item.salon || customer.salon || activeAccount.salon,
+      date: transferDate,
+      originalVisitDate: visitDate,
+      type: "adjustment",
+      sourceType: "course_closure",
+      title: `${item.service || item.title || "Курс эмчилгээ"} · ${Number(visit.number || index + 1)}-р оролтын хаалтын зөрүү`,
+      customer: customer.name || "",
+      revenue,
+      rate,
+      commission: Math.round(revenue * rate / 100),
+      policyVersion: Number(policy.version || 1),
+      policyEffectiveFrom: policy.effectiveFrom || "0000-01-01",
+      adjustment: true
+    };
+  }).filter(entry => entry && entry.staff && entry.salon && entry.revenue > 0);
 }
 
 function localDateText(date) {
@@ -10023,11 +10092,24 @@ function calculatePerformanceTransactions({ policyOverride = null, sourceState =
       const salon = item.salon || customer.salon || activeAccount.salon;
       const date = item.date || item.createdAt || customer.last || todayText();
       const title = item.title || item.service || "Үйлчилгээ";
-      addKassPaymentsForService({ item, salon, date, title: item.kind === "kass" ? kassRevenueServiceName(item) : title, customer: customer.name });
+      if (!item.analyticsSkipKassPayments) {
+        addKassPaymentsForService({ item, salon, date, title: item.kind === "kass" ? kassRevenueServiceName(item) : title, customer: customer.name });
+      }
       if (item.kind === "kass" || item.kind === "product") {
         return;
       }
       if (item.kind === "course") {
+        (Array.isArray(item.closurePerformanceAdjustments) ? item.closurePerformanceAdjustments : []).forEach(adjustment => {
+          if (!adjustment || adjustment.deleted) return;
+          add({
+            ...adjustment,
+            type: "adjustment",
+            sourceType: "course_closure",
+            adjustment: true,
+            customer: adjustment.customer || customer.name,
+            title: adjustment.title || `${title} · Хаалтын залруулга`
+          });
+        });
         const appliedPolicy = performancePolicyForDate(date, policyOverride);
         if (!appliedPolicy.service.serviceKinds.includes("course")) return;
         const visits = Array.isArray(item.visits) ? item.visits.filter(visit => !visit.deleted) : [];
@@ -10797,6 +10879,7 @@ function htmlSafe(value = "") {
 
 function performanceTransactionTypeLabel(item) {
   if (item.type === "master") return "Мастер нэмэгдэл";
+  if (item.type === "adjustment" && item.sourceType === "course_closure") return "Курс хаалтын залруулга";
   if (item.type === "adjustment") return "Залруулга";
   if (item.type === "kass" && item.sourceType === "course") return "Курсийн төлбөр";
   if (item.type === "kass" && item.sourceType === "single") return "Нэг удаагийн төлбөр";
@@ -10977,15 +11060,19 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
       ${item.kind === "course" ? (() => {
         const transfer = courseTransferInfo(item);
         return `<div class="inline-credit-transfer ${method === "credit_transfer" ? "" : "hidden"}">
+          <label>Нэг удаагийн үнэ ₮
+            <input class="input inline-credit-transfer-unit-price money-input" type="text" inputmode="numeric" value="${transfer.requiresSingleVisitPrice ? "" : moneyInputValue(transfer.singleVisitPrice)}" placeholder="Заавал оруулна">
+          </label>
           <div class="credit-transfer-summary">
-            <span>Төлсөн дүн <strong>${money(transfer.paid)}</strong></span>
-            <span>Ашигласан оролт <strong>${transfer.usedVisits}/${transfer.totalVisits}</strong></span>
-            <span>Ашигласан дүн <strong>${money(transfer.usedValue)}</strong></span>
+            <span>Төлсөн дүн <strong class="credit-transfer-paid">${money(transfer.paid)}</strong></span>
+            <span>Ашигласан оролт <strong class="credit-transfer-visits">${transfer.usedVisits}/${transfer.totalVisits}</strong></span>
+            <span>Ашигласан дүн <strong class="credit-transfer-used-value">${money(transfer.usedValue)}</strong></span>
+            <span class="credit-transfer-difference-row">Багцын үнээс нэмэгдэх дүн <strong class="credit-transfer-difference">${money(transfer.repricingDifference)}</strong></span>
             ${transfer.shortfall > 0
-              ? `<span class="red">Төлөх шаардлагатай дүн <strong>${money(transfer.shortfall)}</strong></span>`
+              ? `<span class="red credit-transfer-result">Төлөх шаардлагатай дүн <strong>${money(transfer.shortfall)}</strong></span>`
               : transfer.available > 0
-                ? `<span class="credit-transfer-available">Дансанд шилжих дүн <strong>${money(transfer.available)}</strong></span>`
-                : `<span class="credit-transfer-available">Мөнгө шилжихгүй · Үлдсэн ${transfer.unusedVisits} оролт хаагдана</span>`}
+                ? `<span class="credit-transfer-available credit-transfer-result">Дансанд шилжих дүн <strong>${money(transfer.available)}</strong></span>`
+                : `<span class="credit-transfer-available credit-transfer-result">Мөнгө шилжихгүй · Үлдсэн ${transfer.unusedVisits} оролт хаагдана</span>`}
           </div>
           <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" aria-label="Шалтгаан" placeholder="Шалтгаан: Курсыг дундаас нь дуусгах"></textarea>
         </div>`;
@@ -13428,6 +13515,7 @@ function bindProfileServiceInlineForm(customer) {
     if (kind === "course") {
       historyItem.visitsTotal = parseVisitCount(item.visits || item.name);
       historyItem.visits = [];
+      historyItem.singleVisitPrice = Math.max(0, Number(item.singleVisitPrice || 0));
       historyItem.price = Number(priceParts.basePrice || 0);
       historyItem.balance = Math.max(0, Number(priceParts.basePrice || 0) - Number(priceParts.employeeDiscountAmount || 0));
       historyItem.vipRoom = false;
@@ -13449,6 +13537,11 @@ function bindProfileServiceInlineForm(customer) {
         historyItem.visits = editingItem.visits;
         historyItem.visitsTotal = editingItem.visitsTotal || historyItem.visitsTotal;
       }
+      if (kind === "course") {
+        historyItem.singleVisitPrice = Number(editingItem.singleVisitPrice || historyItem.singleVisitPrice || 0);
+        historyItem.closurePerformanceAdjustments = editingItem.closurePerformanceAdjustments || [];
+        historyItem.courseClosurePricing = editingItem.courseClosurePricing || null;
+      }
       historyItem.balance = Math.max(0, Number(priceParts.total || 0) - paidAmount);
       if (editingItem.transferClosed) {
         Object.assign(historyItem, {
@@ -13469,7 +13562,10 @@ function bindProfileServiceInlineForm(customer) {
           transferClosedBy: editingItem.transferClosedBy,
           transferCloseReason: editingItem.transferCloseReason,
           courseClosedWithoutTransfer: Boolean(editingItem.courseClosedWithoutTransfer),
-          courseClosedCancelledBalance: Number(editingItem.courseClosedCancelledBalance || 0)
+          courseClosedCancelledBalance: Number(editingItem.courseClosedCancelledBalance || 0),
+          singleVisitPrice: Number(editingItem.singleVisitPrice || 0),
+          courseClosurePricing: editingItem.courseClosurePricing || null,
+          closurePerformanceAdjustments: editingItem.closurePerformanceAdjustments || []
         });
       }
       customer.serviceHistory[editingIndex] = historyItem;
@@ -13561,7 +13657,7 @@ function bindInlinePaymentForms(customer) {
     const historyIndex = Number(form.dataset.historyIndex);
     const item = customer.serviceHistory?.[historyIndex];
     const balance = Number(item?.balance || 0);
-    const transferInfo = courseTransferInfo(item);
+    let transferInfo = courseTransferInfo(item);
     const availableCustomerCredit = customerCreditBalance(customer);
     const group = customerGroup(customer);
     const bonus = groupBonusInfo(group);
@@ -13572,7 +13668,37 @@ function bindInlinePaymentForms(customer) {
     const amountField = form.querySelector(".inline-payment-amount-field");
     const creditBalanceField = form.querySelector(".inline-payment-credit-balance-field");
     const submitButton = form.querySelector(".inline-payment-submit");
+    const transferUnitPriceInput = form.querySelector(".inline-credit-transfer-unit-price");
     let bonusApplied = false;
+    const refreshTransferInfo = () => {
+      if (!item || item.kind !== "course") return transferInfo;
+      const requestedPrice = transferUnitPriceInput ? parseMoneyInput(transferUnitPriceInput.value) : null;
+      transferInfo = courseTransferInfo(item, requestedPrice);
+      const usedValue = form.querySelector(".credit-transfer-used-value");
+      const difference = form.querySelector(".credit-transfer-difference");
+      const result = form.querySelector(".credit-transfer-result");
+      if (usedValue) usedValue.textContent = money(transferInfo.usedValue);
+      if (difference) difference.textContent = money(transferInfo.repricingDifference);
+      if (result) {
+        if (transferInfo.requiresSingleVisitPrice) {
+          result.className = "red credit-transfer-result";
+          result.innerHTML = "Нэг удаагийн үнэ оруулна уу";
+        } else if (transferInfo.shortfall > 0) {
+          result.className = "red credit-transfer-result";
+          result.innerHTML = `Төлөх шаардлагатай дүн <strong>${money(transferInfo.shortfall)}</strong>`;
+        } else if (transferInfo.available > 0) {
+          result.className = "credit-transfer-available credit-transfer-result";
+          result.innerHTML = `Дансанд шилжих дүн <strong>${money(transferInfo.available)}</strong>`;
+        } else {
+          result.className = "credit-transfer-available credit-transfer-result";
+          result.textContent = `Мөнгө шилжихгүй · Үлдсэн ${transferInfo.unusedVisits} оролт хаагдана`;
+        }
+      }
+      if ((method?.value || "") === "credit_transfer" && submitButton) {
+        submitButton.disabled = transferInfo.requiresSingleVisitPrice || transferInfo.unusedVisits <= 0 || transferInfo.shortfall > 0 || transferInfo.available <= 0;
+      }
+      return transferInfo;
+    };
     const updateBonusLimit = () => {
       if (!bonusInput) return 0;
       bonusInput.max = String(maxBonus);
@@ -13650,8 +13776,9 @@ function bindInlinePaymentForms(customer) {
       }
       if (transferMode) {
         setBonusApplied(false);
+        refreshTransferInfo();
         if (submitButton) {
-          submitButton.disabled = transferInfo.unusedVisits <= 0 || transferInfo.shortfall > 0;
+          submitButton.disabled = transferInfo.requiresSingleVisitPrice || transferInfo.unusedVisits <= 0 || transferInfo.shortfall > 0 || transferInfo.available <= 0;
           submitButton.textContent = "Шилжүүлэх / хаах";
         }
       } else {
@@ -13667,6 +13794,10 @@ function bindInlinePaymentForms(customer) {
       }
     };
     method?.addEventListener("change", updatePaymentExtras);
+    transferUnitPriceInput?.addEventListener("input", event => {
+      event.target.value = moneyInputValue(parseMoneyInput(event.target.value));
+      refreshTransferInfo();
+    });
     giftCardInput?.addEventListener("input", event => {
       event.target.value = event.target.value.trim();
       updatePaymentExtras();
@@ -13685,8 +13816,13 @@ function bindInlinePaymentForms(customer) {
         return;
       }
       if (selectedMethodValue === "credit_transfer") {
-        const transfer = courseTransferInfo(historyItem);
+        const requestedSingleVisitPrice = parseMoneyInput(form.querySelector(".inline-credit-transfer-unit-price")?.value);
+        const transfer = courseTransferInfo(historyItem, requestedSingleVisitPrice);
         const reason = form.querySelector(".inline-credit-transfer-reason")?.value?.trim() || "";
+        if (transfer.requiresSingleVisitPrice) {
+          showToast("Нэг удаагийн үйлчилгээний үнийг оруулна уу", "error");
+          return;
+        }
         if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.unusedVisits <= 0 || transfer.paid <= 0 || transfer.available <= 0) {
           showToast("Хаах ашиглаагүй оролт алга", "error");
           return;
@@ -13704,6 +13840,7 @@ function bindInlinePaymentForms(customer) {
         if (!requireOperationalDateEditable(transferDate, transfer.available > 0 ? "үлдэгдэл шилжүүлэх" : "курс хаах")) return;
         if (!await requireEditCode()) return;
         const createdAt = new Date().toISOString();
+        const closureAdjustments = courseClosurePerformanceAdjustments(historyItem, customer, transfer, transferDate, transferId);
         const closureEntry = {
           id: transferId,
           type: "course_transfer",
@@ -13729,6 +13866,22 @@ function bindInlinePaymentForms(customer) {
         historyItem.transferCloseReason = reason;
         historyItem.courseClosedWithoutTransfer = transfer.available <= 0;
         historyItem.courseClosedCancelledBalance = Math.max(0, Number(historyItem.balance || 0));
+        historyItem.singleVisitPrice = transfer.singleVisitPrice;
+        historyItem.courseClosurePricing = {
+          id: transferId,
+          date: transferDate,
+          createdAt,
+          singleVisitPrice: transfer.singleVisitPrice,
+          totalVisits: transfer.totalVisits,
+          usedVisits: transfer.usedVisits,
+          originalUsedValue: transfer.originalUsedValue,
+          usedValue: transfer.usedValue,
+          repricingDifference: transfer.repricingDifference,
+          transferredAmount: transfer.available,
+          createdBy: auditActorUsername(),
+          createdById: activeAccount.id || 0
+        };
+        historyItem.closurePerformanceAdjustments = closureAdjustments;
         historyItem.balance = 0;
         historyItem.paymentFormOpen = false;
         if (customer.currentTreatment && (
@@ -13745,7 +13898,7 @@ function bindInlinePaymentForms(customer) {
           id: entityId("audit"),
           title: transfer.available > 0 ? "course_credit_transferred" : "course_closed",
           createdAt: auditNowText(),
-          meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title} • ${transfer.available > 0 ? money(transfer.available) : `мөнгө шилжээгүй • ${transfer.unusedVisits} оролт хаасан`} • ${reason}`
+          meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title} • нэг удаагийн үнэ ${money(transfer.singleVisitPrice)} • ашигласан ${money(transfer.usedValue)} • ${transfer.available > 0 ? `шилжүүлсэн ${money(transfer.available)}` : `мөнгө шилжээгүй • ${transfer.unusedVisits} оролт хаасан`} • ${closureAdjustments.length} ажилтны гүйцэтгэлийн залруулга • ${reason}`
         };
         state.audit.unshift(auditEntry);
         saveAndRefreshCustomerProfile(
@@ -14704,12 +14857,14 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           staff,
           salon,
           price,
+          basePrice: price,
           balance: price,
           qr: "Баталгаажуулалт хүлээгдэж буй"
         };
         if (kind === "course") {
           historyItem.visitsTotal = parseInt(item.visits, 10) || 4;
           historyItem.visits = [];
+          historyItem.singleVisitPrice = Math.max(0, Number(item.singleVisitPrice || 0));
           customer.activeCourse = true;
           customer.course = `Курс 0/${historyItem.visitsTotal}`;
         } else {
