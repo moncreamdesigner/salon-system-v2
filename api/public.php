@@ -173,7 +173,7 @@ try {
     }
 
     // Тухайн цагийн багтаамж шалгах.
-    $capacity = salon_capacity_for_date($salon, $booking['date']);
+    $capacity = salon_capacity_for_slot($salon, $booking['date'], $booking['time']);
     $slotCount = 0;
     foreach ($bookings as $existing) {
         if (!is_array($existing)) continue;

@@ -68,7 +68,7 @@ test("service visits exclude kass quantities and occupancy uses real schedule ca
   assert.match(app, /filter\(item => item\.key !== "kass"\)/);
   assert.match(api, /dashboard_month_capacity/);
   assert.match(api, /salon_schedule_for_date\(\$salon, \$dateText\)/);
-  assert.match(api, /salon_capacity_for_date\(\$salon, \$dateText\)/);
+  assert.match(api, /salon_capacity_for_slot\(\$salon, \$dateText, \$slotTime\)/);
   assert.match(api, /\$latest = \$close - 120/);
   assert.match(api, /dashboard_holiday_closed/);
   assert.match(api, /\['cancelled', 'rejected'\]/);

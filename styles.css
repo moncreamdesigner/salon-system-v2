@@ -8210,6 +8210,48 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-size: 13px;
 }
 
+.schedule-lunch-box {
+  margin-bottom: 14px;
+}
+
+.schedule-lunch-head {
+  align-items: flex-end;
+}
+
+.schedule-lunch-head p,
+.schedule-lunch-empty {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.schedule-lunch-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.schedule-lunch-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(150px, 1fr) 42px;
+  gap: 10px;
+  align-items: end;
+}
+
+.schedule-lunch-row label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.schedule-lunch-remove {
+  width: 42px;
+  height: 42px;
+  font-size: 22px;
+}
+
 .preview-slots {
   display: flex;
   flex-wrap: wrap;
@@ -8223,6 +8265,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: var(--accent);
   padding: 7px 13px;
   font-size: 12px;
+  font-weight: 600;
+  display: inline-grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.preview-slots small {
+  color: var(--muted);
+  font-size: 10px;
   font-weight: 600;
 }
 
@@ -10389,6 +10440,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .schedule-save {
     justify-self: end;
+  }
+
+  .schedule-lunch-head {
+    align-items: stretch;
+  }
+
+  .schedule-lunch-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .schedule-lunch-row label:nth-child(3) {
+    grid-column: 1 / 2;
   }
 
   .settings-overview {

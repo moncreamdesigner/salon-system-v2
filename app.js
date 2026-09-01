@@ -440,6 +440,7 @@ let activeView = (() => {
   }
 })();
 let activeScheduleSection = "holidays";
+let scheduleLunchBreakDraft = [];
 let bookingTimeOptions = [];
 let branchEditingId = null;
 let branchGalleryDraft = [];
@@ -2788,6 +2789,7 @@ function scheduleConfig(salonName = selectedScheduleSalonName(), date = todayTex
   const weekendDuration = Math.max(Number(merged.weekendDuration) || legacyDuration, 5);
   const workCapacity = Math.max(Number(merged.workCapacity) || legacyCapacity, 1);
   const weekendCapacity = Math.max(Number(merged.weekendCapacity) || legacyCapacity, 1);
+  const lunchBreaks = normalizeScheduleLunchBreaks(merged.lunchBreaks);
   const selectedDate = new Date(`${targetDate}T00:00:00`);
   const weekend = [0, 6].includes(selectedDate.getDay());
   return {
@@ -2796,6 +2798,7 @@ function scheduleConfig(salonName = selectedScheduleSalonName(), date = todayTex
     weekendDuration,
     workCapacity,
     weekendCapacity,
+    lunchBreaks,
     duration: weekend ? weekendDuration : workDuration,
     capacity: weekend ? weekendCapacity : workCapacity
   };
@@ -2804,6 +2807,24 @@ function scheduleConfig(salonName = selectedScheduleSalonName(), date = todayTex
 function timeToMinutes(value) {
   const [hours, minutes] = String(value || "00:00").split(":").map(Number);
   return (hours * 60) + (minutes || 0);
+}
+
+function normalizeScheduleLunchBreaks(value) {
+  return (Array.isArray(value) ? value : []).map(item => ({
+    start: /^\d{2}:\d{2}$/.test(String(item?.start || "")) ? String(item.start) : "12:00",
+    end: /^\d{2}:\d{2}$/.test(String(item?.end || "")) ? String(item.end) : "13:00",
+    count: Math.max(1, Math.floor(Number(item?.count) || 1))
+  })).filter(item => timeToMinutes(item.end) > timeToMinutes(item.start));
+}
+
+function scheduleCapacityAtTime(config, time, baseCapacity = config.capacity) {
+  const timeMinutes = timeToMinutes(time);
+  const lunchCount = normalizeScheduleLunchBreaks(config.lunchBreaks).reduce((sum, item) => {
+    return timeMinutes >= timeToMinutes(item.start) && timeMinutes < timeToMinutes(item.end)
+      ? sum + item.count
+      : sum;
+  }, 0);
+  return Math.max(0, Math.max(Number(baseCapacity) || 1, 1) - lunchCount);
 }
 
 function minutesToTime(value) {
@@ -2852,22 +2873,58 @@ function scheduleFormConfig() {
     workDuration: Math.max(Number(document.getElementById("scheduleWorkDuration")?.value) || config.workDuration, 5),
     weekendDuration: Math.max(Number(document.getElementById("scheduleWeekendDuration")?.value) || config.weekendDuration, 5),
     workCapacity: Math.max(Number(document.getElementById("scheduleWorkCapacity")?.value) || config.workCapacity, 1),
-    weekendCapacity: Math.max(Number(document.getElementById("scheduleWeekendCapacity")?.value) || config.weekendCapacity, 1)
+    weekendCapacity: Math.max(Number(document.getElementById("scheduleWeekendCapacity")?.value) || config.weekendCapacity, 1),
+    lunchBreaks: normalizeScheduleLunchBreaks(scheduleLunchBreakDraft)
   };
+}
+
+function renderScheduleLunchBreaks() {
+  const rows = document.getElementById("scheduleLunchBreakRows");
+  if (!rows) return;
+  rows.innerHTML = scheduleLunchBreakDraft.length
+    ? scheduleLunchBreakDraft.map((item, index) => `
+      <div class="schedule-lunch-row" data-lunch-index="${index}">
+        <label>Эхлэх цаг<input class="input schedule-lunch-start" type="time" value="${htmlSafe(item.start)}"></label>
+        <label>Дуусах цаг<input class="input schedule-lunch-end" type="time" value="${htmlSafe(item.end)}"></label>
+        <label>Цайнд орох хүн<input class="input schedule-lunch-count" type="number" min="1" step="1" value="${Math.max(1, Number(item.count) || 1)}"></label>
+        <button class="icon-btn danger schedule-lunch-remove" type="button" aria-label="Цайны цаг устгах">×</button>
+      </div>`).join("")
+    : `<p class="schedule-lunch-empty">Цайны цаг нэмээгүй байна.</p>`;
+  rows.querySelectorAll(".schedule-lunch-row").forEach(row => {
+    const index = Number(row.dataset.lunchIndex);
+    const update = () => {
+      scheduleLunchBreakDraft[index] = {
+        start: row.querySelector(".schedule-lunch-start")?.value || "12:00",
+        end: row.querySelector(".schedule-lunch-end")?.value || "13:00",
+        count: Math.max(1, Math.floor(Number(row.querySelector(".schedule-lunch-count")?.value) || 1))
+      };
+      renderSchedulePreview();
+    };
+    row.querySelectorAll("input").forEach(input => input.addEventListener("input", update));
+    row.querySelector(".schedule-lunch-remove")?.addEventListener("click", () => {
+      scheduleLunchBreakDraft.splice(index, 1);
+      renderScheduleLunchBreaks();
+      renderSchedulePreview();
+    });
+  });
 }
 
 function renderSchedulePreview() {
   const config = scheduleFormConfig();
   const workSlots = generateTimeOptions(config.workStart, config.workEnd, config.workDuration);
   const weekendSlots = generateTimeOptions(config.weekendStart, config.weekendEnd, config.weekendDuration);
+  const workSlotCapacities = workSlots.map(time => ({ time, capacity: scheduleCapacityAtTime(config, time, config.workCapacity) }));
+  const weekendSlotCapacities = weekendSlots.map(time => ({ time, capacity: scheduleCapacityAtTime(config, time, config.weekendCapacity) }));
+  const workTotal = workSlotCapacities.reduce((sum, item) => sum + item.capacity, 0);
+  const weekendTotal = weekendSlotCapacities.reduce((sum, item) => sum + item.capacity, 0);
   const workPreviewCount = document.getElementById("scheduleWorkPreviewCount");
   const weekendPreviewCount = document.getElementById("scheduleWeekendPreviewCount");
   const workPreviewSlots = document.getElementById("scheduleWorkPreviewSlots");
   const weekendPreviewSlots = document.getElementById("scheduleWeekendPreviewSlots");
-  if (workPreviewCount) workPreviewCount.textContent = `Нийт ${workSlots.length} цагийн сонголт:`;
-  if (weekendPreviewCount) weekendPreviewCount.textContent = `Нийт ${weekendSlots.length} цагийн сонголт:`;
-  if (workPreviewSlots) workPreviewSlots.innerHTML = workSlots.map(time => `<span>${time}</span>`).join("");
-  if (weekendPreviewSlots) weekendPreviewSlots.innerHTML = weekendSlots.map(time => `<span>${time}</span>`).join("");
+  if (workPreviewCount) workPreviewCount.textContent = `Өдөрт нийт ${workTotal} slot · ${workSlots.length} цагийн сонголт:`;
+  if (weekendPreviewCount) weekendPreviewCount.textContent = `Өдөрт нийт ${weekendTotal} slot · ${weekendSlots.length} цагийн сонголт:`;
+  if (workPreviewSlots) workPreviewSlots.innerHTML = workSlotCapacities.map(item => `<span>${item.time}<small>${item.capacity} slot</small></span>`).join("");
+  if (weekendPreviewSlots) weekendPreviewSlots.innerHTML = weekendSlotCapacities.map(item => `<span>${item.time}<small>${item.capacity} slot</small></span>`).join("");
   const workHint = document.getElementById("scheduleWorkHint");
   const weekendHint = document.getElementById("scheduleWeekendHint");
   if (workHint) workHint.textContent = `${config.workDuration} мин → ${workSlots.slice(0, 3).join(", ")}... · нэг цагт ${config.workCapacity} хүн`;
@@ -2897,6 +2954,8 @@ function renderScheduleSettings(selectedName = selectedScheduleSalonName(), effe
   document.getElementById("scheduleWeekendDuration").value = config.weekendDuration;
   document.getElementById("scheduleWorkCapacity").value = config.workCapacity;
   document.getElementById("scheduleWeekendCapacity").value = config.weekendCapacity;
+  scheduleLunchBreakDraft = normalizeScheduleLunchBreaks(config.lunchBreaks).map(item => ({ ...item }));
+  renderScheduleLunchBreaks();
   renderSchedulePreview();
   enhanceNativeSelects(["scheduleSalon"]);
   enhanceScheduleTimeInputs();
@@ -2935,8 +2994,11 @@ function saveScheduleSettings() {
     workDuration: Math.max(Number(document.getElementById("scheduleWorkDuration").value) || 30, 5),
     weekendDuration: Math.max(Number(document.getElementById("scheduleWeekendDuration").value) || 30, 5),
     workCapacity: Math.max(Number(document.getElementById("scheduleWorkCapacity").value) || 1, 1),
-    weekendCapacity: Math.max(Number(document.getElementById("scheduleWeekendCapacity").value) || 1, 1)
+    weekendCapacity: Math.max(Number(document.getElementById("scheduleWeekendCapacity").value) || 1, 1),
+    lunchBreaks: normalizeScheduleLunchBreaks(scheduleLunchBreakDraft)
   };
+  const invalidLunchBreak = scheduleLunchBreakDraft.find(item => timeToMinutes(item.end) <= timeToMinutes(item.start));
+  if (invalidLunchBreak) return showToast("Цайны цагийн эхлэх, дуусах хугацааг зөв оруулна уу");
   nextSchedule.duration = nextSchedule.workDuration;
   nextSchedule.capacity = nextSchedule.workCapacity;
   salon.scheduleVersions = (Array.isArray(salon.scheduleVersions) ? salon.scheduleVersions : [])
@@ -18276,9 +18338,12 @@ function closeBookingForm() {
   if (slot) slot.innerHTML = "";
 }
 
-function getSalonCapacity(salonName, date = todayText()) {
+function getSalonCapacity(salonName, date = todayText(), time = "") {
   const salon = state.salons.find(item => item.name === salonName);
-  if (salon) return Math.max(Number(scheduleConfig(salonName, date).capacity) || 1, 1);
+  if (salon) {
+    const config = scheduleConfig(salonName, date);
+    return time ? scheduleCapacityAtTime(config, time) : Math.max(Number(config.capacity) || 1, 1);
+  }
   return String(salonName || "").includes("Төв") ? 6 : 4;
 }
 
@@ -18353,7 +18418,7 @@ function renderBookingTimeOptionsForRow(editingId, slotRow, preferFirstAvailable
   const salonName = slotRow.querySelector(".booking-salon")?.value || "";
   const date = slotRow.querySelector(".booking-date")?.value || "";
   if (!dropdown || !menu || !input || !triggerText) return;
-  const capacity = getSalonCapacity(salonName, date);
+  const baseCapacity = getSalonCapacity(salonName, date);
   const timeOptions = bookingOptionsForSalon(salonName, date);
   const closedHoliday = holidayForDate(salonName, date);
   let firstAvailable = "";
@@ -18362,13 +18427,14 @@ function renderBookingTimeOptionsForRow(editingId, slotRow, preferFirstAvailable
     occupied: bookedCountForSlot(salonName, date, time, editingId),
     past: isPastBookingTime(date, time) || Boolean(closedHoliday)
   }));
-  firstAvailable = availableByTime.find(item => !item.past && item.occupied < capacity)?.time || "";
-  if (preferFirstAvailable || closedHoliday || !input.value || isPastBookingTime(date, input.value) || bookedCountForSlot(salonName, date, input.value, editingId) >= capacity) {
+  firstAvailable = availableByTime.find(item => !item.past && item.occupied < getSalonCapacity(salonName, date, item.time))?.time || "";
+  if (preferFirstAvailable || closedHoliday || !input.value || isPastBookingTime(date, input.value) || bookedCountForSlot(salonName, date, input.value, editingId) >= getSalonCapacity(salonName, date, input.value)) {
     input.value = firstAvailable;
   }
   triggerText.textContent = closedHoliday ? "Амралтын өдөр" : input.value || "Сул цаггүй";
-  menu.style.gridTemplateColumns = `repeat(${capacity}, minmax(58px, 1fr))`;
+  menu.style.gridTemplateColumns = `repeat(${baseCapacity}, minmax(58px, 1fr))`;
   menu.innerHTML = availableByTime.map(({ time, occupied, past }) => {
+    const capacity = getSalonCapacity(salonName, date, time);
     return Array.from({ length: capacity }, (_, index) => {
       const disabled = past || index < occupied;
       const selected = input.value === time && !disabled && index === occupied ? " selected" : "";
@@ -18564,7 +18630,7 @@ function openBookingModal(editId, targetSlot = null, draft = null) {
         other.date === item.date &&
         other.time === item.time
       ).length;
-      return bookedCountForSlot(item.salon, item.date, item.time, editId) + selectedCount > getSalonCapacity(item.salon, item.date);
+      return bookedCountForSlot(item.salon, item.date, item.time, editId) + selectedCount > getSalonCapacity(item.salon, item.date, item.time);
     });
     if (overCapacitySlot) {
       showToast("Суудлын багтаамжаас хэтэрсэн байна");
@@ -19133,6 +19199,16 @@ function bindEvents() {
   });
 
   document.getElementById("scheduleSave")?.addEventListener("click", saveScheduleSettings);
+  document.getElementById("scheduleLunchAdd")?.addEventListener("click", () => {
+    const previous = scheduleLunchBreakDraft.at(-1);
+    scheduleLunchBreakDraft.push({
+      start: previous?.end || "12:00",
+      end: previous?.end ? minutesToTime(Math.min(timeToMinutes(previous.end) + 60, 23 * 60 + 59)) : "13:00",
+      count: 1
+    });
+    renderScheduleLunchBreaks();
+    renderSchedulePreview();
+  });
   document.getElementById("scheduleSalon")?.addEventListener("change", event => {
     renderScheduleSettings(event.target.value, document.getElementById("scheduleEffectiveFrom")?.value || todayText());
   });

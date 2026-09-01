@@ -77,11 +77,13 @@ function booking_unique_id(array $rows): string
     return $id;
 }
 
-function booking_capacity(array $salons, string $salonName, string $date): int
+function booking_capacity(array $salons, string $salonName, string $date, string $time = ''): int
 {
     foreach ($salons as $salon) {
         if (is_array($salon) && trim((string)($salon['name'] ?? '')) === $salonName) {
-            return salon_capacity_for_date($salon, $date);
+            return $time !== ''
+                ? salon_capacity_for_slot($salon, $date, $time)
+                : salon_capacity_for_date($salon, $date);
         }
     }
     return 4;
@@ -180,7 +182,7 @@ function booking_assert_capacity(array $rows, array $candidate, array $salons, s
             $occupied++;
         }
     }
-    if ($occupied >= booking_capacity($salons, (string)$candidate['salon'], (string)$candidate['date'])) {
+    if ($occupied >= booking_capacity($salons, (string)$candidate['salon'], (string)$candidate['date'], (string)$candidate['time'])) {
         throw new DomainException('Сонгосон цаг дүүрсэн байна.');
     }
 }

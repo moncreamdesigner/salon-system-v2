@@ -41,7 +41,7 @@ assert.match(bootstrap, /scheduleVersions/, "Future schedule versions must remai
 assert.match(api, /salon_schedule_for_date\(\$salon, \(string\)\$candidate\['date'\]\)/, "Admin booking validation must use the date-effective schedule");
 assert.match(api, /salon_capacity_for_date/, "Admin booking capacity must follow the date-effective schedule");
 assert.match(publicApi, /salon_schedule_for_date\(\$salon, \$booking\['date'\]\)/, "Public booking validation must use the date-effective schedule");
-assert.match(publicApi, /salon_capacity_for_date\(\$salon, \$booking\['date'\]\)/, "Public booking capacity must follow the date-effective schedule");
+assert.match(publicApi, /salon_capacity_for_slot\(\$salon, \$booking\['date'\], \$booking\['time'\]\)/, "Public booking capacity must follow the date-effective schedule and lunch reduction");
 assert.match(app, /scheduleEffectiveFrom/, "Schedule settings must expose an effective-from calendar");
 assert.match(app, /salon\.scheduleVersions/, "Schedule saves must append or replace a dated version");
 assert.match(publicApp, /salon\.scheduleVersions/, "The public booking UI must resolve dated schedules");

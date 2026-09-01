@@ -62,6 +62,18 @@ function salon_schedule_for_date(array $salon, string $date): array
     $result['weekendDuration'] = max(5, (int)($result['weekendDuration'] ?? $legacyDuration));
     $result['workCapacity'] = max(1, (int)($result['workCapacity'] ?? $legacyCapacity));
     $result['weekendCapacity'] = max(1, (int)($result['weekendCapacity'] ?? $legacyCapacity));
+    $result['lunchBreaks'] = array_values(array_filter(array_map(static function ($item): ?array {
+        if (!is_array($item)) return null;
+        $start = trim((string)($item['start'] ?? ''));
+        $end = trim((string)($item['end'] ?? ''));
+        if (preg_match('/^\d{2}:\d{2}$/', $start) !== 1 || preg_match('/^\d{2}:\d{2}$/', $end) !== 1) return null;
+        $startParts = array_map('intval', explode(':', $start));
+        $endParts = array_map('intval', explode(':', $end));
+        $startMinutes = (($startParts[0] ?? 0) * 60) + ($startParts[1] ?? 0);
+        $endMinutes = (($endParts[0] ?? 0) * 60) + ($endParts[1] ?? 0);
+        if ($endMinutes <= $startMinutes) return null;
+        return ['start' => $start, 'end' => $end, 'count' => max(1, (int)($item['count'] ?? 1))];
+    }, is_array($result['lunchBreaks'] ?? null) ? $result['lunchBreaks'] : [])));
     $dayOfWeek = preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1
         ? (int)(new DateTimeImmutable($date))->format('w')
         : 1;
@@ -75,6 +87,26 @@ function salon_capacity_for_date(array $salon, string $date): int
 {
     $schedule = salon_schedule_for_date($salon, $date);
     return max(1, (int)($schedule['capacity'] ?? $salon['slotCapacity'] ?? 4));
+}
+
+function salon_capacity_for_slot(array $salon, string $date, string $time): int
+{
+    $schedule = salon_schedule_for_date($salon, $date);
+    $capacity = max(1, (int)($schedule['capacity'] ?? $salon['slotCapacity'] ?? 4));
+    if (preg_match('/^(\d{2}):(\d{2})$/', $time, $parts) !== 1) return $capacity;
+    $timeMinutes = ((int)$parts[1] * 60) + (int)$parts[2];
+    $lunchCount = 0;
+    foreach ((array)($schedule['lunchBreaks'] ?? []) as $item) {
+        if (!is_array($item)) continue;
+        $startParts = array_map('intval', explode(':', (string)($item['start'] ?? '')));
+        $endParts = array_map('intval', explode(':', (string)($item['end'] ?? '')));
+        $startMinutes = (($startParts[0] ?? 0) * 60) + ($startParts[1] ?? 0);
+        $endMinutes = (($endParts[0] ?? 0) * 60) + ($endParts[1] ?? 0);
+        if ($timeMinutes >= $startMinutes && $timeMinutes < $endMinutes) {
+            $lunchCount += max(1, (int)($item['count'] ?? 1));
+        }
+    }
+    return max(0, $capacity - $lunchCount);
 }
 
 function private_config(): array

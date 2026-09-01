@@ -333,6 +333,7 @@ function salonScheduleConfig(salon, date = new Date()) {
   const weekendDuration = Math.max(Number(merged.weekendDuration) || legacyDuration, 5);
   const workCapacity = Math.max(Number(merged.workCapacity) || legacyCapacity, 1);
   const weekendCapacity = Math.max(Number(merged.weekendCapacity) || legacyCapacity, 1);
+  const lunchBreaks = normalizePublicLunchBreaks(merged.lunchBreaks);
   const selectedDate = date instanceof Date ? date : new Date(`${targetDate}T00:00:00`);
   const weekend = [0, 6].includes(selectedDate.getDay());
   return {
@@ -341,6 +342,7 @@ function salonScheduleConfig(salon, date = new Date()) {
     weekendDuration,
     workCapacity,
     weekendCapacity,
+    lunchBreaks,
     duration: weekend ? weekendDuration : workDuration,
     capacity: weekend ? weekendCapacity : workCapacity
   };
@@ -352,8 +354,30 @@ function salonSchedule(salon, date = new Date()) {
   return { start: weekend ? config.weekendStart : config.workStart, end: weekend ? config.weekendEnd : config.workEnd, duration: Number(config.duration) || 30 };
 }
 
-function salonCapacity(salon, date) {
-  return salonScheduleConfig(salon, date).capacity;
+function publicTimeMinutes(value) {
+  const [hours, minutes] = String(value || "00:00").split(":").map(Number);
+  return (hours * 60) + (minutes || 0);
+}
+
+function normalizePublicLunchBreaks(value) {
+  return (Array.isArray(value) ? value : []).map(item => ({
+    start: String(item?.start || ""),
+    end: String(item?.end || ""),
+    count: Math.max(1, Math.floor(Number(item?.count) || 1))
+  })).filter(item => /^\d{2}:\d{2}$/.test(item.start) && /^\d{2}:\d{2}$/.test(item.end) && publicTimeMinutes(item.end) > publicTimeMinutes(item.start));
+}
+
+function salonCapacity(salon, date, time = "") {
+  const config = salonScheduleConfig(salon, date);
+  const baseCapacity = Math.max(Number(config.capacity) || 1, 1);
+  if (!time) return baseCapacity;
+  const minutes = publicTimeMinutes(time);
+  const lunchCount = config.lunchBreaks.reduce((sum, item) => (
+    minutes >= publicTimeMinutes(item.start) && minutes < publicTimeMinutes(item.end)
+      ? sum + item.count
+      : sum
+  ), 0);
+  return Math.max(0, baseCapacity - lunchCount);
 }
 
 function renderSalonDetail(salonId, { preserveSelection = false, preserveScroll = false } = {}) {
@@ -468,7 +492,7 @@ function timeOptions(salon, date) {
 
 function slotFull(salon, date, time) {
   const count = (publicState.bookings || []).filter(item => item.salon === salon.name && item.date === date && item.time === time && !["cancelled", "rejected"].includes(item.status)).length;
-  return count >= salonCapacity(salon, date);
+  return count >= salonCapacity(salon, date, time);
 }
 
 function dateHoliday(salon, date) {
