@@ -16056,6 +16056,35 @@ function voucherLogRowsHtml(logs = []) {
   `).join("") || `<tr><td colspan="7" class="empty-state">Сонгосон хугацаанд ваучер ашиглаагүй</td></tr>`;
 }
 
+function voucherRoleOperationId() {
+  return `voucher-role:${serverClientId}:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`;
+}
+
+async function submitVoucherRoleOperation(action, { role = null, id = "", baseRole = null } = {}) {
+  const result = await serverApi("voucher-roles.php", {
+    method: "POST",
+    body: JSON.stringify({
+      action,
+      role,
+      id,
+      baseRole,
+      clientId: serverClientId,
+      operationId: voucherRoleOperationId()
+    })
+  });
+  localStateMutationVersion += 1;
+  serverStorageRevision = Number(result.revision || serverStorageRevision);
+  serverScopeRevision = Number(result.scopeRevision ?? serverScopeRevision);
+  applyServerSectionRevisions(result.sectionRevisions || {});
+  if (Array.isArray(result.voucherRoles)) state.voucherRoles = result.voucherRoles;
+  if (result.pricePolicy && typeof result.pricePolicy === "object") state.pricePolicy = result.pricePolicy;
+  loadedServerSections.add("voucherRoles");
+  if (result.sectionRevisions?.pricePolicy) loadedServerSections.add("pricePolicy");
+  invalidatePersistedStateCache();
+  invalidatePerformanceData();
+  return result;
+}
+
 function renderVouchers() {
   if (!document.getElementById("vouchersView")?.isConnected) return;
   const roleRows = document.getElementById("voucherRoleRows");
@@ -16081,8 +16110,8 @@ function renderVouchers() {
   roleRows.innerHTML = state.voucherRoles.map(role => `
     <div class="voucher-role-item">
       <div class="voucher-role-main">
-        <strong>${role.name}</strong>
-        <span>${role.position || ""}${role.cashierCommissionEligible ? ` · <b class="voucher-commission-eligible">Кассын %-д орно</b>` : " · Кассын %-д орохгүй"}</span>
+        <strong>${htmlSafe(role.name)}</strong>
+        <span>${htmlSafe(role.position || "")}${role.cashierCommissionEligible ? ` · <b class="voucher-commission-eligible">Кассын %-д орно</b>` : " · Кассын %-д орохгүй"}</span>
       </div>
       <div class="table-actions">
         <button class="secondary-btn icon-action voucher-role-edit" type="button" data-id="${role.id}" aria-label="Засах">${editIcon()}</button>
@@ -16137,6 +16166,29 @@ function renderVouchers() {
     button.addEventListener("click", async () => {
       if (!await requireDeleteCode()) return;
       const id = Number(button.dataset.id);
+      if (!IS_LOCAL_RUNTIME) {
+        const baseRole = state.voucherRoles.find(item => Number(item.id) === id);
+        button.disabled = true;
+        try {
+          await submitVoucherRoleOperation("delete", { id: String(id), baseRole });
+          if (Number(voucherRoleEditingId) === id) {
+            voucherRoleEditingId = null;
+            document.getElementById("voucherRoleForm")?.reset();
+          }
+          renderVouchers();
+          renderInfoHeader(activeView);
+          showToast("Ваучерийн эрх устлаа");
+        } catch (error) {
+          if (error.status === 409) {
+            await reloadServerConflictSections(["voucherRoles", "pricePolicy"], "vouchers").catch(() => null);
+            renderVouchers();
+          }
+          showToast(error.message || "Ваучерийн эрх устгаж чадсангүй", "error");
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+        return;
+      }
       state.voucherRoles = state.voucherRoles.filter(item => Number(item.id) !== id);
       const currentPolicy = currentPerformancePolicy();
       if (currentPolicy.cashier.voucherRoleIds.map(String).includes(String(id))) {
@@ -18939,6 +18991,36 @@ function bindEvents() {
     const eligibilityChanged = wasEditing
       ? Boolean(existingRole?.cashierCommissionEligible) !== cashierCommissionEligible
       : cashierCommissionEligible;
+    if (!IS_LOCAL_RUNTIME) {
+      const submit = document.getElementById("voucherRoleSubmit");
+      if (submit) submit.disabled = true;
+      try {
+        await submitVoucherRoleOperation("upsert", {
+          id: wasEditing ? String(voucherRoleEditingId) : "",
+          baseRole: existingRole ? structuredClone(existingRole) : null,
+          role: {
+            ...(wasEditing ? { id: String(voucherRoleEditingId) } : {}),
+            name,
+            position,
+            cashierCommissionEligible
+          }
+        });
+        voucherRoleEditingId = null;
+        event.target.reset();
+        renderVouchers();
+        renderInfoHeader(activeView);
+        showToast(wasEditing ? "Ваучерийн эрх шинэчлэгдлээ" : "Ваучерийн эрх хадгалагдлаа");
+      } catch (error) {
+        if (error.status === 409) {
+          await reloadServerConflictSections(["voucherRoles", "pricePolicy"], "vouchers").catch(() => null);
+          renderVouchers();
+        }
+        showToast(error.message || "Ваучерийн эрх хадгалж чадсангүй", "error");
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+      return;
+    }
     if (eligibilityChanged && !IS_LOCAL_RUNTIME && !fullServerStateLoaded && !loadedServerSections.has("pricePolicy")) {
       const submit = document.getElementById("voucherRoleSubmit");
       if (submit) submit.disabled = true;
