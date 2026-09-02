@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/customer-mutations.php';
+require_once __DIR__ . '/customer-entity-store.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -181,6 +182,60 @@ function customer_mutation_change_events(array $current, array $incoming, array 
                 'before' => $before,
                 'after' => $after,
             ];
+            if ($definition['type'] === 'customer') {
+                $beforeServices = recovery_index(is_array($before['serviceHistory'] ?? null) ? $before['serviceHistory'] : [], 'service');
+                $afterServices = recovery_index(is_array($after['serviceHistory'] ?? null) ? $after['serviceHistory'] : [], 'service');
+                foreach (array_values(array_unique(array_merge(array_keys($beforeServices), array_keys($afterServices)))) as $serviceId) {
+                    $beforeService = $beforeServices[$serviceId] ?? null;
+                    $afterService = $afterServices[$serviceId] ?? null;
+                    if ($beforeService === $afterService) continue;
+                    $events[] = [
+                        'entityType' => 'service',
+                        'entityId' => (string)$serviceId,
+                        'parentId' => $entityId,
+                        'action' => $beforeService === null ? 'create' : ($afterService === null ? 'delete' : 'update'),
+                        'before' => $beforeService,
+                        'after' => $afterService,
+                    ];
+                    foreach ([
+                        ['key' => 'payments', 'type' => 'payment'],
+                        ['key' => 'visits', 'type' => 'visit'],
+                        ['key' => 'diagnosisHistory', 'type' => 'diagnosis'],
+                        ['key' => 'creditTransfers', 'type' => 'creditTransfer'],
+                    ] as $nestedDefinition) {
+                        $beforeNested = recovery_index(is_array($beforeService[$nestedDefinition['key']] ?? null) ? $beforeService[$nestedDefinition['key']] : [], $nestedDefinition['type']);
+                        $afterNested = recovery_index(is_array($afterService[$nestedDefinition['key']] ?? null) ? $afterService[$nestedDefinition['key']] : [], $nestedDefinition['type']);
+                        foreach (array_values(array_unique(array_merge(array_keys($beforeNested), array_keys($afterNested)))) as $nestedId) {
+                            $beforeItem = $beforeNested[$nestedId] ?? null;
+                            $afterItem = $afterNested[$nestedId] ?? null;
+                            if ($beforeItem === $afterItem) continue;
+                            $events[] = [
+                                'entityType' => $nestedDefinition['type'],
+                                'entityId' => (string)$nestedId,
+                                'parentId' => $entityId . '/' . (string)$serviceId,
+                                'action' => $beforeItem === null ? 'create' : ($afterItem === null ? 'delete' : 'update'),
+                                'before' => $beforeItem,
+                                'after' => $afterItem,
+                            ];
+                        }
+                    }
+                }
+                $beforeCredit = recovery_index(is_array($before['creditLedger'] ?? null) ? $before['creditLedger'] : [], 'credit');
+                $afterCredit = recovery_index(is_array($after['creditLedger'] ?? null) ? $after['creditLedger'] : [], 'credit');
+                foreach (array_values(array_unique(array_merge(array_keys($beforeCredit), array_keys($afterCredit)))) as $creditId) {
+                    $beforeItem = $beforeCredit[$creditId] ?? null;
+                    $afterItem = $afterCredit[$creditId] ?? null;
+                    if ($beforeItem === $afterItem) continue;
+                    $events[] = [
+                        'entityType' => 'customerCredit',
+                        'entityId' => (string)$creditId,
+                        'parentId' => $entityId,
+                        'action' => $beforeItem === null ? 'create' : ($afterItem === null ? 'delete' : 'update'),
+                        'before' => $beforeItem,
+                        'after' => $afterItem,
+                    ];
+                }
+            }
         }
     }
     return $events;
@@ -614,6 +669,26 @@ if (
 ) {
     json_response(['ok' => false, 'message' => 'Хэрэглэгчийн өөрчлөлтийн хэмжээ хэтэрсэн байна.'], 413);
 }
+$profileMutationCount = count(is_array($customerMutations['profiles'] ?? null) ? $customerMutations['profiles'] : []);
+$groupMutationCount = count(is_array($customerMutations['groups'] ?? null) ? $customerMutations['groups'] : []);
+$bulkCustomerImport = ($user['role'] ?? '') === 'admin'
+    && ($payload['bulkCustomerImport'] ?? false) === true
+    && trim((string)($payload['removalReason'] ?? '')) !== '';
+// Normal workstation writes must identify the exact customer/group entities.
+// Only the explicit admin import/cleanup flow may replace whole arrays. This
+// prevents a stale browser tab from replaying its old customer directory over
+// changes committed by another salon.
+if (
+    (array_key_exists('customers', $sections) && $profileMutationCount === 0 && !$bulkCustomerImport)
+    || (array_key_exists('customerGroups', $sections) && $groupMutationCount === 0 && !$bulkCustomerImport)
+) {
+    json_response([
+        'ok' => false,
+        'conflict' => true,
+        'customerEndpointRequired' => true,
+        'message' => 'Хэрэглэгчийн мэдээллийг хуучин бүхэл хадгалалтын замаар өөрчлөхөөс хамгааллаа. Хуудсаа шинэчилнэ үү.',
+    ], 409);
+}
 
 try {
     $pdo->beginTransaction();
@@ -750,6 +825,32 @@ try {
         $sectionJson = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($sectionJson === false) throw new RuntimeException('JSON хөрвүүлэлт амжилтгүй.');
         $upsert->execute([(string)$key, $sectionJson, $nextRevision]);
+    }
+    $projectedCustomerIds = [];
+    foreach ((is_array($customerMutations['profiles'] ?? null) ? $customerMutations['profiles'] : []) as $profileMutation) {
+        if (!is_array($profileMutation)) continue;
+        $customerId = trim((string)($profileMutation['id'] ?? ''));
+        if ($customerId !== '') $projectedCustomerIds[] = $customerId;
+    }
+    if ($projectedCustomerIds && is_array($sections['customers'] ?? null)) {
+        // Keep the normalized operational projection in the same transaction
+        // as the compatibility JSON write. A failed projection rolls back both.
+        project_customer_entities($pdo, $sections['customers'], $projectedCustomerIds, $nextRevision);
+    } elseif ($bulkCustomerImport && array_key_exists('customers', $sections) && is_array($sections['customers'])) {
+        // Admin import/cleanup is the only supported whole-customer write. Its
+        // projection is rebuilt atomically so compatibility and entity stores
+        // can never represent different successful imports.
+        foreach (['app_kass_sale_items', 'app_visit_entities', 'app_payment_entities', 'app_service_entities', 'app_customer_credit_entities', 'app_customer_entities'] as $projectionTable) {
+            $pdo->exec("DELETE FROM {$projectionTable}");
+        }
+        $allCustomerIds = array_values(array_filter(array_map(
+            static fn(mixed $customer): string => is_array($customer) ? trim((string)($customer['id'] ?? '')) : '',
+            $sections['customers']
+        ), static fn(string $value): bool => $value !== ''));
+        foreach (array_chunk($allCustomerIds, 100) as $customerIdBatch) {
+            project_customer_entities($pdo, $sections['customers'], $customerIdBatch, $nextRevision);
+        }
+        $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('entity_projection_ready', '1') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
     }
     $meta = $pdo->prepare("UPDATE app_meta SET meta_value = ? WHERE meta_key = 'revision'");
     $meta->execute([(string)$nextRevision]);

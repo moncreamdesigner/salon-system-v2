@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/booking-storage.php';
+require_once __DIR__ . '/customer-entity-store.php';
 
 $isCli = PHP_SAPI === 'cli';
 if (!$isCli) {
@@ -305,6 +306,18 @@ try {
                 if ($encoded === false) throw new RuntimeException('Backup section хөрвүүлж чадсангүй.');
                 $insert->execute([(string)$key, $encoded, $nextRevision]);
             }
+            $restoredCustomers = is_array($snapshot['data']['customers'] ?? null) ? array_values($snapshot['data']['customers']) : [];
+            $restoredCustomerIds = array_values(array_filter(array_map(
+                static fn(mixed $customer): string => is_array($customer) ? trim((string)($customer['id'] ?? '')) : '',
+                $restoredCustomers
+            ), static fn(string $value): bool => $value !== ''));
+            foreach (['app_kass_sale_items', 'app_visit_entities', 'app_payment_entities', 'app_service_entities', 'app_customer_credit_entities', 'app_customer_entities'] as $projectionTable) {
+                $pdo->exec("DELETE FROM {$projectionTable}");
+            }
+            foreach (array_chunk($restoredCustomerIds, 100) as $customerIdBatch) {
+                project_customer_entities($pdo, $restoredCustomers, $customerIdBatch, $nextRevision);
+            }
+            $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('entity_projection_ready', '1') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
             if (is_array($snapshot['bookingArchive'] ?? null)) {
                 $pdo->exec('DELETE FROM app_booking_archive');
                 $archiveInsert = $pdo->prepare('INSERT INTO app_booking_archive (archive_key, booking_id, salon, booking_date, booking_time, phone, status, payload, archived_revision, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');

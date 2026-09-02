@@ -171,7 +171,7 @@ function ensure_schema(PDO $pdo): void
     if ($ready) return;
     try {
         $schemaVersion = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'schema_version'")->fetchColumn();
-        if ($schemaVersion >= 8) {
+        if ($schemaVersion >= 9) {
             $ready = true;
             return;
         }
@@ -267,6 +267,97 @@ function ensure_schema(PDO $pdo): void
         INDEX idx_change_events_created (created_at),
         CHECK (before_payload IS NULL OR JSON_VALID(before_payload)),
         CHECK (after_payload IS NULL OR JSON_VALID(after_payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_customer_entities (
+        customer_id VARCHAR(190) PRIMARY KEY,
+        phone VARCHAR(32) NOT NULL DEFAULT '',
+        display_name VARCHAR(190) NOT NULL DEFAULT '',
+        registered_salon VARCHAR(190) NOT NULL DEFAULT '',
+        archived TINYINT(1) NOT NULL DEFAULT 0,
+        payload LONGTEXT NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_customer_entities_phone (phone),
+        INDEX idx_customer_entities_salon (registered_salon),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_service_entities (
+        customer_id VARCHAR(190) NOT NULL,
+        service_id VARCHAR(190) NOT NULL,
+        kind VARCHAR(40) NOT NULL DEFAULT '',
+        salon VARCHAR(190) NOT NULL DEFAULT '',
+        service_date DATE NULL,
+        staff_name VARCHAR(190) NOT NULL DEFAULT '',
+        payload LONGTEXT NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (customer_id, service_id),
+        INDEX idx_service_entities_salon_date (salon, service_date),
+        INDEX idx_service_entities_staff_date (staff_name, service_date),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_payment_entities (
+        customer_id VARCHAR(190) NOT NULL,
+        service_id VARCHAR(190) NOT NULL,
+        payment_id VARCHAR(190) NOT NULL,
+        salon VARCHAR(190) NOT NULL DEFAULT '',
+        payment_date DATE NULL,
+        amount DECIMAL(16,2) NOT NULL DEFAULT 0,
+        method VARCHAR(40) NOT NULL DEFAULT '',
+        payload LONGTEXT NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (customer_id, service_id, payment_id),
+        INDEX idx_payment_entities_salon_date (salon, payment_date),
+        INDEX idx_payment_entities_method_date (method, payment_date),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_visit_entities (
+        customer_id VARCHAR(190) NOT NULL,
+        service_id VARCHAR(190) NOT NULL,
+        visit_id VARCHAR(190) NOT NULL,
+        visit_number INT NOT NULL DEFAULT 0,
+        salon VARCHAR(190) NOT NULL DEFAULT '',
+        visit_date DATE NULL,
+        staff_name VARCHAR(190) NOT NULL DEFAULT '',
+        payload LONGTEXT NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (customer_id, service_id, visit_id),
+        INDEX idx_visit_entities_salon_date (salon, visit_date),
+        INDEX idx_visit_entities_staff_date (staff_name, visit_date),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_kass_sale_items (
+        customer_id VARCHAR(190) NOT NULL,
+        service_id VARCHAR(190) NOT NULL,
+        line_id VARCHAR(190) NOT NULL,
+        salon VARCHAR(190) NOT NULL DEFAULT '',
+        sale_date DATE NULL,
+        product_code VARCHAR(190) NOT NULL DEFAULT '',
+        product_name VARCHAR(255) NOT NULL DEFAULT '',
+        quantity INT NOT NULL DEFAULT 1,
+        line_total DECIMAL(16,2) NOT NULL DEFAULT 0,
+        payload LONGTEXT NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (customer_id, service_id, line_id),
+        INDEX idx_kass_sale_items_salon_date (salon, sale_date),
+        INDEX idx_kass_sale_items_code_date (product_code, sale_date),
+        CHECK (JSON_VALID(payload))
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_customer_credit_entities (
+        customer_id VARCHAR(190) NOT NULL,
+        credit_id VARCHAR(190) NOT NULL,
+        entry_date DATE NULL,
+        amount DECIMAL(16,2) NOT NULL DEFAULT 0,
+        entry_type VARCHAR(40) NOT NULL DEFAULT '',
+        payload LONGTEXT NOT NULL,
+        revision BIGINT UNSIGNED NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (customer_id, credit_id),
+        INDEX idx_customer_credit_date (entry_date),
+        CHECK (JSON_VALID(payload))
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS app_booking_archive (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -402,7 +493,7 @@ function ensure_schema(PDO $pdo): void
         $pdo->exec("UPDATE app_meta SET meta_value = '6' WHERE meta_key = 'backup_interval_hours'");
         $pdo->exec("UPDATE app_meta SET meta_value = '3' WHERE meta_key = 'backup_policy_version'");
     }
-    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '8') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
+    $pdo->exec("INSERT INTO app_meta (meta_key, meta_value) VALUES ('schema_version', '9') ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)");
     $ready = true;
 }
 

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/customer-mutations.php';
+require_once __DIR__ . '/customer-entity-store.php';
 
 verify_same_origin();
 $user = require_admin();
@@ -24,9 +25,11 @@ function change_event_public_row(array $row, bool $includePayload = false): arra
         'displayName' => (string)($subject['name'] ?? $subject['service'] ?? $subject['title'] ?? $subject['phone'] ?? ''),
         'phone' => (string)($subject['phone'] ?? ''),
         'salon' => (string)($subject['salon'] ?? ''),
-        'canRestore' => (string)($row['entity_type'] ?? '') === 'booking'
-            ? (is_array($before) || is_array($after))
-            : (is_array($before) && is_array($after)),
+        // Nested ledger events are kept for audit/download. Restore remains on
+        // their atomic parent customer operation so gift-card, voucher, bonus
+        // and credit side effects cannot be reverted only halfway.
+        'canRestore' => in_array((string)($row['entity_type'] ?? ''), ['customer', 'customerGroup', 'booking'], true)
+            && (is_array($before) || is_array($after)),
         'createdAt' => (string)($row['created_at'] ?? ''),
     ];
     if ($includePayload) {
@@ -101,7 +104,8 @@ try {
         $pdo->rollBack();
         json_response(['ok' => false, 'message' => 'Сэргээх түүх олдсонгүй.'], 404);
     }
-    $sectionKey = match ((string)$event['entity_type']) {
+    $entityType = (string)$event['entity_type'];
+    $sectionKey = match ($entityType) {
         'customer' => 'customers',
         'customerGroup' => 'customerGroups',
         'booking' => 'bookings',
@@ -131,13 +135,16 @@ try {
     } else {
         array_unshift($rows, $eventBefore);
     }
+    $restoreSubject = is_array($eventBefore) ? $eventBefore : (is_array($eventAfter) ? $eventAfter : []);
     $nextRevision = $currentRevision + 1;
     $encoded = json_encode(array_values($rows), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($encoded === false) throw new RuntimeException('Сэргээсэн мэдээллийг JSON болгоход алдаа гарлаа.');
     $updateSection = $pdo->prepare('UPDATE app_sections SET payload = ?, revision = ?, updated_at = CURRENT_TIMESTAMP WHERE section_key = ?');
     $updateSection->execute([$encoded, $nextRevision, $sectionKey]);
+    if ($sectionKey === 'customers') {
+        project_customer_entities($pdo, $rows, [$entityId], $nextRevision);
+    }
     $pdo->prepare("UPDATE app_meta SET meta_value = ? WHERE meta_key = 'revision'")->execute([(string)$nextRevision]);
-    $restoreSubject = is_array($eventBefore) ? $eventBefore : (is_array($eventAfter) ? $eventAfter : []);
     $scopeRevision = bump_scope_revisions(
         $pdo,
         $user,
@@ -150,7 +157,7 @@ try {
         'revision' => $nextRevision,
         'scopeRevision' => $scopeRevision,
         'restoredEventId' => $eventId,
-        'entityType' => (string)$event['entity_type'],
+        'entityType' => $entityType,
         'entityId' => $entityId,
     ];
     $operation = $pdo->prepare('INSERT INTO app_operations (operation_id, revision, actor_user_id, actor_username, actor_role, actor_salon, sections, result_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
@@ -168,9 +175,9 @@ try {
     $change->execute([
         $operationId,
         $nextRevision,
-        (string)$event['entity_type'],
+        $entityType,
         $entityId,
-        '',
+        (string)($event['parent_id'] ?? ''),
         'restore',
         $event['after_payload'],
         $event['before_payload'],

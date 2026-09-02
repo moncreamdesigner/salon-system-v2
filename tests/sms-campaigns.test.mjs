@@ -19,7 +19,7 @@ test("marketing SMS uses dedicated server tables and recoverable backups", () =>
   assert.match(bootstrap, /UNIQUE KEY idx_sms_campaign_phone \(campaign_id, phone\)/);
   assert.match(bootstrap, /idx_sms_campaign_status_due \(status, next_run_at\)/);
   assert.match(bootstrap, /idx_sms_campaign_recipient_due \(campaign_id, status, next_attempt_at\)/);
-  assert.match(bootstrap, /'schema_version', '8'/);
+  assert.match(bootstrap, /'schema_version', '9'/);
   assert.match(backup, /'app_sms_campaigns'/);
   assert.match(backup, /'app_sms_campaign_recipients'/);
   assert.doesNotMatch(service, /INSERT(?: IGNORE)? INTO app_sms_messages/);

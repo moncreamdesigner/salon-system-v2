@@ -455,6 +455,7 @@ let serverRollingBackups = [];
 let serverRollingBackupHealth = null;
 let serverRecoveryEntries = [];
 let serverChangeEvents = [];
+let serverEntityProjectionStatus = null;
 let serverFullBackups = [];
 let serverFullBackupSettings = { intervalDays: 30, keepCount: 5 };
 let serverBackupIntervalHours = 6;
@@ -1472,9 +1473,12 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
   const unsafeVersions = new Set();
   pendingCustomerProfileUpdates.forEach((update, customerId) => {
     if (Number(update.mutationVersion || 0) > savingMutationVersion) return;
+    // Mutations carrying their base snapshot are merged field/item-by-item on
+    // the server. Keep them queued across an unrelated section conflict.
+    if (update.baseSnapshot && typeof update.baseSnapshot === "object") return;
     const remoteCustomer = remoteCustomers.get(Number(customerId));
     const baseFingerprint = update.baseFingerprint ?? null;
-    const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, ...profile } = update;
+    const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, baseSnapshot, ...profile } = update;
     const alreadyApplied = Boolean(remoteCustomer) &&
       syncedCustomerFingerprint(remoteCustomer) === syncedCustomerFingerprint(profile);
     const safe = alreadyApplied || (baseFingerprint === null
@@ -1486,9 +1490,10 @@ function discardUnsafeCustomerReplays(remoteData = {}, savingMutationVersion = 0
   });
   pendingCustomerGroupUpdates.forEach((update, groupId) => {
     if (Number(update.mutationVersion || 0) > savingMutationVersion) return;
+    if (update.baseSnapshot && typeof update.baseSnapshot === "object") return;
     const remoteGroup = remoteGroups.get(Number(groupId));
     const baseFingerprint = update.baseFingerprint ?? null;
-    const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, ...profile } = update;
+    const { mutationVersion, baseFingerprint: ignoredBaseFingerprint, baseSnapshot, ...profile } = update;
     const alreadyApplied = Boolean(remoteGroup) &&
       syncedEntityFingerprint(remoteGroup) === syncedEntityFingerprint(profile);
     const safe = alreadyApplied || (baseFingerprint === null
@@ -1561,11 +1566,15 @@ function registerPendingCustomerMutation({
     const snapshot = structuredClone(customer);
     clearCustomerUiState(snapshot);
     const previous = pendingCustomerProfileUpdates.get(customerId);
+    const syncedBase = lastSyncedCustomerFingerprints.get(Number(customerId));
+    const baseSnapshot = previous?.baseSnapshot
+      ?? (syncedBase && typeof syncedBase === "object" ? structuredClone(syncedBase) : null);
     pendingCustomerProfileUpdates.set(customerId, {
       ...snapshot,
       mutationVersion,
       baseFingerprint: previous?.baseFingerprint
-        ?? storedSyncedFingerprint(lastSyncedCustomerFingerprints, customerId, syncedCustomerFingerprint)
+        ?? storedSyncedFingerprint(lastSyncedCustomerFingerprints, customerId, syncedCustomerFingerprint),
+      baseSnapshot
     });
     if (snapshot.groupId) groupIdSet.add(Number(snapshot.groupId));
   });
@@ -1575,11 +1584,15 @@ function registerPendingCustomerMutation({
     const snapshot = structuredClone(group);
     cleanCustomerGroupUiState(snapshot);
     const previous = pendingCustomerGroupUpdates.get(groupId);
+    const syncedBase = lastSyncedGroupFingerprints.get(Number(groupId));
+    const baseSnapshot = previous?.baseSnapshot
+      ?? (syncedBase && typeof syncedBase === "object" ? structuredClone(syncedBase) : null);
     pendingCustomerGroupUpdates.set(groupId, {
       ...snapshot,
       mutationVersion,
       baseFingerprint: previous?.baseFingerprint
-        ?? storedSyncedFingerprint(lastSyncedGroupFingerprints, groupId, syncedCustomerGroupFingerprint)
+        ?? storedSyncedFingerprint(lastSyncedGroupFingerprints, groupId, syncedCustomerGroupFingerprint),
+      baseSnapshot
     });
   });
   auditEntries.forEach(entry => {
@@ -1878,7 +1891,7 @@ function showServerProtectionNotice(message = "Мэдээллийг хамгаа
     overlay.innerHTML = `
       <section class="server-protection-card" role="alertdialog" aria-modal="true" aria-labelledby="serverProtectionTitle">
         <span class="server-protection-icon" aria-hidden="true">!</span>
-        <strong id="serverProtectionTitle">Мэдээллийг хамгааллаа</strong>
+        <strong id="serverProtectionTitle">Өөрчлөлтийг хадгалсангүй</strong>
         <p></p>
         <button class="primary-btn" type="button">Ойлголоо</button>
       </section>`;
@@ -1946,32 +1959,46 @@ async function saveServerStateNow() {
       .filter(Boolean);
     serverSaveRetryDelay = 1000;
     const savedCustomerProfiles = new Map(savingCustomerMutations.profiles.map(update => {
-      const { mutationVersion, baseFingerprint, ...profile } = update;
+      const { mutationVersion, baseFingerprint, baseSnapshot, ...profile } = update;
       return [Number(profile.id), profile];
     }));
     pendingCustomerProfileUpdates.forEach((update, customerId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
         const customer = state.customers.find(item => Number(item.id) === Number(customerId));
-        if (customer) lastSyncedCustomerFingerprints.set(Number(customerId), syncedCustomerFingerprint(customer));
+        if (customer) {
+          const snapshot = structuredClone(customer);
+          clearCustomerUiState(snapshot);
+          lastSyncedCustomerFingerprints.set(Number(customerId), snapshot);
+        }
         pendingCustomerProfileUpdates.delete(customerId);
         return;
       }
       const savedProfile = savedCustomerProfiles.get(Number(customerId));
-      if (savedProfile) update.baseFingerprint = syncedCustomerFingerprint(savedProfile);
+      if (savedProfile) {
+        update.baseFingerprint = syncedCustomerFingerprint(savedProfile);
+        update.baseSnapshot = structuredClone(savedProfile);
+      }
     });
     const savedCustomerGroups = new Map(savingCustomerMutations.groups.map(update => {
-      const { mutationVersion, baseFingerprint, ...profile } = update;
+      const { mutationVersion, baseFingerprint, baseSnapshot, ...profile } = update;
       return [Number(profile.id), profile];
     }));
     pendingCustomerGroupUpdates.forEach((update, groupId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) {
         const group = state.customerGroups.find(item => Number(item.id) === Number(groupId));
-        if (group) lastSyncedGroupFingerprints.set(Number(groupId), syncedCustomerGroupFingerprint(group));
+        if (group) {
+          const snapshot = structuredClone(group);
+          cleanCustomerGroupUiState(snapshot);
+          lastSyncedGroupFingerprints.set(Number(groupId), snapshot);
+        }
         pendingCustomerGroupUpdates.delete(groupId);
         return;
       }
       const savedGroup = savedCustomerGroups.get(Number(groupId));
-      if (savedGroup) update.baseFingerprint = syncedCustomerGroupFingerprint(savedGroup);
+      if (savedGroup) {
+        update.baseFingerprint = syncedCustomerGroupFingerprint(savedGroup);
+        update.baseSnapshot = structuredClone(savedGroup);
+      }
     });
     pendingCustomerAuditEntries.forEach((update, entryId) => {
       if (Number(update.mutationVersion || 0) <= savingMutationVersion) pendingCustomerAuditEntries.delete(entryId);
@@ -2059,6 +2086,25 @@ async function saveServerStateNow() {
       }
       hideServerSyncOverlay();
       showToast(error.payload.message || "Энэ утасны дугаартай хэрэглэгч аль хэдийн бүртгэгдсэн байна.", "error");
+      return;
+    }
+    if (error.status === 409 && error.payload?.customerConflict) {
+      savingSections.forEach(key => {
+        if (Number(pendingServerSections.get(key) || 0) <= savingMutationVersion) pendingServerSections.delete(key);
+      });
+      // The server only returns customerConflict after its three-way merge
+      // finds both workstations changed the same field/item. Do not loop the
+      // rejected command; reload the authoritative entity and ask for review.
+      discardPendingMutationsThrough(savingMutationVersion);
+      clearPendingServerOperation(savingOperationId);
+      try {
+        await reloadServerConflictSections(savingSections);
+        renderActiveView(activeView, { force: true });
+      } catch (reloadError) {
+        console.warn("Customer conflict reload failed", reloadError);
+      }
+      hideServerSyncOverlay();
+      showServerProtectionNotice(error.payload.message || "Ижил мэдээллийг өөр ажилтан мөн зассан тул үйлдлийг автоматаар нэгтгэсэнгүй.");
       return;
     }
     if (error.status === 409 && error.payload?.conflict) {
@@ -2887,7 +2933,7 @@ function renderScheduleLunchBreaks() {
         <label>Эхлэх цаг<input class="input schedule-lunch-start" type="time" value="${htmlSafe(item.start)}"></label>
         <label>Дуусах цаг<input class="input schedule-lunch-end" type="time" value="${htmlSafe(item.end)}"></label>
         <label>Цайнд орох хүн<input class="input schedule-lunch-count" type="number" min="1" step="1" value="${Math.max(1, Number(item.count) || 1)}"></label>
-        <button class="icon-btn danger schedule-lunch-remove" type="button" aria-label="Цайны цаг устгах">×</button>
+        <button class="danger-btn schedule-lunch-remove" type="button" aria-label="Цайны цаг устгах">${trashIcon()}<span>Устгах</span></button>
       </div>`).join("")
     : `<p class="schedule-lunch-empty">Цайны цаг нэмээгүй байна.</p>`;
   rows.querySelectorAll(".schedule-lunch-row").forEach(row => {
@@ -2905,6 +2951,7 @@ function renderScheduleLunchBreaks() {
       scheduleLunchBreakDraft.splice(index, 1);
       renderScheduleLunchBreaks();
       renderSchedulePreview();
+      showToast("Цайны цаг хасагдлаа. Хуваарийг хадгална уу");
     });
   });
 }
@@ -3962,7 +4009,7 @@ function applyPendingCustomerProfileUpdates(targetState) {
   targetState.audit = Array.isArray(targetState.audit) ? targetState.audit : [];
   pendingCustomerProfileUpdates.forEach((update, customerId) => {
     let customer = targetState.customers.find(item => Number(item.id) === Number(customerId));
-    const { mutationVersion, baseFingerprint, ...profile } = update;
+    const { mutationVersion, baseFingerprint, baseSnapshot, ...profile } = update;
     if (customer) Object.assign(customer, structuredClone(profile));
     else {
       customer = structuredClone(profile);
@@ -3972,7 +4019,7 @@ function applyPendingCustomerProfileUpdates(targetState) {
   });
   pendingCustomerGroupUpdates.forEach((update, groupId) => {
     let group = targetState.customerGroups.find(item => Number(item.id) === Number(groupId));
-    const { mutationVersion, baseFingerprint, ...profile } = update;
+    const { mutationVersion, baseFingerprint, baseSnapshot, ...profile } = update;
     if (group) Object.assign(group, structuredClone(profile));
     else {
       group = structuredClone(profile);
@@ -11569,11 +11616,22 @@ function renderGroupDirectory() {
       if (!await requireEditCode()) return;
       group.name = name;
       delete group.directoryEditingName;
-      state.audit.unshift({ title: "group_updated", meta: `${auditActorUsername()} • Групп ${name}` });
-      saveState();
+      const auditEntry = {
+        id: entityId("audit"),
+        title: "group_updated",
+        createdAt: auditNowText(),
+        meta: `${auditActorUsername()} • Групп ${name}`
+      };
+      state.audit.unshift(auditEntry);
+      registerPendingCustomerMutation({
+        groupIds: [group.id],
+        auditEntries: [auditEntry],
+        message: "Группийн мэдээлэл хадгалагдлаа"
+      });
+      saveState(["customerGroups", "audit"]);
       renderGroupDirectory();
       renderAudit();
-      showToast("Группийн мэдээлэл хадгалагдлаа");
+      if (IS_LOCAL_RUNTIME) showToast("Группийн мэдээлэл хадгалагдлаа");
     });
   });
   list.querySelectorAll(".group-directory-add-form").forEach(form => {
@@ -13117,7 +13175,7 @@ async function deleteProfileCustomer(customerId) {
     auditEntries: [auditEntry],
     message: "Хэрэглэгч архивлагдлаа"
   });
-  saveState(["customers", "customerGroups", "audit"]);
+  saveState(["customers", ...(pendingCustomerGroupUpdates.size ? ["customerGroups"] : []), "audit"]);
   try {
     sessionStorage.removeItem(ACTIVE_CUSTOMER_SESSION_KEY);
   } catch (error) {
@@ -14125,7 +14183,12 @@ function bindInlinePaymentForms(customer) {
         creditLedgerEntry,
         auditEntry
       });
-      saveAndRefreshCustomerProfile("Төлбөр бүртгэгдлээ");
+      saveAndRefreshCustomerProfile("Төлбөр бүртгэгдлээ", {
+        relatedSections: [
+          ...(voucherLog ? ["voucherLogs"] : []),
+          ...(giftCardUsage ? ["giftCards"] : [])
+        ]
+      });
     });
   });
 }
@@ -14268,10 +14331,21 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
     meta: `${auditActorUsername()} • ${customer.name} • ${historyItem.service || historyItem.title || "Үйлчилгээ"} • гүйцэтгэлээс давхар хасна`
   });
   queueMediaTrashAfterSave(diagnosisImages);
-  saveAndRefreshCustomerProfile("Үйлчилгээ устлаа", { groupIds: affectedGroupIds });
+  saveAndRefreshCustomerProfile("Үйлчилгээ устлаа", {
+    groupIds: affectedGroupIds,
+    relatedSections: [
+      ...((historyItem.payments || []).some(payment => payment?.method === "voucher") ? ["voucherLogs"] : []),
+      ...((historyItem.payments || []).some(payment => payment?.method === "gift_card") ? ["giftCards"] : [])
+    ]
+  });
 }
 
-function saveAndRefreshCustomerProfile(message, { customerIds = [], groupIds = [], auditEntries = [] } = {}) {
+function saveAndRefreshCustomerProfile(message, {
+  customerIds = [],
+  groupIds = [],
+  auditEntries = [],
+  relatedSections = []
+} = {}) {
   const customer = state.customers.find(item => Number(item.id) === Number(state.selectedCustomerId) && !item.deleted);
   const mutationCustomerIds = new Set(customerIds.map(Number).filter(Boolean));
   if (customer) mutationCustomerIds.add(Number(customer.id));
@@ -14281,7 +14355,16 @@ function saveAndRefreshCustomerProfile(message, { customerIds = [], groupIds = [
     auditEntries,
     message
   });
-  saveState();
+  // Customer profile writes used to inherit every section owned by the profile
+  // screen (gift cards, vouchers and service settings included). A concurrent,
+  // unrelated write to any one of those sections then rejected the customer
+  // operation. Send only the entity sections that this operation actually
+  // changed; audit is appended automatically by saveState().
+  saveState([
+    "customers",
+    ...(pendingCustomerGroupUpdates.size ? ["customerGroups"] : []),
+    ...new Set(relatedSections)
+  ]);
   renderCustomers();
   renderCustomerSideProfile();
   renderProfile();
@@ -16836,6 +16919,41 @@ async function loadChangeEvents({ silent = false } = {}) {
   }
 }
 
+async function loadEntityProjectionStatus({ silent = false } = {}) {
+  if (!serverStorageReady || !isAdminAccount()) {
+    serverEntityProjectionStatus = null;
+    renderEntityProjectionStatus();
+    return null;
+  }
+  try {
+    serverEntityProjectionStatus = await serverApi("entity-backfill.php");
+    renderEntityProjectionStatus();
+    return serverEntityProjectionStatus;
+  } catch (error) {
+    if (!silent) showToast(error?.message || "Entity projection шалгаж чадсангүй");
+    return null;
+  }
+}
+
+async function backfillEntityProjection() {
+  let offset = 0;
+  let total = 0;
+  let sourceRevision = null;
+  do {
+    const result = await serverApi("entity-backfill.php", {
+      method: "POST",
+      body: JSON.stringify({ offset, limit: 50, expectedRevision: sourceRevision })
+    });
+    sourceRevision = Number(result.sourceRevision);
+    offset = Number(result.nextOffset || 0);
+    total = Number(result.total || 0);
+    const button = document.getElementById("databaseBackfillEntities");
+    if (button) button.textContent = `Шинэчилж байна ${Math.min(offset, total)}/${total}`;
+    if (result.done) break;
+  } while (offset < total);
+  return loadEntityProjectionStatus();
+}
+
 async function ensureScheduledRollingBackup() {
   if (scheduledRollingBackupChecked || !serverStorageReady || !isAdminAccount()) return;
   scheduledRollingBackupChecked = true;
@@ -17010,6 +17128,7 @@ function setDatabaseTab(name = "import") {
       loadRollingBackups({ silent: true }),
       loadRecoveryJournal({ silent: true }),
       loadChangeEvents({ silent: true }),
+      loadEntityProjectionStatus({ silent: true }),
       loadFullBackups({ silent: true })
     ]);
   }
@@ -17100,6 +17219,10 @@ function recoveryEntityLabel(type = "") {
     customerGroup: "Групп",
     service: "Үйлчилгээ",
     payment: "Төлбөр",
+    visit: "Курсийн оролт",
+    diagnosis: "Оношилгоо",
+    creditTransfer: "Үлдэгдэл шилжүүлэг",
+    customerCredit: "Хэрэглэгчийн үлдэгдэл",
     booking: "Цаг захиалга"
   })[type] || type || "Мэдээлэл";
 }
@@ -17197,6 +17320,37 @@ function renderChangeEvents() {
       }
     });
   });
+}
+
+function renderEntityProjectionStatus() {
+  const list = document.getElementById("databaseEntityProjectionStatus");
+  if (!list) return;
+  const status = serverEntityProjectionStatus;
+  if (!status) {
+    list.innerHTML = `<div class="empty-state">Projection төлөв ачаалаагүй байна</div>`;
+    return;
+  }
+  const labels = {
+    customers: "Хэрэглэгч",
+    services: "Үйлчилгээ",
+    payments: "Төлбөр",
+    visits: "Курсийн оролт",
+    kassItems: "Кассын бараа",
+    credits: "Үлдэгдэл"
+  };
+  list.innerHTML = Object.keys(labels).map(key => {
+    const source = Number(status.source?.[key] || 0);
+    const projection = Number(status.projection?.[key] || 0);
+    const matches = source === projection;
+    return `
+      <div class="database-backup-item">
+        <div>
+          <strong>${htmlSafe(labels[key])}</strong>
+          <span>Үндсэн ${formatNumber(source)} • Projection ${formatNumber(projection)}</span>
+        </div>
+        <span class="database-backup-policy ${matches ? "status-success" : "status-warning"}">${matches ? "Таарсан" : "Зөрүүтэй"}</span>
+      </div>`;
+  }).join("");
 }
 
 function renderDatabaseBackups() {
@@ -17384,8 +17538,9 @@ async function importDatabaseFile(event) {
         scopeRevision: serverScopeRevision,
         sectionRevisions,
         clientId: serverClientId,
+        bulkCustomerImport: true,
         allowBulkRemoval: mode === "replace",
-        removalReason: mode === "replace" ? "database_import_replace" : "",
+        removalReason: mode === "replace" ? "database_import_replace" : "database_import_merge",
         data: nextServerData
       })
     });
@@ -17429,6 +17584,7 @@ async function clearOperationalDatabase() {
         scopeRevision: serverScopeRevision,
         sectionRevisions,
         clientId: serverClientId,
+        bulkCustomerImport: true,
         allowBulkRemoval: true,
         removalReason: "operational_database_cleanup",
         data: { ...clearTransientState(cleaned), _serviceSettings: serverStateData()._serviceSettings }
@@ -19001,6 +19157,20 @@ function bindEvents() {
       showToast(`Full backup бэлэн боллоо • ${formatBackupSize(backup?.sizeBytes)}`);
     } catch (error) {
       showToast(error?.message || "Full backup үүсгэж чадсангүй");
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  });
+  document.getElementById("databaseBackfillEntities")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    const originalText = button.textContent;
+    button.disabled = true;
+    try {
+      await backfillEntityProjection();
+      showToast("Entity projection үндсэн мэдээлэлтэй тулгагдлаа");
+    } catch (error) {
+      showToast(error?.message || "Entity projection шинэчилж чадсангүй", "error");
     } finally {
       button.disabled = false;
       button.textContent = originalText;

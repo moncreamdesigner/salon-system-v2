@@ -92,4 +92,121 @@ $collidingCustomer['phone'] = '44444444';
 expect(count($collisionConflicts) === 1, 'A reused ID with different data must be rejected.');
 expect($collisionResult['customers'] === $created['customers'], 'ID collision rejection must preserve all data.');
 
+$mergeBase = [
+    'id' => 505,
+    'name' => 'Merge',
+    'phone' => '55555555',
+    'serviceHistory' => [[
+        'id' => 'svc-base',
+        'service' => 'Курс',
+        'payments' => [],
+        'visits' => [],
+    ]],
+];
+$mergeCurrent = $mergeBase;
+$mergeCurrent['serviceHistory'][] = [
+    'id' => 'svc-remote',
+    'service' => 'Касс',
+    'payments' => [['id' => 'pay-remote', 'amount' => 20000]],
+];
+$mergeProposed = $mergeBase;
+$mergeProposed['serviceHistory'][] = [
+    'id' => 'svc-local',
+    'service' => 'Нэг удаа',
+    'payments' => [['id' => 'pay-local', 'amount' => 90000]],
+];
+[$mergedCustomerState, $mergedCustomerConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$mergeCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($mergeProposed, [
+        'mutationVersion' => 8,
+        'baseFingerprint' => customer_mutation_fingerprint($mergeBase),
+        'baseSnapshot' => $mergeBase,
+    ])]]
+);
+expect(!$mergedCustomerConflicts, 'Concurrent additions to different service IDs must merge.');
+$mergedServiceIds = array_column($mergedCustomerState['customers'][0]['serviceHistory'], 'id');
+expect(in_array('svc-remote', $mergedServiceIds, true), 'Remote service addition must remain after merge.');
+expect(in_array('svc-local', $mergedServiceIds, true), 'Local service addition must be committed after merge.');
+
+$paymentBase = $mergeBase;
+$paymentCurrent = $mergeBase;
+$paymentCurrent['serviceHistory'][0]['payments'][] = ['id' => 'pay-a', 'amount' => 10000];
+$paymentProposed = $mergeBase;
+$paymentProposed['serviceHistory'][0]['payments'][] = ['id' => 'pay-b', 'amount' => 15000];
+[$mergedPaymentState, $mergedPaymentConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$paymentCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($paymentProposed, [
+        'mutationVersion' => 9,
+        'baseFingerprint' => customer_mutation_fingerprint($paymentBase),
+        'baseSnapshot' => $paymentBase,
+    ])]]
+);
+expect(!$mergedPaymentConflicts, 'Concurrent payments with different IDs must merge.');
+$mergedPaymentIds = array_column($mergedPaymentState['customers'][0]['serviceHistory'][0]['payments'], 'id');
+expect(in_array('pay-a', $mergedPaymentIds, true) && in_array('pay-b', $mergedPaymentIds, true), 'Both payments must remain after merge.');
+
+$nestedCurrent = $mergeBase;
+$nestedCurrent['serviceHistory'][0]['payments'][] = ['id' => 'pay-nested', 'amount' => 12000];
+$nestedProposed = $mergeBase;
+$nestedProposed['serviceHistory'][0]['visits'][] = ['id' => 'visit-nested', 'number' => 1, 'staff' => 'Salon 2'];
+[$nestedState, $nestedConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$nestedCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($nestedProposed, [
+        'mutationVersion' => 10,
+        'baseFingerprint' => customer_mutation_fingerprint($mergeBase),
+        'baseSnapshot' => $mergeBase,
+    ])]]
+);
+expect(!$nestedConflicts, 'A concurrent payment and visit on the same service must merge.');
+expect(count($nestedState['customers'][0]['serviceHistory'][0]['payments']) === 1, 'Concurrent payment must remain.');
+expect(count($nestedState['customers'][0]['serviceHistory'][0]['visits']) === 1, 'Concurrent visit must be committed.');
+
+$samePaymentBase = $mergeBase;
+$samePaymentBase['serviceHistory'][0]['payments'] = [['id' => 'pay-same', 'amount' => 10000]];
+$samePaymentCurrent = $samePaymentBase;
+$samePaymentCurrent['serviceHistory'][0]['payments'][0]['amount'] = 20000;
+$samePaymentProposed = $samePaymentBase;
+$samePaymentProposed['serviceHistory'][0]['payments'][0]['amount'] = 30000;
+[$samePaymentState, $samePaymentConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$samePaymentCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($samePaymentProposed, [
+        'mutationVersion' => 11,
+        'baseFingerprint' => customer_mutation_fingerprint($samePaymentBase),
+        'baseSnapshot' => $samePaymentBase,
+    ])]]
+);
+expect(count($samePaymentConflicts) === 1, 'Two edits to the same payment amount must conflict.');
+expect($samePaymentState['customers'][0]['serviceHistory'][0]['payments'][0]['amount'] === 20000, 'A rejected payment collision must preserve server value.');
+
+$deleteCurrent = $mergeBase;
+$deleteCurrent['serviceHistory'][] = ['id' => 'svc-keep', 'service' => 'Remote service'];
+$deleteProposed = $mergeBase;
+$deleteProposed['serviceHistory'] = [];
+[$deleteState, $deleteConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$deleteCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($deleteProposed, [
+        'mutationVersion' => 12,
+        'baseFingerprint' => customer_mutation_fingerprint($mergeBase),
+        'baseSnapshot' => $mergeBase,
+    ])]]
+);
+expect(!$deleteConflicts, 'Deleting an unchanged base service must not remove a separately added service.');
+expect(array_column($deleteState['customers'][0]['serviceHistory'], 'id') === ['svc-keep'], 'Only the intended service may be deleted.');
+
+$nameCurrent = $mergeBase;
+$nameCurrent['name'] = 'Remote name';
+$nameProposed = $mergeBase;
+$nameProposed['name'] = 'Local name';
+[$sameFieldState, $sameFieldConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$nameCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($nameProposed, [
+        'mutationVersion' => 13,
+        'baseFingerprint' => customer_mutation_fingerprint($mergeBase),
+        'baseSnapshot' => $mergeBase,
+    ])]]
+);
+expect(count($sameFieldConflicts) === 1, 'Concurrent edits to the same scalar field must be rejected.');
+expect(($sameFieldConflicts[0]['reason'] ?? '') === 'same_field_changed', 'Same-field conflict must be explicit.');
+expect($sameFieldState['customers'][0]['name'] === 'Remote name', 'Rejected same-field edit must preserve server data.');
+
 echo "customer-mutations-test: OK\n";

@@ -97,6 +97,12 @@ function database_full_snapshot(PDO $pdo): array
         'operations' => $pdo->query('SELECT * FROM app_operations ORDER BY id')->fetchAll(),
         'changeEvents' => $pdo->query('SELECT * FROM app_change_events ORDER BY id')->fetchAll(),
         'bookingArchive' => $pdo->query('SELECT * FROM app_booking_archive ORDER BY id')->fetchAll(),
+        'customerEntities' => $pdo->query('SELECT * FROM app_customer_entities ORDER BY customer_id')->fetchAll(),
+        'serviceEntities' => $pdo->query('SELECT * FROM app_service_entities ORDER BY customer_id, service_id')->fetchAll(),
+        'paymentEntities' => $pdo->query('SELECT * FROM app_payment_entities ORDER BY customer_id, service_id, payment_id')->fetchAll(),
+        'visitEntities' => $pdo->query('SELECT * FROM app_visit_entities ORDER BY customer_id, service_id, visit_id')->fetchAll(),
+        'kassSaleItems' => $pdo->query('SELECT * FROM app_kass_sale_items ORDER BY customer_id, service_id, line_id')->fetchAll(),
+        'customerCreditEntities' => $pdo->query('SELECT * FROM app_customer_credit_entities ORDER BY customer_id, credit_id')->fetchAll(),
         'smsSettings' => $pdo->query('SELECT * FROM app_sms_settings ORDER BY id')->fetchAll(),
         'smsMessages' => $pdo->query('SELECT * FROM app_sms_messages ORDER BY id')->fetchAll(),
         'smsCampaigns' => $pdo->query('SELECT * FROM app_sms_campaigns ORDER BY id')->fetchAll(),
@@ -107,7 +113,7 @@ function database_full_snapshot(PDO $pdo): array
 
 function database_sql_dump(PDO $pdo): string
 {
-    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log', 'app_operations', 'app_change_events', 'app_booking_archive', 'app_sms_settings', 'app_sms_messages', 'app_sms_campaigns', 'app_sms_campaign_recipients'];
+    $tables = ['app_meta', 'app_sections', 'app_scope_revisions', 'app_users', 'app_recovery_journal', 'app_write_log', 'app_operations', 'app_change_events', 'app_booking_archive', 'app_customer_entities', 'app_service_entities', 'app_payment_entities', 'app_visit_entities', 'app_kass_sale_items', 'app_customer_credit_entities', 'app_sms_settings', 'app_sms_messages', 'app_sms_campaigns', 'app_sms_campaign_recipients'];
     $lines = [
         '-- Khalgai Salon System full backup',
         '-- Created: ' . date('c'),

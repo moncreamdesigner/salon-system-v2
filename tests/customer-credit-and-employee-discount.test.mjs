@@ -88,7 +88,7 @@ test("deleted services do not leave credit ledger history behind", () => {
 test("service deletion replays every dependent ledger after a revision conflict", () => {
   assert.match(appSource, /kind:\s*"reversal"/);
   assert.match(appSource, /registerPendingGiftCardMutation\(\{ type: "update", item: giftCardAfter, before: giftCardBefore \}\)/);
-  assert.match(appSource, /saveAndRefreshCustomerProfile\("Үйлчилгээ устлаа", \{ groupIds: affectedGroupIds \}\)/);
+  assert.match(appSource, /saveAndRefreshCustomerProfile\("Үйлчилгээ устлаа", \{[\s\S]+?groupIds: affectedGroupIds,[\s\S]+?relatedSections:[\s\S]+?"voucherLogs"[\s\S]+?"giftCards"/);
   assert.match(appSource, /const voucherLogId = String\(mutation\.voucherLogId[\s\S]*targetState\.voucherLogs/);
 });
 
