@@ -220,6 +220,7 @@ function apply_customer_entity_mutations(array $current, array $mutations): arra
         unset($mutation['mutationVersion'], $mutation['baseFingerprint'], $mutation['baseSnapshot']);
         $existing = $customerIndex[$id] ?? null;
         if ($existing !== null && $baseSnapshot !== null) {
+            $incomingWithQueue = $mutation;
             if (!is_string($expected) || customer_mutation_fingerprint($baseSnapshot) !== $expected) {
                 $conflicts[] = ['type' => 'customer', 'id' => $id, 'reason' => 'invalid_base'];
                 continue;
@@ -239,7 +240,7 @@ function apply_customer_entity_mutations(array $current, array $mutations): arra
                 ];
                 continue;
             }
-            $mutation = $mergedMutation;
+            $mutation = daily_queue_restore_derived_fields($mergedMutation, $existing['value'], $incomingWithQueue, $baseSnapshot);
             // The three-way merge has already compared every changed field
             // against the current server entity. Advance the expected value to
             // that locked entity so the legacy fingerprint guard below does

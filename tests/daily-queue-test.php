@@ -47,4 +47,45 @@ $business = ['id' => 1, 'name' => 'A', 'dailyQueueSequence' => 9, 'dailyQueueSal
 $withoutQueue = daily_queue_without_derived_fields($business);
 queue_expect($withoutQueue === ['id' => 1, 'name' => 'A'], 'Server-owned queue fields must not participate in customer conflict fingerprints.');
 
+$restoredQueue = daily_queue_restore_derived_fields(
+    ['id' => 51, 'name' => 'Queue'],
+    ['id' => 51, 'dailyQueueDate' => '2026-09-03', 'dailyQueueSalon' => 'Хан-Уул', 'dailyQueueSequence' => 8],
+    ['id' => 51, 'dailyQueueDate' => '2026-09-04', 'dailyQueueSalon' => 'Чингэлтэй', 'dailyQueueSequence' => 1],
+    ['id' => 51, 'dailyQueueDate' => '2026-09-03', 'dailyQueueSalon' => 'Хан-Уул', 'dailyQueueSequence' => 8]
+);
+queue_expect($restoredQueue['dailyQueueDate'] === '2026-09-04', 'A current queue assignment must be restored after business-field merging.');
+queue_expect($restoredQueue['dailyQueueSalon'] === 'Чингэлтэй', 'The incoming queue salon must be restored.');
+
+$staleQueue = daily_queue_restore_derived_fields(
+    ['id' => 52, 'name' => 'Stale'],
+    ['id' => 52, 'dailyQueueDate' => '2026-09-04', 'dailyQueueSalon' => 'Чингэлтэй', 'dailyQueueSequence' => 4],
+    ['id' => 52, 'dailyQueueDate' => '2026-09-03', 'dailyQueueSalon' => 'Хан-Уул', 'dailyQueueSequence' => 2],
+    ['id' => 52, 'dailyQueueDate' => '2026-09-03', 'dailyQueueSalon' => 'Хан-Уул', 'dailyQueueSequence' => 2]
+);
+queue_expect($staleQueue['dailyQueueDate'] === '2026-09-04', 'An unrelated stale mutation must keep the server queue date.');
+queue_expect($staleQueue['dailyQueueSequence'] === 4, 'An unrelated stale mutation must keep the canonical server sequence.');
+
+$historyRecovered = daily_queue_recover_from_history([[
+    'id' => 61,
+    'name' => 'History',
+    'salon' => 'Хан-Уул',
+    'serviceHistory' => [[
+        'id' => 'course-1',
+        'kind' => 'course',
+        'date' => '2026-09-01',
+        'salon' => 'Хан-Уул',
+        'visits' => [[
+            'id' => 'visit-1',
+            'date' => '2026-09-04',
+            'registeredAt' => '2026-09-04T10:20:00+08:00',
+            'activeUntil' => '2026-09-04T12:20:00+08:00',
+            'salon' => 'Чингэлтэй',
+        ]],
+    ]],
+]], '2026-09-04');
+$historyNormalized = daily_queue_normalize_customers($historyRecovered);
+queue_expect($historyNormalized['customers'][0]['dailyQueueDate'] === '2026-09-04', 'Today history must recover a missing queue date.');
+queue_expect($historyNormalized['customers'][0]['dailyQueueSalon'] === 'Чингэлтэй', 'Today history must recover the service salon.');
+queue_expect($historyNormalized['customers'][0]['dailyQueueSequence'] === 1, 'A recovered queue row must receive a canonical number.');
+
 echo "daily-queue-test: OK\n";

@@ -19,6 +19,92 @@ function daily_queue_without_derived_fields(array $customer): array
     return $customer;
 }
 
+/**
+ * Put server-owned queue metadata back after the business fields have gone
+ * through a three-way merge. A current browser assignment wins, while an
+ * unrelated/stale mutation keeps the authoritative server assignment.
+ */
+function daily_queue_restore_derived_fields(array $business, ?array $existing, array $incoming, ?array $base = null): array
+{
+    foreach (DAILY_QUEUE_DERIVED_FIELDS as $field) {
+        $incomingHasField = array_key_exists($field, $incoming);
+        $baseHasField = $base !== null && array_key_exists($field, $base);
+        $incomingChanged = $base === null
+            ? $incomingHasField
+            : ($incomingHasField !== $baseHasField
+                || ($incomingHasField && $incoming[$field] !== $base[$field]));
+        if ($incomingChanged) {
+            if ($incomingHasField) $business[$field] = $incoming[$field];
+            else unset($business[$field]);
+        } elseif ($existing !== null && array_key_exists($field, $existing)) {
+            $business[$field] = $existing[$field];
+        } elseif ($incomingHasField) {
+            $business[$field] = $incoming[$field];
+        }
+    }
+    return $business;
+}
+
+function daily_queue_activity_time(string $value, string $date): int
+{
+    $timestamp = strtotime($value !== '' ? $value : $date . ' 00:00:00');
+    return $timestamp === false ? 0 : $timestamp;
+}
+
+/**
+ * Recover today's queue request from authoritative service history. This is a
+ * read-model fallback for rows saved by older clients without queue metadata.
+ */
+function daily_queue_recover_from_history(array $customers, string $date): array
+{
+    $rows = array_values($customers);
+    foreach ($rows as &$customer) {
+        if (!is_array($customer) || !empty($customer['deleted']) || !empty($customer['deletedAt'])) continue;
+        $latest = null;
+        $latestTime = -1;
+        $history = is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : [];
+        $consider = static function (array $source, array $item) use (&$latest, &$latestTime, $customer, $date): void {
+            $value = trim((string)($source['registeredAt'] ?? $source['createdAt'] ?? $source['date'] ?? ''));
+            $time = daily_queue_activity_time($value, $date);
+            if ($latest !== null && $time < $latestTime) return;
+            $latestTime = $time;
+            $latest = [
+                'salon' => trim((string)($source['salon'] ?? $item['salon'] ?? $customer['salon'] ?? $customer['registeredSalon'] ?? '')),
+                'assignedAt' => $value !== '' ? $value : $date . 'T00:00:00',
+                'activeUntil' => trim((string)($source['activeUntil'] ?? $item['activeUntil'] ?? '')),
+            ];
+        };
+        foreach ($history as $item) {
+            if (!is_array($item) || !empty($item['deleted']) || in_array((string)($item['kind'] ?? ''), ['kass', 'product'], true)) continue;
+            $itemDate = substr((string)($item['date'] ?? $item['createdAt'] ?? ''), 0, 10);
+            if ($itemDate === $date) $consider($item, $item);
+            if ((string)($item['kind'] ?? '') !== 'course') continue;
+            foreach ((is_array($item['visits'] ?? null) ? $item['visits'] : []) as $visit) {
+                if (!is_array($visit) || !empty($visit['deleted'])) continue;
+                $visitDate = substr((string)($visit['date'] ?? $visit['registeredAt'] ?? ''), 0, 10);
+                if ($visitDate === $date) $consider($visit, $item);
+            }
+        }
+        if ($latest === null || $latest['salon'] === '') continue;
+        $sameQueue = (string)($customer['dailyQueueDate'] ?? '') === $date
+            && trim((string)($customer['dailyQueueSalon'] ?? '')) === $latest['salon'];
+        if (!$sameQueue) {
+            $customer['dailyQueueDate'] = $date;
+            $customer['dailyQueueSalon'] = $latest['salon'];
+            $customer['dailyQueueSequence'] = 0;
+            $customer['dailyQueueAssignedAt'] = $latest['assignedAt'];
+        } elseif (trim((string)($customer['dailyQueueAssignedAt'] ?? '')) === '') {
+            $customer['dailyQueueAssignedAt'] = $latest['assignedAt'];
+        }
+        if ($latest['activeUntil'] !== '') $customer['dailyQueueActiveUntil'] = $latest['activeUntil'];
+        $customer['dailyQueueHadService'] = true;
+        $customer['dailyQueueVacant'] = false;
+        unset($customer['dailyQueueServiceDeleted']);
+    }
+    unset($customer);
+    return $rows;
+}
+
 function daily_queue_prepare_customer_mutation(?array $existing, array $incoming): array
 {
     $date = trim((string)($incoming['dailyQueueDate'] ?? ''));

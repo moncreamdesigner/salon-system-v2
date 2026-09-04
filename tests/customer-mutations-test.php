@@ -209,4 +209,25 @@ expect(count($sameFieldConflicts) === 1, 'Concurrent edits to the same scalar fi
 expect(($sameFieldConflicts[0]['reason'] ?? '') === 'same_field_changed', 'Same-field conflict must be explicit.');
 expect($sameFieldState['customers'][0]['name'] === 'Remote name', 'Rejected same-field edit must preserve server data.');
 
+$queueBase = $mergeBase;
+$queueCurrent = $mergeBase;
+$queueProposed = $mergeBase;
+$queueProposed['serviceHistory'][] = ['id' => 'svc-today', 'kind' => 'single', 'date' => '2026-09-04', 'salon' => 'Хан-Уул'];
+$queueProposed['dailyQueueDate'] = '2026-09-04';
+$queueProposed['dailyQueueSalon'] = 'Хан-Уул';
+$queueProposed['dailyQueueAssignedAt'] = '2026-09-04T09:15:00+08:00';
+$queueProposed['dailyQueueSequence'] = 1;
+[$queueState, $queueConflicts] = apply_customer_entity_mutations(
+    ['customers' => [$queueCurrent], 'customerGroups' => []],
+    ['profiles' => [array_merge($queueProposed, [
+        'mutationVersion' => 14,
+        'baseFingerprint' => customer_mutation_fingerprint($queueBase),
+        'baseSnapshot' => $queueBase,
+    ])]]
+);
+expect(!$queueConflicts, 'A service mutation with a base snapshot must keep its daily queue request.');
+expect(($queueState['customers'][0]['dailyQueueDate'] ?? '') === '2026-09-04', 'Daily queue date must survive a three-way merge.');
+expect(($queueState['customers'][0]['dailyQueueSalon'] ?? '') === 'Хан-Уул', 'Daily queue salon must survive a three-way merge.');
+expect((int)($queueState['customers'][0]['dailyQueueSequence'] ?? 0) === 0, 'A new queue assignment must remain a server numbering request.');
+
 echo "customer-mutations-test: OK\n";

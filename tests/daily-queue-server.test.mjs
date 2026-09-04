@@ -4,10 +4,13 @@ import fs from "node:fs";
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const stateApi = fs.readFileSync(new URL("../api/state.php", import.meta.url), "utf8");
 const customerList = fs.readFileSync(new URL("../api/customer-list.php", import.meta.url), "utf8");
+const customerMutations = fs.readFileSync(new URL("../api/customer-mutations.php", import.meta.url), "utf8");
 
 assert.match(app, /if \(!IS_LOCAL_RUNTIME\) return false;[\s\S]{0,160}const grouped = new Map\(\)/, "Paged live browsers must not own queue numbering.");
 assert.match(stateApi, /FOR UPDATE[\s\S]*daily_queue_normalize_customers\(\$sections\['customers'\]\)/, "Queue allocation must run after the server transaction lock.");
 assert.match(stateApi, /customers' && \$hasProfileMutations\) continue/, "Unrelated customer saves must rely on entity conflicts instead of section-wide rejection.");
 assert.match(customerList, /daily_queue_normalize_customers\(\$rows\)/, "Existing duplicate numbers must be repaired in the active queue response immediately.");
+assert.match(customerList, /daily_queue_recover_from_history\(\$rows, \$today\)/, "Today's service history must recover queue rows lost by an older client.");
+assert.match(customerMutations, /daily_queue_restore_derived_fields\(\$mergedMutation, \$existing\['value'\], \$incomingWithQueue, \$baseSnapshot\)/, "Three-way customer merging must restore queue metadata before server numbering.");
 
 console.log("daily-queue-server.test: OK");

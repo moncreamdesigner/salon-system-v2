@@ -63,11 +63,12 @@ $statement->execute();
 $stored = $statement->fetch() ?: [];
 $decoded = json_decode((string)($stored['payload'] ?? '[]'), true);
 $rows = is_array($decoded) ? array_values(array_filter($decoded, 'is_array')) : [];
+$timezone = new DateTimeZone('Asia/Ulaanbaatar');
+$today = (new DateTimeImmutable('today', $timezone))->format('Y-m-d');
+$rows = daily_queue_recover_from_history($rows, $today);
 $queueNormalization = daily_queue_normalize_customers($rows);
 $rows = $queueNormalization['customers'];
 
-$timezone = new DateTimeZone('Asia/Ulaanbaatar');
-$today = (new DateTimeImmutable('today', $timezone))->format('Y-m-d');
 $query = mb_strtolower(trim((string)($_GET['q'] ?? '')), 'UTF-8');
 $from = customer_list_date(trim((string)($_GET['from'] ?? '')));
 $to = customer_list_date(trim((string)($_GET['to'] ?? '')));
