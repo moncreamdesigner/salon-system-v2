@@ -600,7 +600,11 @@ foreach ($districtCounts as $districtName => $districtValue) {
 usort($districtRows, static fn(array $left, array $right): int =>
     ($right['value'] <=> $left['value']) ?: strnatcasecmp((string)$left['name'], (string)$right['name'])
 );
-$districtRows = array_slice($districtRows, 0, 3);
+foreach ($districtRows as $districtIndex => &$districtRow) {
+    $districtRow['featured'] = $districtIndex < 3;
+    if ($districtIndex >= 3) $districtRow['khoroos'] = [];
+}
+unset($districtRow);
 $demographics = [
     'genders' => [
         $demographicItem('Эмэгтэй', $genderCounts['Эмэгтэй'], '#60bf63'),

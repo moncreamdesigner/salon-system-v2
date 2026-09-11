@@ -6506,6 +6506,39 @@ tr:last-child td {
   font-size: 10px;
 }
 
+.dashboard-other-districts {
+  margin-top: 12px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.dashboard-other-districts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 11px;
+}
+
+.dashboard-other-districts-head span {
+  min-width: 24px;
+  padding: 3px 7px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.dashboard-other-district-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
 .dashboard-staff-card .dashboard-vertical-bars {
   min-height: 250px;
 }
@@ -6658,6 +6691,10 @@ tr:last-child td {
   }
 
   .dashboard-district-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-other-district-list {
     grid-template-columns: minmax(0, 1fr);
   }
 

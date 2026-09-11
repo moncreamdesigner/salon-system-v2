@@ -6769,7 +6769,9 @@ function dashboardKhorooName(value) {
 
 function dashboardDistrictMarkup(items = []) {
   const maximum = Math.max(...items.map(item => Number(item.value || 0)), 1);
-  return `<div class="dashboard-district-grid">${items.map(item => {
+  const featured = items.filter((item, index) => item.featured === true || (item.featured === undefined && index < 3));
+  const remaining = items.filter((item, index) => !(item.featured === true || (item.featured === undefined && index < 3)));
+  const featuredMarkup = `<div class="dashboard-district-grid">${featured.map(item => {
     const khoroos = Array.isArray(item.khoroos) ? item.khoroos.slice(0, 3) : [];
     return `
       <article class="dashboard-district-card">
@@ -6787,6 +6789,12 @@ function dashboardDistrictMarkup(items = []) {
         </div>
       </article>`;
   }).join("")}</div>`;
+  const remainingMarkup = remaining.length ? `
+    <section class="dashboard-other-districts">
+      <div class="dashboard-other-districts-head"><strong>Бусад дүүрэг, орон нутаг</strong><span>${remaining.length}</span></div>
+      <div class="dashboard-other-district-list">${dashboardProgressRows(remaining, "value", value => `${formatNumber(value)} хүн`)}</div>
+    </section>` : "";
+  return featuredMarkup + remainingMarkup;
 }
 
 function dashboardCustomerDemographics() {
@@ -6840,7 +6848,7 @@ function dashboardCustomerDemographics() {
           .slice(0, 3)
       }))
       .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name, "mn"))
-      .slice(0, 3)
+      .map((item, index) => ({ ...item, featured: index < 3, khoroos: index < 3 ? item.khoroos : [] }))
   };
 }
 
@@ -7267,7 +7275,7 @@ function renderDashboard() {
         </article>
         <article class="dashboard-demographic-block">
           <h4>Амьдардаг дүүрэг</h4>
-          <p class="dashboard-demographic-hint">Хамгийн олон хэрэглэгчтэй 3 дүүрэг · дүүрэг тус бүрийн топ 3 хороо</p>
+          <p class="dashboard-demographic-hint">Эхний 3 дүүрэгт топ 3 хорооны задаргаа · бусад дүүрэг доор бүрэн харагдана</p>
           ${dashboardDistrictMarkup(demographics.districts)}
         </article>
       </div>
