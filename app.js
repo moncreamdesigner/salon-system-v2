@@ -6760,6 +6760,35 @@ function dashboardDonutMarkup(items, total, valueKey = "share") {
   return `<div class="dashboard-donut-layout"><div class="dashboard-donut" style="background:conic-gradient(${chartGradient})"><span><strong>${totalText}</strong><small>нийт</small></span></div><div class="dashboard-legend">${items.map(item => `<div><i style="background:${item.color}"></i><span>${htmlSafe(item.name)}</span><strong>${item.share}%</strong></div>`).join("") || `<div class="muted">Мэдээлэл алга</div>`}</div></div>`;
 }
 
+function dashboardKhorooName(value) {
+  const clean = String(value || "").trim();
+  if (!clean) return "Мэдээлэлгүй";
+  const numeric = clean.match(/^(\d+)\s*(?:-?р)?\s*(?:хороо)?$/iu);
+  return numeric ? `${Number(numeric[1])}-р хороо` : clean;
+}
+
+function dashboardDistrictMarkup(items = []) {
+  const maximum = Math.max(...items.map(item => Number(item.value || 0)), 1);
+  return `<div class="dashboard-district-grid">${items.map(item => {
+    const khoroos = Array.isArray(item.khoroos) ? item.khoroos.slice(0, 3) : [];
+    return `
+      <article class="dashboard-district-card">
+        <div class="dashboard-district-head"><strong>${htmlSafe(item.name)}</strong><span>${formatNumber(item.value)} хүн</span></div>
+        <div class="dashboard-district-track"><span style="width:${Math.max(5, Number(item.value || 0) / maximum * 100)}%"></span></div>
+        <div class="dashboard-khoroo-list">
+          ${khoroos.map((khoroo, index) => `
+            <div class="dashboard-khoroo-row">
+              <i>${index + 1}</i>
+              <span>${htmlSafe(khoroo.name)}</span>
+              <strong>${formatNumber(khoroo.value)}</strong>
+              <small>${Number(khoroo.share || 0)}%</small>
+            </div>
+          `).join("") || `<p>Хорооны мэдээлэлгүй</p>`}
+        </div>
+      </article>`;
+  }).join("")}</div>`;
+}
+
 function dashboardCustomerDemographics() {
   if (dashboardDataCache?.summary?.demographics) return dashboardDataCache.summary.demographics;
   const customers = (dashboardDataCache?.source || state).customers.filter(item => !item.deleted && !item.deletedAt);
@@ -6777,6 +6806,13 @@ function dashboardCustomerDemographics() {
     result[name] = (result[name] || 0) + 1;
     return result;
   }, {});
+  const districtKhorooCounts = customers.reduce((result, customer) => {
+    const district = customer.district || "Мэдээлэлгүй";
+    const khoroo = dashboardKhorooName(customer.khoroo);
+    result[district] ||= {};
+    result[district][khoroo] = (result[district][khoroo] || 0) + 1;
+    return result;
+  }, {});
   return {
     genders: [
       demographicItem("Эмэгтэй", count(item => item.gender === "Эмэгтэй"), "#60bf63"),
@@ -6790,7 +6826,21 @@ function dashboardCustomerDemographics() {
       { name: "45–54", value: count(item => ageValue(item) >= 45 && ageValue(item) <= 54) },
       { name: "55+", value: count(item => ageValue(item) >= 55) }
     ],
-    districts: Object.entries(districtCounts).map(([name, value]) => ({ name, value }))
+    districts: Object.entries(districtCounts)
+      .map(([name, value]) => ({
+        name,
+        value,
+        khoroos: Object.entries(districtKhorooCounts[name] || {})
+          .map(([khorooName, khorooValue]) => ({
+            name: khorooName,
+            value: khorooValue,
+            share: value ? Math.round(khorooValue / value * 100) : 0
+          }))
+          .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name, "mn", { numeric: true }))
+          .slice(0, 3)
+      }))
+      .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name, "mn"))
+      .slice(0, 3)
   };
 }
 
@@ -7217,7 +7267,8 @@ function renderDashboard() {
         </article>
         <article class="dashboard-demographic-block">
           <h4>Амьдардаг дүүрэг</h4>
-          <div class="dashboard-progress-list">${dashboardProgressRows(demographics.districts, "value", formatNumber)}</div>
+          <p class="dashboard-demographic-hint">Хамгийн олон хэрэглэгчтэй 3 дүүрэг · дүүрэг тус бүрийн топ 3 хороо</p>
+          ${dashboardDistrictMarkup(demographics.districts)}
         </article>
       </div>
     </section>
@@ -7283,7 +7334,8 @@ function exportDashboardExcel() {
         ["Ангилал", "Нэр", "Хэрэглэгчийн тоо", "Хувь %"],
         ...demographics.genders.map(item => ["Хүйс", item.name, item.value, item.share]),
         ...demographics.ages.map(item => ["Нас", item.name, item.value, Math.round(item.value / Math.max(customerCount, 1) * 100)]),
-        ...demographics.districts.map(item => ["Дүүрэг", item.name, item.value, Math.round(item.value / Math.max(customerCount, 1) * 100)])
+        ...demographics.districts.map(item => ["Дүүрэг", item.name, item.value, Math.round(item.value / Math.max(customerCount, 1) * 100)]),
+        ...demographics.districts.flatMap(item => (item.khoroos || []).map(khoroo => ["Хороо", `${item.name} · ${khoroo.name}`, khoroo.value, khoroo.share]))
       ])}
       ${dashboardWorksheet("Ажилтны гүйцэтгэл", [["Ажилтан", "Үндсэн салбар", "Ажилласан салбар", "Оролт", "Орлого", "Үйлчилгээний урамшуулал", "Кассын урамшуулал", "Нийт урамшуулал"], ...staffRows.map(item => [item.name, item.homeSalon, item.workedSalon, item.visits, item.revenue, item.serviceReward, item.kassReward, item.totalReward])])}
     </Workbook>`;

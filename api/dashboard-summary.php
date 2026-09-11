@@ -130,6 +130,16 @@ function dashboard_age(array $customer, int $year): int
     return $birthYear > 1900 ? max(0, $year - $birthYear) : 0;
 }
 
+function dashboard_khoroo_name(mixed $value): string
+{
+    $clean = trim((string)$value);
+    if ($clean === '') return 'Мэдээлэлгүй';
+    if (preg_match('/^(\d+)\s*(?:-?р)?\s*(?:хороо)?$/iu', $clean, $match) === 1) {
+        return (int)$match[1] . '-р хороо';
+    }
+    return $clean;
+}
+
 function dashboard_periods(string $month, bool $includeTotal): array
 {
     $periods = $month !== '' ? [$month] : [];
@@ -270,6 +280,7 @@ $phoneCounts = [];
 $genderCounts = ['Эмэгтэй' => 0, 'Эрэгтэй' => 0, 'Мэдээлэлгүй' => 0];
 $ageCounts = ['18–24' => 0, '25–34' => 0, '35–44' => 0, '45–54' => 0, '55+' => 0];
 $districtCounts = [];
+$districtKhorooCounts = [];
 $serviceHistoryCount = 0;
 $paymentCount = 0;
 $unpaidCustomers = 0;
@@ -311,6 +322,9 @@ foreach ((array)$source['customers'] as $customer) {
         elseif ($age >= 55) $ageCounts['55+']++;
         $district = trim((string)($customer['district'] ?? '')) ?: 'Мэдээлэлгүй';
         $districtCounts[$district] = (int)($districtCounts[$district] ?? 0) + 1;
+        $khoroo = dashboard_khoroo_name($customer['khoroo'] ?? '');
+        $districtKhorooCounts[$district] ??= [];
+        $districtKhorooCounts[$district][$khoroo] = (int)($districtKhorooCounts[$district][$khoroo] ?? 0) + 1;
         $bonusBalance += dashboard_number($customer['balance'] ?? 0);
         if (is_array($customer['currentTreatment'] ?? null)) {
             $treatmentSalon = trim((string)($customer['currentTreatment']['salon'] ?? $customer['currentTreatment']['branch'] ?? $customer['salon'] ?? ''));
@@ -564,6 +578,29 @@ $backupCount = (int)db()->query('SELECT COUNT(*) FROM app_backups')->fetchColumn
 $demographicItem = static function (string $name, int $value, string $color) use ($activeCustomers): array {
     return ['name' => $name, 'value' => $value, 'share' => $activeCustomers ? (int)round($value / $activeCustomers * 100) : 0, 'color' => $color];
 };
+$districtRows = [];
+foreach ($districtCounts as $districtName => $districtValue) {
+    $khorooRows = [];
+    foreach (($districtKhorooCounts[$districtName] ?? []) as $khorooName => $khorooValue) {
+        $khorooRows[] = [
+            'name' => $khorooName,
+            'value' => $khorooValue,
+            'share' => $districtValue > 0 ? (int)round($khorooValue / $districtValue * 100) : 0,
+        ];
+    }
+    usort($khorooRows, static fn(array $left, array $right): int =>
+        ($right['value'] <=> $left['value']) ?: strnatcasecmp((string)$left['name'], (string)$right['name'])
+    );
+    $districtRows[] = [
+        'name' => $districtName,
+        'value' => $districtValue,
+        'khoroos' => array_slice($khorooRows, 0, 3),
+    ];
+}
+usort($districtRows, static fn(array $left, array $right): int =>
+    ($right['value'] <=> $left['value']) ?: strnatcasecmp((string)$left['name'], (string)$right['name'])
+);
+$districtRows = array_slice($districtRows, 0, 3);
 $demographics = [
     'genders' => [
         $demographicItem('Эмэгтэй', $genderCounts['Эмэгтэй'], '#60bf63'),
@@ -571,7 +608,7 @@ $demographics = [
         $demographicItem('Мэдээлэлгүй', $genderCounts['Мэдээлэлгүй'], '#dfe9d7'),
     ],
     'ages' => array_map(static fn(string $name, int $value): array => ['name' => $name, 'value' => $value], array_keys($ageCounts), array_values($ageCounts)),
-    'districts' => array_map(static fn(string $name, int $value): array => ['name' => $name, 'value' => $value], array_keys($districtCounts), array_values($districtCounts)),
+    'districts' => $districtRows,
 ];
 
 $months = array_keys($monthsFound);

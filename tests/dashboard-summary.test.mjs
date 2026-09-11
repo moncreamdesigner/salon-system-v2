@@ -14,6 +14,9 @@ test("dashboard loads a server read model before the optional staff detail sourc
   assert.match(app, /dashboardDataCache\?\.summary\?\.serviceRows/);
   assert.match(app, /dashboardDataCache\?\.summary\?\.paymentRows/);
   assert.match(app, /dashboardDataCache\?\.summary\?\.demographics/);
+  assert.match(app, /dashboardDistrictMarkup\(demographics\.districts\)/, "District demographics must render the top-khoroo layout.");
+  assert.match(api, /'khoroos' => array_slice\(\$khorooRows, 0, 3\)/, "Dashboard summary must return only the top three khoroos per district.");
+  assert.match(api, /\$districtRows = array_slice\(\$districtRows, 0, 3\)/, "Dashboard summary must return only the three largest districts.");
 });
 
 test("dashboard falls back to the compatible source when the read model is unavailable", () => {
