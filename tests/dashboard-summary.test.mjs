@@ -5,6 +5,7 @@ import test from "node:test";
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const api = fs.readFileSync(new URL("../api/dashboard-summary.php", import.meta.url), "utf8");
 const analytics = fs.readFileSync(new URL("../api/analytics-source.php", import.meta.url), "utf8");
+const styles = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 test("dashboard loads a server read model before the optional staff detail source", () => {
   assert.match(app, /serverApi\(`dashboard-summary\.php\?\$\{params\.toString\(\)\}`\)/);
@@ -18,6 +19,7 @@ test("dashboard loads a server read model before the optional staff detail sourc
   assert.match(api, /'khoroos' => array_slice\(\$khorooRows, 0, 3\)/, "Dashboard summary must return only the top three khoroos per district.");
   assert.match(api, /\$districtRow\['featured'\] = \$districtIndex < 3/, "Dashboard summary must mark the three largest districts for khoroo expansion.");
   assert.match(app, /Бусад дүүрэг, орон нутаг/, "All remaining districts must stay visible below the three expanded districts.");
+  assert.match(styles, /\.dashboard-staff-card \.dashboard-mini-table-wrap\s*\{[^}]*max-height:\s*none;[^}]*overflow-y:\s*visible;/s, "Staff performance table must show every row without an inner vertical scrollbar.");
 });
 
 test("dashboard falls back to the compatible source when the read model is unavailable", () => {
