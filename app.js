@@ -12292,7 +12292,7 @@ function renderCourseSlots(item, historyIndex) {
   `;
 }
 
-function deleteCourseVisit(customer, historyIndex, visitNumber, { requireConfirmation = true } = {}) {
+async function deleteCourseVisit(customer, historyIndex, visitNumber) {
   const course = customer?.serviceHistory?.[historyIndex];
   const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
   if (!course || !existingVisit) return;
@@ -12302,7 +12302,7 @@ function deleteCourseVisit(customer, historyIndex, visitNumber, { requireConfirm
   }
   const deletedDate = existingVisit.date || existingVisit.createdAt || todayText();
   if (!requireOperationalDateEditable(deletedDate, "устгах")) return;
-  if (requireConfirmation && !window.confirm(`${visitNumber}-р оролтыг устгах уу?\n\nАжилтны гүйцэтгэл болон оролтын тооноос давхар хасагдана.`)) return;
+  if (!await requireCustomerEditCodeIfExpired(customer)) return;
 
   const oldExtra = Number(existingVisit.vipRoomFee || 0) + Number(existingVisit.masterStaffFee || 0);
   const visitImages = [
@@ -12358,8 +12358,8 @@ function bindCourseVisitInlineForms(customer) {
     const visitNumber = Number(form.dataset.visit);
     const course = customer.serviceHistory?.[historyIndex];
     const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
-    form.querySelector(".course-visit-delete")?.addEventListener("click", () => {
-      deleteCourseVisit(customer, historyIndex, visitNumber);
+    form.querySelector(".course-visit-delete")?.addEventListener("click", async () => {
+      await deleteCourseVisit(customer, historyIndex, visitNumber);
     });
     form.querySelector(".course-visit-salon")?.addEventListener("change", event => {
       const staffSelect = form.querySelector(".course-visit-staff");

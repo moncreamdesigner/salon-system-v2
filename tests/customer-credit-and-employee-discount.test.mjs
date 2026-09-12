@@ -62,8 +62,9 @@ test("an older service can receive a current payment while payment dates remain 
 
 test("course visits expose a protected delete action only inside the edit form", () => {
   assert.match(appSource, /class="danger-btn icon-danger course-visit-delete"/);
-  assert.match(appSource, /function deleteCourseVisit\(/);
-  assert.match(appSource, /window\.confirm\(`\$\{visitNumber\}-р оролтыг устгах уу\?/);
+  assert.match(appSource, /async function deleteCourseVisit\(/);
+  assert.match(appSource, /if \(!await requireCustomerEditCodeIfExpired\(customer\)\) return;/);
+  assert.doesNotMatch(appSource, /window\.confirm\(`\$\{visitNumber\}-р оролтыг устгах уу\?/);
   assert.match(appSource, /requireOperationalDateEditable\(deletedDate, "устгах"\)/);
   assert.match(appSource, /course\.visits = \(course\.visits \|\| \[\]\)\.filter/);
   assert.match(appSource, /course_visit_deleted/);
