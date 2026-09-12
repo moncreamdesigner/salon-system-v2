@@ -12241,7 +12241,7 @@ function renderCourseVisitInlineForm(item, historyIndex, visitNumber) {
         <label>Ажилтан<select class="input course-visit-staff" id="${prefix}Staff" required>${staffOptionHtmlForSalon(salon, previousStaff, existing?.date || todayText())}</select></label>
         <label>Өрөө<select class="input course-visit-room" id="${prefix}Room"><option value="standard" ${room === "standard" ? "selected" : ""}>Энгийн</option><option value="vip" ${room === "vip" ? "selected" : ""}>Вип</option></select></label>
         <div class="course-visit-submit-actions">
-          ${existing ? `<button class="secondary-btn icon-clear course-visit-cancel" type="button" aria-label="Оролт цуцлах">×</button>` : ""}
+          ${existing ? `<button class="danger-btn icon-danger course-visit-delete" type="button" aria-label="Оролт устгах" title="Оролт устгах">${trashIcon()}</button>` : ""}
           <button class="primary-btn" type="submit">${existing ? "Оролт шинэчлэх" : "Оролт бүртгэх"}</button>
         </div>
       </div>
@@ -12275,7 +12275,7 @@ function renderCourseSlots(item, historyIndex) {
                   ${visit ? `<small>${visit.staff || "Ажилтан сонгоогүй"}</small>` : ""}
                   ${visit ? `<em class="course-slot-icons">${visitStatusIcons(visit)}</em>` : ""}
                 </button>
-                ${visit ? `<button class="secondary-btn icon-action course-slot-edit" type="button" data-history-index="${historyIndex}" data-visit="${number}" aria-label="Засах" ${locked ? "disabled" : ""}>${editIcon()}</button>` : ""}
+                ${visit ? `<button class="secondary-btn icon-action course-slot-edit" type="button" data-history-index="${historyIndex}" data-visit="${number}" aria-label="Засах" title="Оролт засах" ${locked ? "disabled" : ""}>${editIcon()}</button>` : ""}
               </div>
             `;
           }).join("")}
@@ -12292,6 +12292,65 @@ function renderCourseSlots(item, historyIndex) {
   `;
 }
 
+function deleteCourseVisit(customer, historyIndex, visitNumber, { requireConfirmation = true } = {}) {
+  const course = customer?.serviceHistory?.[historyIndex];
+  const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
+  if (!course || !existingVisit) return;
+  if (!isServiceEditable(existingVisit)) {
+    showToast("Оролт устгах хугацаа дууссан байна", "error");
+    return;
+  }
+  const deletedDate = existingVisit.date || existingVisit.createdAt || todayText();
+  if (!requireOperationalDateEditable(deletedDate, "устгах")) return;
+  if (requireConfirmation && !window.confirm(`${visitNumber}-р оролтыг устгах уу?\n\nАжилтны гүйцэтгэл болон оролтын тооноос давхар хасагдана.`)) return;
+
+  const oldExtra = Number(existingVisit.vipRoomFee || 0) + Number(existingVisit.masterStaffFee || 0);
+  const visitImages = [
+    ...(existingVisit.diagnosis?.generalPhotos || []),
+    ...(existingVisit.diagnosis?.scopePhotos || [])
+  ].filter(value => typeof value === "string" && value.includes("api/media.php"));
+  course.price = Math.max(0, Number(course.price || course.basePrice || 0) - oldExtra);
+  course.balance = Math.max(0, Number(course.balance || 0) - oldExtra);
+  course.visits = (course.visits || []).filter(item => Number(item.number) !== Number(visitNumber));
+  course.expandedVisit = null;
+  course.diagnosisViewVisit = null;
+  const done = course.visits.length;
+  const remainingCourse = customerCourseEntryStatus(customer);
+  customer.activeCourse = remainingCourse?.kind === "course";
+  customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
+  customer.currentTreatment = currentTreatmentFromHistory(customer, course, `Курс ${done}/${course.visitsTotal}`);
+  customer.unpaid = customerBalance(customer) > 0;
+  if (deletedDate === todayText() && Number(customer.dailyQueueSequence || 0)) {
+    const queueSalon = existingVisit.salon || dailyQueueSalon(customer);
+    const remainingQueueTreatment = dailyQueueTreatmentFromHistory(customer, deletedDate, queueSalon);
+    if (remainingQueueTreatment) {
+      customer.dailyQueueHadService = true;
+      customer.dailyQueueVacant = false;
+      customer.dailyQueueLastTreatment = remainingQueueTreatment;
+    } else {
+      customer.dailyQueueVacant = true;
+      customer.dailyQueueLastTreatment = {
+        historyId: course.id || "",
+        service: course.service || course.title || "Курс эмчилгээ",
+        progress: `Курс ${visitNumber}/${course.visitsTotal}`,
+        salon: queueSalon,
+        stage: "Оролт устгасан"
+      };
+      expandedDailyQueueCustomerIds.delete(Number(customer.id));
+      trimVacantDailyQueueTail(deletedDate, queueSalon);
+    }
+  }
+  const auditEntry = {
+    id: entityId("audit"),
+    title: "course_visit_deleted",
+    createdAt: auditNowText(),
+    meta: `${auditActorUsername()} • ${customer.name} • ${course.service || course.title || "Курс эмчилгээ"} • ${visitNumber}-р оролт`
+  };
+  state.audit.unshift(auditEntry);
+  queueMediaTrashAfterSave(visitImages);
+  saveAndRefreshCustomerProfile("Курсийн оролт устлаа", { auditEntries: [auditEntry] });
+}
+
 function bindCourseVisitInlineForms(customer) {
   document.querySelectorAll(".course-visit-inline-form").forEach(form => {
     enhanceNativeSelects(Array.from(form.querySelectorAll(".course-visit-salon, .course-visit-staff, .course-visit-room")).map(select => select.id).filter(Boolean));
@@ -12299,24 +12358,8 @@ function bindCourseVisitInlineForms(customer) {
     const visitNumber = Number(form.dataset.visit);
     const course = customer.serviceHistory?.[historyIndex];
     const existingVisit = (course?.visits || []).find(item => Number(item.number) === Number(visitNumber));
-    form.querySelector(".course-visit-cancel")?.addEventListener("click", () => {
-      if (!existingVisit || !isServiceEditable(existingVisit)) {
-        showToast("Оролт цуцлах хугацаа дууссан байна", "error");
-        return;
-      }
-      form.dataset.cancelRequested = "true";
-      form.classList.add("course-visit-cancel-pending");
-      form.querySelectorAll("input, select").forEach(control => {
-        control.required = false;
-        control.value = "";
-        control.disabled = true;
-      });
-      form.querySelectorAll(".native-select-proxy .custom-select-trigger").forEach(trigger => {
-        const text = trigger.querySelector("span");
-        if (text) text.textContent = "—";
-        trigger.disabled = true;
-        trigger.setAttribute("aria-disabled", "true");
-      });
+    form.querySelector(".course-visit-delete")?.addEventListener("click", () => {
+      deleteCourseVisit(customer, historyIndex, visitNumber);
     });
     form.querySelector(".course-visit-salon")?.addEventListener("change", event => {
       const staffSelect = form.querySelector(".course-visit-staff");
@@ -12348,56 +12391,6 @@ function bindCourseVisitInlineForms(customer) {
       }
       if (existingVisit && !isServiceEditable(existingVisit)) {
         showToast("Оролт засах хугацаа дууссан байна");
-        return;
-      }
-      if (existingVisit && form.dataset.cancelRequested === "true") {
-        const cancelledDate = existingVisit.date || existingVisit.createdAt || todayText();
-        if (!requireOperationalDateEditable(cancelledDate, "цуцлах")) return;
-        const oldExtra = Number(existingVisit.vipRoomFee || 0) + Number(existingVisit.masterStaffFee || 0);
-        const visitImages = [
-          ...(existingVisit.diagnosis?.generalPhotos || []),
-          ...(existingVisit.diagnosis?.scopePhotos || [])
-        ].filter(value => typeof value === "string" && value.includes("api/media.php"));
-        course.price = Math.max(0, Number(course.price || course.basePrice || 0) - oldExtra);
-        course.balance = Math.max(0, Number(course.balance || 0) - oldExtra);
-        course.visits = (course.visits || []).filter(item => Number(item.number) !== Number(visitNumber));
-        course.expandedVisit = null;
-        course.diagnosisViewVisit = null;
-        const done = course.visits.length;
-        const remainingCourse = customerCourseEntryStatus(customer);
-        customer.activeCourse = remainingCourse?.kind === "course";
-        customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
-        customer.currentTreatment = currentTreatmentFromHistory(customer, course, `Курс ${done}/${course.visitsTotal}`);
-        customer.unpaid = customerBalance(customer) > 0;
-        if (cancelledDate === todayText() && Number(customer.dailyQueueSequence || 0)) {
-          const queueSalon = existingVisit.salon || dailyQueueSalon(customer);
-          const remainingQueueTreatment = dailyQueueTreatmentFromHistory(customer, cancelledDate, queueSalon);
-          if (remainingQueueTreatment) {
-            customer.dailyQueueHadService = true;
-            customer.dailyQueueVacant = false;
-            customer.dailyQueueLastTreatment = remainingQueueTreatment;
-          } else {
-            customer.dailyQueueVacant = true;
-            customer.dailyQueueLastTreatment = {
-              historyId: course.id || "",
-              service: course.service || course.title || "Курс эмчилгээ",
-              progress: `Курс ${visitNumber}/${course.visitsTotal}`,
-              salon: queueSalon,
-              stage: "Оролт цуцалсан"
-            };
-            expandedDailyQueueCustomerIds.delete(Number(customer.id));
-            trimVacantDailyQueueTail(cancelledDate, queueSalon);
-          }
-        }
-        const auditEntry = {
-          id: entityId("audit"),
-          title: "course_visit_cancelled",
-          createdAt: auditNowText(),
-          meta: `${auditActorUsername()} • ${customer.name} • ${course.service || course.title || "Курс эмчилгээ"} • ${visitNumber}-р оролт`
-        };
-        state.audit.unshift(auditEntry);
-        queueMediaTrashAfterSave(visitImages);
-        saveAndRefreshCustomerProfile("Курсийн оролт цуцлагдлаа", { auditEntries: [auditEntry] });
         return;
       }
       const visitDate = form.querySelector(".course-visit-date")?.value || todayText();
@@ -17730,6 +17723,7 @@ function auditActionText(title = "") {
     diagnosis_completed: "Оношилгоо дуусгасан",
     course_visit_signed: "Курсийн оролт баталгаажуулсан",
     course_visit_cancelled: "Курсийн оролт цуцалсан",
+    course_visit_deleted: "Курсийн оролт устгасан",
     service_deleted: "Үйлчилгээ устгасан",
     service_settings_created: "Үйлчилгээний тохиргоонд нэмсэн",
     service_settings_updated: "Үйлчилгээний тохиргоог зассан",

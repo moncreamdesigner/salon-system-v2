@@ -1379,8 +1379,7 @@ body.sidebar-collapsed .sidebar-logout {
   justify-self: end;
 }
 
-.course-visit-submit-actions .icon-clear { flex: 0 0 40px; }
-.course-visit-cancel-pending .course-visit-row > label { opacity: .45; }
+.course-visit-submit-actions .course-visit-delete { flex: 0 0 34px; }
 
 .course-visit-action-tabs {
   display: flex;

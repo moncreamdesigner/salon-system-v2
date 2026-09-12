@@ -60,13 +60,14 @@ test("an older service can receive a current payment while payment dates remain 
   assert.match(appSource, /requireOperationalDateEditable\(transferDate, transfer\.available > 0 \? "үлдэгдэл шилжүүлэх" : "курс хаах"\)/);
 });
 
-test("course visits use a staged, per-visit cancellation flow", () => {
-  assert.match(appSource, /class="secondary-btn icon-clear course-visit-cancel"/);
-  assert.match(appSource, /form\.dataset\.cancelRequested = "true"/);
-  assert.match(appSource, /if \(existingVisit && form\.dataset\.cancelRequested === "true"\)/);
-  assert.match(appSource, /requireOperationalDateEditable\(cancelledDate, "цуцлах"\)/);
+test("course visits expose a protected delete action only inside the edit form", () => {
+  assert.match(appSource, /class="danger-btn icon-danger course-visit-delete"/);
+  assert.match(appSource, /function deleteCourseVisit\(/);
+  assert.match(appSource, /window\.confirm\(`\$\{visitNumber\}-р оролтыг устгах уу\?/);
+  assert.match(appSource, /requireOperationalDateEditable\(deletedDate, "устгах"\)/);
   assert.match(appSource, /course\.visits = \(course\.visits \|\| \[\]\)\.filter/);
-  assert.match(appSource, /course_visit_cancelled/);
+  assert.match(appSource, /course_visit_deleted/);
+  assert.doesNotMatch(appSource, /course-slot-delete.*data-history-index/);
 });
 
 test("transferred courses can be corrected within the configured window without orphaning credit", () => {
