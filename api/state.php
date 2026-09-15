@@ -638,10 +638,20 @@ $partial = ($payload['partial'] ?? false) === true;
 $clientScopeRevision = filter_var($payload['scopeRevision'] ?? null, FILTER_VALIDATE_INT);
 $clientSectionRevisions = is_array($payload['sectionRevisions'] ?? null) ? $payload['sectionRevisions'] : null;
 $operationId = trim((string)($payload['operationId'] ?? ''));
+$hasEntityMutations = count(is_array($customerMutations['profiles'] ?? null) ? $customerMutations['profiles'] : []) > 0
+    || count(is_array($customerMutations['groups'] ?? null) ? $customerMutations['groups'] : []) > 0;
 if ($operationId !== '' && preg_match('/^[A-Za-z0-9._:-]{12,190}$/', $operationId) !== 1) {
     json_response(['ok' => false, 'message' => 'Үйлдлийн дугаар буруу байна.'], 422);
 }
-if (!is_array($sections) || array_is_list($sections)) {
+// json_decode(..., true) represents an empty JSON object as an empty PHP list.
+// That is valid when the request carries only atomic customer/group mutations.
+// A non-empty list is never a valid section map, and a fully empty operation
+// must still be rejected.
+if (
+    !is_array($sections)
+    || (count($sections) > 0 && array_is_list($sections))
+    || (count($sections) === 0 && !$hasEntityMutations)
+) {
     json_response(['ok' => false, 'message' => 'Өгөгдлийн бүтэц буруу байна.'], 422);
 }
 // Booking records have their own transactional entity endpoint. Accepting a

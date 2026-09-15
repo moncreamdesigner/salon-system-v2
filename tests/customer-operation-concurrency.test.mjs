@@ -55,3 +55,9 @@ test("stale browsers cannot replace whole customer arrays", () => {
   assert.match(appSource, /bulkCustomerImport: true/);
   assert.match(appSource, /database_import_merge/);
 });
+
+test("profile-only entity mutations may use an empty section map", () => {
+  assert.match(stateApiSource, /\$hasEntityMutations = count\(is_array\(\$customerMutations\['profiles'\]/);
+  assert.match(stateApiSource, /count\(\$sections\) > 0 && array_is_list\(\$sections\)/);
+  assert.match(stateApiSource, /count\(\$sections\) === 0 && !\$hasEntityMutations/);
+});
