@@ -56,8 +56,8 @@ assert.match(
   "Anonymous booking reads must receive only future slot occupancy fields"
 );
 assert.match(
-  publicApi,
-  /\$singleSalon[\s\S]*\$holiday\['salons'\]/,
+  bootstrap,
+  /function holiday_matches_salon_date[\s\S]*\$singleSalon[\s\S]*\$holiday\['salons'\]/,
   "Public booking must support both holiday record formats without closing unrelated salons"
 );
 

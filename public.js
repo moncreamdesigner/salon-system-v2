@@ -351,7 +351,12 @@ function salonScheduleConfig(salon, date = new Date()) {
 function salonSchedule(salon, date = new Date()) {
   const config = salonScheduleConfig(salon, date);
   const weekend = [0, 6].includes(date.getDay());
-  return { start: weekend ? config.weekendStart : config.workStart, end: weekend ? config.weekendEnd : config.workEnd, duration: Number(config.duration) || 30 };
+  const hours = holidayWorkingHours(salon, dateText(date));
+  return {
+    start: hours?.start || (weekend ? config.weekendStart : config.workStart),
+    end: hours?.end || (weekend ? config.weekendEnd : config.workEnd),
+    duration: Number(config.duration) || 30
+  };
 }
 
 function publicTimeMinutes(value) {
@@ -495,8 +500,27 @@ function slotFull(salon, date, time) {
   return count >= salonCapacity(salon, date, time);
 }
 
+function publicHolidayMatches(item, salon, date) {
+  if (!item || item.date !== date) return false;
+  if (item.salon) return item.salon === salon.name || item.salon === "*";
+  return Array.isArray(item.salons) && (item.salons.includes(salon.name) || item.salons.includes("*"));
+}
+
+function normalizedPublicHolidayHours(item) {
+  if (item?.mode !== "partial") return null;
+  const start = String(item.workStart || "");
+  const end = String(item.workEnd || "");
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end) || publicTimeMinutes(end) - publicTimeMinutes(start) < 120) return null;
+  return { start, end };
+}
+
+function holidayWorkingHours(salon, date) {
+  const item = (publicState.holidays || []).find(holiday => publicHolidayMatches(holiday, salon, date));
+  return normalizedPublicHolidayHours(item);
+}
+
 function dateHoliday(salon, date) {
-  return (publicState.holidays || []).some(item => item.date === date && (!item.salon || item.salon === salon.name || (item.salons || []).includes(salon.name)));
+  return (publicState.holidays || []).some(item => publicHolidayMatches(item, salon, date) && !normalizedPublicHolidayHours(item));
 }
 
 function dateIsPast(date) {

@@ -110,16 +110,7 @@ function booking_time_minutes(string $value): ?int
 
 function booking_holiday_applies(array $holiday, string $salonName, string $date): bool
 {
-    if ((string)($holiday['date'] ?? '') !== $date) return false;
-
-    // Current records use `salon`; retain support for the older/bulk `salons`
-    // representation so a data-format change never closes every branch.
-    $singleSalon = trim((string)($holiday['salon'] ?? ''));
-    if ($singleSalon !== '') return $singleSalon === $salonName || $singleSalon === '*';
-
-    $salons = $holiday['salons'] ?? null;
-    if (!is_array($salons)) return false;
-    return in_array($salonName, $salons, true) || in_array('*', $salons, true);
+    return holiday_matches_salon_date($holiday, $salonName, $date) && holiday_working_hours($holiday) === null;
 }
 
 function booking_assert_slot_rules(array $candidate, array $salons, array $holidays): void
@@ -136,16 +127,13 @@ function booking_assert_slot_rules(array $candidate, array $salons, array $holid
         throw new InvalidArgumentException('Зөвхөн өнөөдрөөс хойш нэг сарын дотор цаг захиалах боломжтой.');
     }
 
-    foreach ($holidays as $holiday) {
-        if (is_array($holiday) && booking_holiday_applies($holiday, (string)$candidate['salon'], (string)$candidate['date'])) {
-            throw new DomainException('Тухайн өдөр салбар амарна.');
-        }
-    }
+    $holidayHours = holiday_hours_for_date($holidays, (string)$candidate['salon'], (string)$candidate['date']);
+    if ($holidayHours['closed']) throw new DomainException('Тухайн өдөр салбар амарна.');
 
     $schedule = salon_schedule_for_date($salon, (string)$candidate['date']);
     $isWeekend = in_array((int)$bookingDate->format('N'), [6, 7], true);
-    $startText = (string)($schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
-    $endText = (string)($schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
+    $startText = (string)($holidayHours['start'] ?? $schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
+    $endText = (string)($holidayHours['end'] ?? $schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
     $duration = max(5, (int)($schedule['duration'] ?? 30));
     $startMinutes = booking_time_minutes($startText);
     $endMinutes = booking_time_minutes($endText);

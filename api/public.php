@@ -122,8 +122,13 @@ try {
 
     $schedule = salon_schedule_for_date($salon, $booking['date']);
     $isWeekend = in_array((int)$bookingDate->format('N'), [6, 7], true);
-    $startText = (string)($schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
-    $endText = (string)($schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
+    $holidayHours = holiday_hours_for_date($holidays, $booking['salon'], $booking['date']);
+    if ($holidayHours['closed']) {
+        $pdo->rollBack();
+        json_response(['ok' => false, 'message' => 'Тухайн өдөр салбар амарна.'], 409);
+    }
+    $startText = (string)($holidayHours['start'] ?? $schedule[$isWeekend ? 'weekendStart' : 'workStart'] ?? ($isWeekend ? '10:00' : '09:00'));
+    $endText = (string)($holidayHours['end'] ?? $schedule[$isWeekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
     $duration = max(5, (int)($schedule['duration'] ?? 30));
     $toMinutes = static function (string $value): ?int {
         if (!preg_match('/^(\d{2}):(\d{2})$/', $value, $parts)) return null;
@@ -145,21 +150,6 @@ try {
     if ($bookingDate->format('Y-m-d') === $today->format('Y-m-d') && $bookingMinutes <= ((int)date('G') * 60 + (int)date('i'))) {
         $pdo->rollBack();
         json_response(['ok' => false, 'message' => 'Өнгөрсөн цагт захиалга хийх боломжгүй.'], 422);
-    }
-
-    // Амралтын өдөр шалгах.
-    foreach ($holidays as $holiday) {
-        if (!is_array($holiday)) continue;
-        if (($holiday['date'] ?? '') !== $booking['date']) continue;
-        $singleSalon = trim((string)($holiday['salon'] ?? ''));
-        $scope = $holiday['salons'] ?? null;
-        $closed = $singleSalon !== ''
-            ? ($singleSalon === $booking['salon'] || $singleSalon === '*')
-            : (is_array($scope) && (in_array($booking['salon'], $scope, true) || in_array('*', $scope, true)));
-        if ($closed) {
-            $pdo->rollBack();
-            json_response(['ok' => false, 'message' => 'Тухайн өдөр салбар амарна.'], 409);
-        }
     }
 
     // Давхардал шалгах — ижил утас + ижил өдөр.

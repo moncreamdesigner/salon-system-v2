@@ -155,14 +155,7 @@ function dashboard_minutes(string $value): int
 
 function dashboard_holiday_closed(array $holidays, string $salon, string $date): bool
 {
-    foreach ($holidays as $holiday) {
-        if (!is_array($holiday) || trim((string)($holiday['date'] ?? '')) !== $date) continue;
-        $singleSalon = trim((string)($holiday['salon'] ?? ''));
-        $scope = $holiday['salons'] ?? null;
-        if ($singleSalon !== '' && ($singleSalon === $salon || $singleSalon === '*')) return true;
-        if ($singleSalon === '' && is_array($scope) && (in_array($salon, $scope, true) || in_array('*', $scope, true))) return true;
-    }
-    return false;
+    return holiday_hours_for_date($holidays, $salon, $date)['closed'];
 }
 
 function dashboard_month_capacity(array $salon, array $holidays, string $month, DateTimeImmutable $today): int
@@ -177,12 +170,13 @@ function dashboard_month_capacity(array $salon, array $holidays, string $month, 
     $total = 0;
     for ($date = $start; $date <= $end; $date = $date->modify('+1 day')) {
         $dateText = $date->format('Y-m-d');
-        if (dashboard_holiday_closed($holidays, $salonName, $dateText)) continue;
+        $holidayHours = holiday_hours_for_date($holidays, $salonName, $dateText);
+        if ($holidayHours['closed']) continue;
         $schedule = salon_schedule_for_date($salon, $dateText);
         $duration = max(5, (int)($schedule['duration'] ?? 30));
         $weekend = in_array((int)$date->format('w'), [0, 6], true);
-        $open = dashboard_minutes((string)($schedule[$weekend ? 'weekendStart' : 'workStart'] ?? ($weekend ? '10:00' : '09:00')));
-        $close = dashboard_minutes((string)($schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00'));
+        $open = dashboard_minutes((string)($holidayHours['start'] ?? $schedule[$weekend ? 'weekendStart' : 'workStart'] ?? ($weekend ? '10:00' : '09:00')));
+        $close = dashboard_minutes((string)($holidayHours['end'] ?? $schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00'));
         $latest = $close - 120;
         if ($latest < $open) continue;
         for ($slotMinutes = $open; $slotMinutes <= $latest; $slotMinutes += $duration) {

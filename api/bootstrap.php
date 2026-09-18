@@ -34,6 +34,40 @@ function booking_date_within_advance_window(DateTimeImmutable $date, DateTimeImm
     return $date >= $today && $date <= booking_max_advance_date($today);
 }
 
+function holiday_matches_salon_date(array $holiday, string $salonName, string $date): bool
+{
+    if (trim((string)($holiday['date'] ?? '')) !== $date) return false;
+    $singleSalon = trim((string)($holiday['salon'] ?? ''));
+    if ($singleSalon !== '') return $singleSalon === $salonName || $singleSalon === '*';
+    $salons = $holiday['salons'] ?? null;
+    return is_array($salons) && (in_array($salonName, $salons, true) || in_array('*', $salons, true));
+}
+
+function holiday_working_hours(array $holiday): ?array
+{
+    if ((string)($holiday['mode'] ?? '') !== 'partial') return null;
+    $start = trim((string)($holiday['workStart'] ?? ''));
+    $end = trim((string)($holiday['workEnd'] ?? ''));
+    if (preg_match('/^(\d{2}):(\d{2})$/', $start, $startParts) !== 1 || preg_match('/^(\d{2}):(\d{2})$/', $end, $endParts) !== 1) return null;
+    if ((int)$startParts[1] > 23 || (int)$endParts[1] > 23 || (int)$startParts[2] > 59 || (int)$endParts[2] > 59) return null;
+    $startMinutes = ((int)$startParts[1] * 60) + (int)$startParts[2];
+    $endMinutes = ((int)$endParts[1] * 60) + (int)$endParts[2];
+    if ($startMinutes < 0 || $endMinutes > 1439 || $endMinutes - $startMinutes < 120) return null;
+    return ['start' => $start, 'end' => $end];
+}
+
+function holiday_hours_for_date(array $holidays, string $salonName, string $date): array
+{
+    foreach ($holidays as $holiday) {
+        if (!is_array($holiday) || !holiday_matches_salon_date($holiday, $salonName, $date)) continue;
+        $hours = holiday_working_hours($holiday);
+        return $hours === null
+            ? ['closed' => true, 'start' => null, 'end' => null]
+            : ['closed' => false, 'start' => $hours['start'], 'end' => $hours['end']];
+    }
+    return ['closed' => false, 'start' => null, 'end' => null];
+}
+
 function salon_schedule_for_date(array $salon, string $date): array
 {
     $defaults = [

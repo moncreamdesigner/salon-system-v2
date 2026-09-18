@@ -4321,9 +4321,20 @@ input[type="date"].input {
 
 .holiday-form-grid {
   display: grid;
-  grid-template-columns: 310px 170px 240px auto;
+  grid-template-columns: minmax(250px, 1.25fr) 170px minmax(210px, 1fr) 220px;
   gap: 10px;
   align-items: end;
+}
+
+.holiday-time-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+
+.holiday-time-fields.hidden {
+  display: none;
 }
 
 .human-resource-shell {
@@ -10541,6 +10552,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     grid-template-columns: 1fr 1fr;
   }
 
+  .holiday-time-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .voucher-role-form,
   .voucher-log-filter,
   .gift-card-form,
@@ -10695,6 +10710,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 
   .holiday-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .holiday-time-fields {
     grid-template-columns: 1fr;
   }
 

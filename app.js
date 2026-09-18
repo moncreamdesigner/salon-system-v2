@@ -1306,7 +1306,10 @@ function syncedHolidayFingerprint(item) {
     salon: item.salon || "",
     date: item.date || "",
     name: item.name || "",
-    note: item.note || ""
+    note: item.note || "",
+    mode: item.mode || "full",
+    workStart: item.workStart || "",
+    workEnd: item.workEnd || ""
   } : null);
 }
 
@@ -2896,9 +2899,11 @@ function bookingOptionsForSalon(salonName, date = todayText()) {
   const config = scheduleConfig(salonName || state.salons[0]?.name, date);
   const selectedDate = new Date(`${date}T00:00:00`);
   const weekend = [0, 6].includes(selectedDate.getDay());
+  const holidayHours = holidayWorkingHours(salonName, date);
+  if (isHolidayClosed(salonName, date)) return [];
   return generateTimeOptions(
-    weekend ? config.weekendStart : config.workStart,
-    weekend ? config.weekendEnd : config.workEnd,
+    holidayHours?.start || (weekend ? config.weekendStart : config.workStart),
+    holidayHours?.end || (weekend ? config.weekendEnd : config.workEnd),
     config.duration
   );
 }
@@ -7815,10 +7820,36 @@ function closeHolidayForm() {
   if (allCheck) allCheck.checked = false;
   const dateInput = document.getElementById("holidayDate");
   if (dateInput) dateInput.value = todayText();
+  const modeInput = document.getElementById("holidayMode");
+  if (modeInput) modeInput.value = "full";
+  const startInput = document.getElementById("holidayWorkStart");
+  const endInput = document.getElementById("holidayWorkEnd");
+  if (startInput) startInput.value = "10:00";
+  if (endInput) endInput.value = "15:00";
+  updateHolidayTimeFields();
+}
+
+function holidayMatches(holiday, salonName, dateText) {
+  if (!holiday || holiday.date !== dateText) return false;
+  if (holiday.salon) return holiday.salon === salonName || holiday.salon === "*";
+  return Array.isArray(holiday.salons) && (holiday.salons.includes(salonName) || holiday.salons.includes("*"));
+}
+
+function normalizedHolidayWorkingHours(holiday) {
+  if (holiday?.mode !== "partial") return null;
+  const start = String(holiday.workStart || "");
+  const end = String(holiday.workEnd || "");
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end) || timeToMinutes(end) - timeToMinutes(start) < 120) return null;
+  return { start, end };
 }
 
 function isHolidayClosed(salonName, dateText) {
-  return state.holidays.some(item => item.salon === salonName && item.date === dateText);
+  return state.holidays.some(item => holidayMatches(item, salonName, dateText) && !normalizedHolidayWorkingHours(item));
+}
+
+function holidayWorkingHours(salonName, dateText) {
+  const holiday = state.holidays.find(item => holidayMatches(item, salonName, dateText));
+  return normalizedHolidayWorkingHours(holiday);
 }
 
 function holidayForDate(salonName, dateText) {
@@ -8101,6 +8132,8 @@ function renderHolidaySettings() {
     dateInput.min = todayText();
     if (!dateInput.value) dateInput.value = todayText();
   }
+  enhanceNativeSelects(["holidayMode"]);
+  updateHolidayTimeFields();
   if (!list) return;
   const holidays = state.holidays
     .filter(holiday => canAccessSalon(holiday.salon))
@@ -8110,7 +8143,7 @@ function renderHolidaySettings() {
     <div class="holiday-item">
       <div>
         <strong>${holiday.salon}</strong>
-        <span>${dateWithWeekday(holiday.date)} · ${holiday.name}${holiday.note ? ` · ${holiday.note}` : ""}</span>
+        <span>${dateWithWeekday(holiday.date)} · ${holiday.name} · ${normalizedHolidayWorkingHours(holiday) ? `Ажиллах цаг ${holiday.workStart}–${holiday.workEnd}` : "Бүтэн амарна"}${holiday.note ? ` · ${holiday.note}` : ""}</span>
       </div>
       <div class="holiday-actions">
         <button class="secondary-btn icon-action holiday-edit" data-id="${htmlSafe(holiday.id)}" data-salon="${htmlSafe(holiday.salon)}" type="button" aria-label="Засах">${editIcon()}</button>
@@ -8133,14 +8166,30 @@ function editHoliday(id, salon) {
   holidayEditingId = holidayRecordKey(holiday);
   const dateInput = document.getElementById("holidayDate");
   const nameInput = document.getElementById("holidayName");
+  const modeInput = document.getElementById("holidayMode");
+  const startInput = document.getElementById("holidayWorkStart");
+  const endInput = document.getElementById("holidayWorkEnd");
   if (dateInput) dateInput.value = holiday.date;
   if (nameInput) nameInput.value = holiday.name || "";
+  const hours = normalizedHolidayWorkingHours(holiday);
+  if (modeInput) modeInput.value = hours ? "partial" : "full";
+  if (startInput) startInput.value = hours?.start || "10:00";
+  if (endInput) endInput.value = hours?.end || "15:00";
   renderHolidaySettings();
   document.querySelectorAll(".holiday-branch-check").forEach(input => {
     input.checked = input.value === holiday.salon;
   });
   updateHolidaySelectSummary();
   document.getElementById("holidayForm")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function updateHolidayTimeFields() {
+  const partial = document.getElementById("holidayMode")?.value === "partial";
+  document.getElementById("holidayTimeFields")?.classList.toggle("hidden", !partial);
+  const start = document.getElementById("holidayWorkStart");
+  const end = document.getElementById("holidayWorkEnd");
+  if (start) start.required = partial;
+  if (end) end.required = partial;
 }
 
 function selectedHolidaySalons() {
@@ -8205,6 +8254,9 @@ function saveHoliday(event) {
   const date = formValue("holidayDate");
   const name = formValue("holidayName");
   const note = "";
+  const mode = formValue("holidayMode") === "partial" ? "partial" : "full";
+  const workStart = mode === "partial" ? formValue("holidayWorkStart") : "";
+  const workEnd = mode === "partial" ? formValue("holidayWorkEnd") : "";
   if (!selectedSalons.length) {
     showToast("Салбар сонгоно уу");
     return;
@@ -8214,6 +8266,14 @@ function saveHoliday(event) {
     return;
   }
   if (!date || !name) return;
+  if (mode === "partial" && (!workStart || !workEnd || timeToMinutes(workEnd) <= timeToMinutes(workStart))) {
+    showToast("Ажиллах эхлэх, дуусах цагийг зөв оруулна уу");
+    return;
+  }
+  if (mode === "partial" && timeToMinutes(workEnd) - timeToMinutes(workStart) < 120) {
+    showToast("Ажиллах хугацаа хамгийн багадаа 2 цаг байна");
+    return;
+  }
   if (isPastDate(date)) {
     showToast("Өнгөрсөн өдөр амралт нэмэх боломжгүй");
     return;
@@ -8232,9 +8292,12 @@ function saveHoliday(event) {
       const before = structuredClone(existing);
       existing.name = name;
       existing.note = note;
+      existing.mode = mode;
+      existing.workStart = workStart;
+      existing.workEnd = workEnd;
       registerPendingHolidayMutation({ type: "update", item: existing, before, auditEntry });
     } else {
-      const item = { id: entityId("holiday"), salon, date, name, note };
+      const item = { id: entityId("holiday"), salon, date, name, note, mode, workStart, workEnd };
       state.holidays.unshift(item);
       registerPendingHolidayMutation({ type: "create", item, auditEntry });
     }
@@ -18682,12 +18745,12 @@ function renderBookingTimeOptionsForRow(editingId, slotRow, preferFirstAvailable
   if (!dropdown || !menu || !input || !triggerText) return;
   const baseCapacity = getSalonCapacity(salonName, date);
   const timeOptions = bookingOptionsForSalon(salonName, date);
-  const closedHoliday = holidayForDate(salonName, date);
+  const closedHoliday = isHolidayClosed(salonName, date);
   let firstAvailable = "";
   const availableByTime = timeOptions.map(time => ({
     time,
     occupied: bookedCountForSlot(salonName, date, time, editingId),
-    past: isPastBookingTime(date, time) || Boolean(closedHoliday)
+    past: isPastBookingTime(date, time) || closedHoliday
   }));
   firstAvailable = availableByTime.find(item => !item.past && item.occupied < getSalonCapacity(salonName, date, item.time))?.time || "";
   if (preferFirstAvailable || closedHoliday || !input.value || isPastBookingTime(date, input.value) || bookedCountForSlot(salonName, date, input.value, editingId) >= getSalonCapacity(salonName, date, input.value)) {
@@ -19030,6 +19093,7 @@ function bindEvents() {
     renderBranchMediaDraft();
   });
   document.getElementById("holidayForm")?.addEventListener("submit", saveHoliday);
+  document.getElementById("holidayMode")?.addEventListener("change", updateHolidayTimeFields);
   document.getElementById("hrStaffForm")?.addEventListener("submit", saveHumanResourceStaff);
   document.getElementById("hrAssignmentForm")?.addEventListener("submit", saveHumanResourceAssignment);
   document.getElementById("voucherRoleForm")?.addEventListener("submit", async event => {

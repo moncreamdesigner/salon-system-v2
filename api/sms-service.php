@@ -461,25 +461,20 @@ function sms_dispatch_immediate(PDO $pdo, array $ids): void
     }
 }
 
-function sms_last_bookable_minutes(array $salon, DateTimeImmutable $date): ?int
+function sms_last_bookable_minutes(PDO $pdo, array $salon, DateTimeImmutable $date): ?int
 {
     $schedule = salon_schedule_for_date($salon, $date->format('Y-m-d'));
     $weekend = in_array((int)$date->format('N'), [6, 7], true);
-    $end = (string)($schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
+    $holidayHours = holiday_hours_for_date(sms_section_rows($pdo, 'holidays'), (string)($salon['name'] ?? ''), $date->format('Y-m-d'));
+    if ($holidayHours['closed']) return null;
+    $end = (string)($holidayHours['end'] ?? $schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00');
     if (preg_match('/^(\d{2}):(\d{2})$/', $end, $parts) !== 1) return null;
     return ((int)$parts[1] * 60) + (int)$parts[2] - 120;
 }
 
 function sms_salon_is_closed(PDO $pdo, string $salonName, string $date): bool
 {
-    foreach (sms_section_rows($pdo, 'holidays') as $holiday) {
-        if (!is_array($holiday) || (string)($holiday['date'] ?? '') !== $date) continue;
-        $single = trim((string)($holiday['salon'] ?? ''));
-        if ($single !== '' && ($single === $salonName || $single === '*')) return true;
-        $salons = is_array($holiday['salons'] ?? null) ? $holiday['salons'] : [];
-        if (in_array($salonName, $salons, true) || in_array('*', $salons, true)) return true;
-    }
-    return false;
+    return holiday_hours_for_date(sms_section_rows($pdo, 'holidays'), $salonName, $date)['closed'];
 }
 
 function sms_current_check_window_allows(PDO $pdo, array $settings, DateTimeImmutable $now): bool
@@ -492,7 +487,7 @@ function sms_current_check_window_allows(PDO $pdo, array $settings, DateTimeImmu
         if (!is_array($salon) || (($salon['active'] ?? true) === false)) continue;
         $name = trim((string)($salon['name'] ?? ''));
         if ($name === '' || sms_salon_is_closed($pdo, $name, $now->format('Y-m-d'))) continue;
-        $lastSlot = sms_last_bookable_minutes($salon, $now);
+        $lastSlot = sms_last_bookable_minutes($pdo, $salon, $now);
         if ($lastSlot === null) continue;
         $candidate = $lastSlot - ($hours * 60);
         $latestReminder = $latestReminder === null ? $candidate : max($latestReminder, $candidate);
@@ -513,7 +508,7 @@ function sms_reminder_window_allows(PDO $pdo, array $settings, array $message, D
     if (!$salonRow || (($salonRow['active'] ?? true) === false)) return false;
     if (sms_salon_is_closed($pdo, (string)($salonRow['name'] ?? ''), $now->format('Y-m-d'))) return false;
     $today = new DateTimeImmutable($now->format('Y-m-d'), new DateTimeZone(SMS_TIMEZONE));
-    $lastSlot = sms_last_bookable_minutes($salonRow, $today);
+    $lastSlot = sms_last_bookable_minutes($pdo, $salonRow, $today);
     if ($lastSlot === null) return false;
     $lastReminder = $lastSlot - (max(1, min(3, (int)($settings['reminderHours'] ?? 3))) * 60);
     $nowMinutes = ((int)$now->format('G') * 60) + (int)$now->format('i');

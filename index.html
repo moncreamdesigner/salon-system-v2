@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="app-build" content="202609151019">
+  <meta name="app-build" content="202609181341">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202609151019">
+  <link rel="stylesheet" href="styles.css?v=202609181341">
 </head>
 <body>
   <div class="app-shell">
@@ -823,6 +823,16 @@
               </div>
               <label>Огноо<input class="input" id="holidayDate" type="date" required></label>
               <label>Амралтын нэр<input class="input" id="holidayName" required placeholder="Жишээ: Дотоод сургалт"></label>
+              <label>Тухайн өдрийн горим
+                <select class="select" id="holidayMode">
+                  <option value="full">Бүтэн амарна</option>
+                  <option value="partial">Цагаар ажиллана</option>
+                </select>
+              </label>
+              <div class="holiday-time-fields hidden" id="holidayTimeFields">
+                <label>Ажил эхлэх<input class="input" id="holidayWorkStart" type="time" value="10:00"></label>
+                <label>Ажил дуусах<input class="input" id="holidayWorkEnd" type="time" value="15:00"></label>
+              </div>
               <div class="form-actions">
                 <button class="primary-btn" type="submit">Хадгалах</button>
               </div>
@@ -1635,10 +1645,10 @@
       <p class="action-code-error" id="actionCodeError" role="alert"></p>
     </form>
   </div>
-  <script src="fliphtml5.js?v=202609151019"></script>
-  <script src="diagnostics.js?v=202609151019"></script>
-  <script src="sms-campaigns.js?v=202609151019"></script>
-  <script src="app.js?v=202609151019"></script>
+  <script src="fliphtml5.js?v=202609181341"></script>
+  <script src="diagnostics.js?v=202609181341"></script>
+  <script src="sms-campaigns.js?v=202609181341"></script>
+  <script src="app.js?v=202609181341"></script>
 </body>
 </html>
 
