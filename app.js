@@ -11322,7 +11322,7 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const selectedMethod = "card";
   const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
   const transferInfo = courseTransferInfo(item);
-  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && transferInfo.paid > 0 && transferInfo.available > 0 && !item.transferClosed;
+  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && transferInfo.paid > 0 && transferInfo.shortfall <= 0 && !item.transferClosed;
   const allowSalary = customer?.type === "Ажилтан";
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
@@ -13931,7 +13931,7 @@ function bindInlinePaymentForms(customer) {
         }
       }
       if ((method?.value || "") === "credit_transfer" && submitButton) {
-        submitButton.disabled = transferInfo.requiresSingleVisitPrice || transferInfo.unusedVisits <= 0 || transferInfo.shortfall > 0 || transferInfo.available <= 0;
+        submitButton.disabled = transferInfo.requiresSingleVisitPrice || transferInfo.unusedVisits <= 0 || transferInfo.paid <= 0 || transferInfo.shortfall > 0;
       }
       return transferInfo;
     };
@@ -14014,7 +14014,7 @@ function bindInlinePaymentForms(customer) {
         setBonusApplied(false);
         refreshTransferInfo();
         if (submitButton) {
-          submitButton.disabled = transferInfo.requiresSingleVisitPrice || transferInfo.unusedVisits <= 0 || transferInfo.shortfall > 0 || transferInfo.available <= 0;
+          submitButton.disabled = transferInfo.requiresSingleVisitPrice || transferInfo.unusedVisits <= 0 || transferInfo.paid <= 0 || transferInfo.shortfall > 0;
           submitButton.textContent = "Шилжүүлэх / хаах";
         }
       } else {
@@ -14059,7 +14059,7 @@ function bindInlinePaymentForms(customer) {
           showToast("Нэг удаагийн үйлчилгээний үнийг оруулна уу", "error");
           return;
         }
-        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.unusedVisits <= 0 || transfer.paid <= 0 || transfer.available <= 0) {
+        if (historyItem.kind !== "course" || historyItem.transferClosed || transfer.unusedVisits <= 0 || transfer.paid <= 0) {
           showToast("Хаах ашиглаагүй оролт алга", "error");
           return;
         }

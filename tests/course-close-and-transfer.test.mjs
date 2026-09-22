@@ -76,10 +76,11 @@ test("a course cannot close while consumed visits have an unpaid shortfall", () 
   assert.equal(info.shortfall, 100000);
 });
 
-test("transfer and close is offered only for a paid course with an overpayment", () => {
+test("transfer and close is offered for paid courses with no shortfall", () => {
   assert.match(appSource, /\["credit_transfer", "Шилжүүлэх \/ хаах"\]/);
-  assert.match(appSource, /allowCreditTransfer = item\.kind === "course" && transferInfo\.unusedVisits > 0 && transferInfo\.paid > 0 && transferInfo\.available > 0/);
-  assert.match(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0 \|\| transfer\.available <= 0/);
+  assert.match(appSource, /allowCreditTransfer = item\.kind === "course" && transferInfo\.unusedVisits > 0 && transferInfo\.paid > 0 && transferInfo\.shortfall <= 0/);
+  assert.match(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0/);
+  assert.doesNotMatch(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0 \|\| transfer\.available <= 0/);
   assert.match(appSource, /if \(transfer\.available > 0\) \{[\s\S]*customer\.creditLedger\.unshift\(closureEntry\)/);
 });
 
