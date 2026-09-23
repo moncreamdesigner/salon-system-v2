@@ -54,3 +54,19 @@ test("versioned scripts and styles are immutable while HTML and JSON revalidate"
   assert.match(htaccess, /<FilesMatch "\\\.\(html\|json\)\$">[\s\S]*?no-cache, max-age=0, must-revalidate/);
   assert.match(htaccess, /<FilesMatch "\\\.\(css\|js\)\$">[\s\S]*?public, max-age=31536000, immutable/);
 });
+
+test("extensionless public routes are served without browser cache", () => {
+  assert.match(htaccess, /SetEnvIf Request_URI "\^\/\(login\|catalog\|booking\|results\)\/\?\$" khalgai_route_html=1/);
+  assert.match(htaccess, /Header always set Cache-Control "no-store, no-cache, max-age=0, must-revalidate" env=khalgai_route_html/);
+});
+
+test("public booking data bypasses browser cache without adding polling", () => {
+  assert.match(publicSource, /url\.searchParams\.set\("_", String\(Date\.now\(\)\)\)/);
+  assert.match(publicSource, /fetch\(url, \{\s*cache: "no-store"/);
+  assert.equal((publicSource.match(/setInterval\(/g) || []).length, 0);
+});
+
+test("production public page does not restore stale booking data from local storage", () => {
+  assert.match(publicSource, /if \(!PUBLIC_IS_LOCAL\) \{\s*publicState = structuredClone\(publicFallbackState\);/);
+  assert.match(publicSource, /if \(!value\?\.build \|\| value\.build !== PUBLIC_BUILD\) return \{\};/);
+});

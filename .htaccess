@@ -1,11 +1,16 @@
 Options -Indexes
 DirectoryIndex booking.html
 
+SetEnvIf Request_URI "^/(login|catalog|booking|results)/?$" khalgai_route_html=1
+
 # HTML bolon version file-iig shineer shalgana. Build dugaartai CSS/JS ni
 # daraagiin deploy hurtel browser cache-aas shuud ajillana.
 <IfModule mod_headers.c>
+  Header always set Cache-Control "no-store, no-cache, max-age=0, must-revalidate" env=khalgai_route_html
+  Header always set Pragma "no-cache" env=khalgai_route_html
+  Header always set Expires "0" env=khalgai_route_html
   <FilesMatch "\.(html|json)$">
-    Header always set Cache-Control "no-cache, max-age=0, must-revalidate"
+    Header always set Cache-Control "no-store, no-cache, max-age=0, must-revalidate"
     Header always set Pragma "no-cache"
     Header always set Expires "0"
   </FilesMatch>

@@ -1,5 +1,7 @@
 const PUBLIC_STORAGE_KEY = "khalgai_salon_local_mvp_v1";
 const PUBLIC_UI_STATE_KEY = "khalgai_public_ui_state_v1";
+const PUBLIC_BUILD = document.querySelector('meta[name="app-build"]')?.content || "";
+const PUBLIC_IS_LOCAL = ["127.0.0.1", "localhost"].includes(window.location.hostname);
 const PUBLIC_VIEW_ROUTES = Object.freeze({
   catalog: "/catalog",
   booking: "/booking",
@@ -45,7 +47,7 @@ const publicFallbackState = {
   homepageSettings: publicDefaultSettings
 };
 
-if (!["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+if (!PUBLIC_IS_LOCAL) {
   // Never expose prototype branches/results on the live page while its API is
   // loading or unavailable. Production content must come from the database.
   publicFallbackState.salons = [];
@@ -70,6 +72,7 @@ let publicDataRequest = null;
 function readPublicUiState() {
   try {
     const value = JSON.parse(sessionStorage.getItem(PUBLIC_UI_STATE_KEY) || "null");
+    if (!value?.build || value.build !== PUBLIC_BUILD) return {};
     return value && typeof value === "object" ? value : {};
   } catch (_) {
     return {};
@@ -79,6 +82,7 @@ function readPublicUiState() {
 function savePublicUiState() {
   try {
     sessionStorage.setItem(PUBLIC_UI_STATE_KEY, JSON.stringify({
+      build: PUBLIC_BUILD,
       view: activePublicView,
       salonId: selectedSalonId,
       selectedDate,
@@ -138,12 +142,26 @@ async function loadPublicData() {
   if (publicDataRequest) return publicDataRequest;
   publicDataRequest = (async () => {
     try {
-      const response = await fetch("api/public.php", { cache: "no-store", headers: { "X-Requested-With": "KhalgaiSalon" } });
+      const url = new URL("api/public.php", window.location.href);
+      url.searchParams.set("v", PUBLIC_BUILD || "live");
+      url.searchParams.set("_", String(Date.now()));
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: {
+          "X-Requested-With": "KhalgaiSalon",
+          "Cache-Control": "no-cache"
+        }
+      });
       if (!response.ok) throw new Error("Public API unavailable");
       const result = await response.json();
       if (!result.ok) throw new Error(result.message || "Public API unavailable");
       publicState = { ...structuredClone(publicFallbackState), ...(result.data || {}) };
     } catch (error) {
+      if (!PUBLIC_IS_LOCAL) {
+        publicState = structuredClone(publicFallbackState);
+        bookingInlineMessage = activePublicView === "booking" ? "Цагийн мэдээллийг шинэчилж чадсангүй. Интернэтээ шалгаад дахин оролдоно уу." : "";
+        return;
+      }
       try {
         const local = JSON.parse(localStorage.getItem(PUBLIC_STORAGE_KEY) || "null");
         publicState = local ? { ...structuredClone(publicFallbackState), ...local } : structuredClone(publicFallbackState);
@@ -643,7 +661,7 @@ async function submitPublicBooking() {
     if (!response.ok || !result?.ok) throw new Error(result?.message || "Захиалга илгээсэнгүй. Дахин оролдоно уу.");
     booking.id = result.booking?.id || booking.id;
   } catch (error) {
-    if (location.hostname !== "127.0.0.1" && location.hostname !== "localhost") return showBookingInlineMessage(error.message || "Захиалга илгээсэнгүй. Дахин оролдоно уу.", salon);
+    if (!PUBLIC_IS_LOCAL) return showBookingInlineMessage(error.message || "Захиалга илгээсэнгүй. Дахин оролдоно уу.", salon);
     publicState.bookings = Array.isArray(publicState.bookings) ? publicState.bookings : [];
     publicState.bookings.unshift(booking);
     try {
