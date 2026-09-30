@@ -13256,10 +13256,14 @@ function renderProfile() {
     setCustomerAgeFromInput(customer, formValue("profileInfoAge"));
     customer.profileInfoEditing = false;
     const adminGroup = state.customerGroups.find(group => Number(group.adminCustomerId) === Number(customer.id));
-    const message = adminGroup && String(adminGroup.name || "") !== String(customer.phone || "")
-      ? "Мэдээлэл хадгалагдлаа. Групп нэр утаснаас зөрж байна"
+    if (adminGroup && String(adminGroup.name || "") !== String(customer.phone || "")) {
+      adminGroup.name = customer.phone;
+      adminGroup.editingName = false;
+    }
+    const message = adminGroup
+      ? "Хэрэглэгчийн мэдээлэл, групп нэр шинэчлэгдлээ"
       : "Хэрэглэгчийн мэдээлэл хадгалагдлаа";
-    saveAndRefreshCustomerProfile(message);
+    saveAndRefreshCustomerProfile(message, { groupIds: adminGroup ? [adminGroup.id] : [] });
   });
   document.getElementById("profileDeleteCustomerBtn")?.addEventListener("click", () => deleteProfileCustomer(customer.id));
 }

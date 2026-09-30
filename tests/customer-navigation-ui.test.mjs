@@ -29,3 +29,14 @@ test("customer creation and phone edits reject an existing active phone", () => 
   assert.match(appSource, /if \(rejectDuplicateCustomerPhone\(phone, customer\.id\)\) return;/);
   assert.match(appSource, /error\.payload\?\.duplicatePhone/);
 });
+
+test("admin customer phone edits keep the group bonus and sync the group name", () => {
+  const profileHandler = appSource.slice(
+    appSource.indexOf("function bindProfileInfoForm(customer)"),
+    appSource.indexOf("async function deleteProfileCustomer", appSource.indexOf("function bindProfileInfoForm(customer)"))
+  );
+  assert.match(profileHandler, /const adminGroup = state\.customerGroups\.find\(group => Number\(group\.adminCustomerId\) === Number\(customer\.id\)\)/);
+  assert.match(profileHandler, /adminGroup\.name = customer\.phone;/);
+  assert.match(profileHandler, /saveAndRefreshCustomerProfile\(message, \{ groupIds: adminGroup \? \[adminGroup\.id\] : \[\] \}\)/);
+  assert.doesNotMatch(profileHandler, /bonusPool\s*=\s*0|usedBonus\s*=\s*0|spent2y\s*=\s*0|customer\.groupId\s*=\s*null/);
+});
