@@ -56,6 +56,7 @@ test("dashboard time report is aggregated server-side and rendered as the bottom
   assert.match(api, /'byWeekday' => \$weekdayRows/);
   assert.match(api, /'byMonth' => \$monthRows/);
   assert.match(api, /\['cancelled', 'rejected'\]/);
+  assert.doesNotMatch(api, /function dashboard_time_month_range[\s\S]*if \(\$end > \$today\) \$end = \$today;/, "Time report capacity must cover the full selected month so every weekday remains visible.");
   assert.match(app, /function dashboardTimeReportMarkup/);
   assert.match(app, /<h3>Цагийн тайлан<\/h3>/);
   assert.match(app, /\$\{dashboardTimeReportMarkup\(timeReport\)\}/, "Time report card must be appended at the bottom of the overview dashboard.");

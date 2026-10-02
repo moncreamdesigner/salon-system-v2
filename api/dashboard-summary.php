@@ -270,7 +270,6 @@ function dashboard_time_month_range(string $month, DateTimeImmutable $today): ar
     $timezone = new DateTimeZone('Asia/Ulaanbaatar');
     $start = new DateTimeImmutable($month . '-01', $timezone);
     $end = $start->modify('last day of this month');
-    if ($end > $today) $end = $today;
     return [$start, $end];
 }
 
