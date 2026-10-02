@@ -5866,6 +5866,8 @@ tr:last-child td {
   align-items: end;
   justify-content: space-between;
   gap: 18px;
+  flex-wrap: wrap;
+  padding-bottom: 0;
 }
 
 .dashboard-filter-fields,
@@ -5882,6 +5884,39 @@ tr:last-child td {
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;
+}
+
+.dashboard-view-tabs {
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dashboard-view-tab {
+  min-height: 44px;
+  padding: 0 5px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.dashboard-view-tab:hover,
+.dashboard-view-tab.active {
+  color: var(--accent-dark);
+  border-bottom-color: var(--accent);
+  background: transparent;
+  box-shadow: none;
+}
+
+.dashboard-view-mode-field {
+  display: none !important;
 }
 
 .dashboard-filter-actions {

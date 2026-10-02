@@ -6998,6 +6998,15 @@ function dashboardSelectedViewMode() {
   return allowed.some(item => item.value === value) ? value : allowed[0]?.value || "overview";
 }
 
+function renderDashboardViewTabs(activeMode = dashboardSelectedViewMode()) {
+  const tabs = document.getElementById("dashboardViewTabs");
+  if (!tabs) return;
+  tabs.innerHTML = dashboardAllowedViewModes().map(item => `
+    <button class="dashboard-view-tab ${item.value === activeMode ? "active" : ""}" type="button" role="tab" aria-selected="${item.value === activeMode ? "true" : "false"}" data-dashboard-view-mode="${item.value}">
+      ${htmlSafe(item.label)}
+    </button>`).join("");
+}
+
 function dashboardOperationsHtml(month, salon, snapshot) {
   const sourceState = dashboardDataCache?.source || state;
   const summary = dashboardDataCache?.summary?.operations || null;
@@ -7230,6 +7239,7 @@ function renderDashboard() {
   const allowedModes = dashboardAllowedViewModes();
   modeSelect.innerHTML = allowedModes.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
   modeSelect.value = allowedModes.some(item => item.value === previousMode) ? previousMode : allowedModes[0]?.value || "overview";
+  renderDashboardViewTabs(modeSelect.value);
 
   const currentMonthKey = monthText(todayText());
   const previousMonth = monthSelect.value || currentMonthKey;
@@ -7241,7 +7251,6 @@ function renderDashboard() {
   salonSelect.innerHTML = `${isSalonAccount() ? "" : `<option value="">Нийт салбар</option>`}${allowedSalons.map(salon => `<option value="${htmlSafe(salon.name)}">${htmlSafe(salon.name)}</option>`).join("")}`;
   salonSelect.value = isSalonAccount() ? activeAccount.salon : (allowedSalons.some(item => item.name === previousSalon) ? previousSalon : "");
   salonSelect.disabled = isSalonAccount();
-  syncNativeSelectProxy(modeSelect);
   syncNativeSelectProxy(monthSelect);
   syncNativeSelectProxy(salonSelect);
 
@@ -19490,6 +19499,15 @@ function bindEvents() {
       renderDashboard();
       renderInfoHeader("dashboard");
     });
+  });
+  document.getElementById("dashboardViewTabs")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-dashboard-view-mode]");
+    if (!button) return;
+    const select = document.getElementById("dashboardViewMode");
+    if (!select || select.value === button.dataset.dashboardViewMode) return;
+    select.value = button.dataset.dashboardViewMode;
+    renderDashboard();
+    renderInfoHeader("dashboard");
   });
   document.getElementById("dashboardExportExcel")?.addEventListener("click", exportDashboardExcel);
   document.getElementById("dashboardRefresh")?.addEventListener("click", async event => {

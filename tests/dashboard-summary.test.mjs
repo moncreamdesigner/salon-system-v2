@@ -62,6 +62,12 @@ test("dashboard time report is aggregated server-side and rendered as a separate
   assert.match(app, /<h3>Цагийн тайлан<\/h3>/);
   assert.match(app, /\{ value: "time", label: "Цагийн тайлан" \}/, "Time report must be available as a separate dashboard view.");
   assert.match(app, /if \(viewMode === "time"\)/);
+  assert.match(app, /function renderDashboardViewTabs/);
+  assert.match(app, /data-dashboard-view-mode/);
+  assert.match(html, /id="dashboardViewTabs"/);
+  assert.match(html, /dashboard-view-mode-field/);
+  assert.match(styles, /\.dashboard-view-tabs/);
+  assert.match(styles, /\.dashboard-view-mode-field\s*\{[^}]*display:\s*none !important;/s);
   assert.doesNotMatch(app, /\$\{dashboardTimeReportMarkup\(timeReport\)\}/, "Time report must not remain appended to the overview dashboard.");
   assert.match(html, /id="dashboardFromDate"/);
   assert.match(html, /id="dashboardToDate"/);
