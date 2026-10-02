@@ -6210,6 +6210,95 @@ tr:last-child td {
   font-size: 15px;
 }
 
+.dashboard-time-report-card {
+  margin-bottom: 12px;
+}
+
+.dashboard-time-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.dashboard-time-summary article {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.dashboard-time-summary span,
+.dashboard-time-summary small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dashboard-time-summary strong {
+  display: block;
+  margin: 6px 0 4px;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.dashboard-time-report-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.dashboard-time-report-grid article {
+  min-width: 0;
+}
+
+.dashboard-time-report-grid h4 {
+  margin: 0 0 5px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.dashboard-time-report-grid p {
+  min-height: 30px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.dashboard-time-row-list {
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-time-row {
+  display: grid;
+  gap: 7px;
+}
+
+.dashboard-time-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.dashboard-time-row-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-time-row-meta span {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
 .dashboard-donut-layout {
   min-height: 190px;
   display: grid;
@@ -6638,6 +6727,10 @@ tr:last-child td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .dashboard-time-report-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .dashboard-grid > .dashboard-card:last-child {
     grid-column: 1 / -1;
   }
@@ -6714,6 +6807,10 @@ tr:last-child td {
   }
 
   .dashboard-staff-load-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-time-summary {
     grid-template-columns: minmax(0, 1fr);
   }
 

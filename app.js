@@ -6751,6 +6751,68 @@ function dashboardVerticalBars(items, valueKey, formatter = value => value) {
   return `<div class="dashboard-vertical-bars">${items.map(item => `<div class="dashboard-vertical-bar"><div class="dashboard-vertical-bar-value">${formatter(item[valueKey])}</div><div class="dashboard-vertical-bar-track"><span style="height:${Math.max(7, Number(item[valueKey] || 0) / max * 100)}%"></span></div><small>${htmlSafe(item.short || item.name)}</small></div>`).join("")}</div>`;
 }
 
+function dashboardSlotReportRows(items = [], limit = 0) {
+  const rows = limit > 0 ? items.slice(0, limit) : items;
+  const visibleRows = rows.filter(item => Number(item.capacity || 0) > 0 || Number(item.bookings || 0) > 0);
+  if (!visibleRows.length) return `<div class="empty-state">Цагийн мэдээлэл байхгүй байна.</div>`;
+  return `<div class="dashboard-time-row-list">${visibleRows.map(item => {
+    const utilization = Number(item.utilization || 0);
+    const capacity = Number(item.capacity || 0);
+    const bookings = Number(item.bookings || 0);
+    return `
+      <div class="dashboard-time-row">
+        <div class="dashboard-time-row-meta">
+          <strong>${htmlSafe(item.name)}</strong>
+          <span>${formatNumber(bookings)} / ${formatNumber(capacity)} slot · ${utilization}%</span>
+        </div>
+        <div class="dashboard-progress-track"><span style="width:${Math.max(3, utilization)}%"></span></div>
+      </div>`;
+  }).join("")}</div>`;
+}
+
+function dashboardTimeReportMarkup(report) {
+  if (!report) return "";
+  const peak = report.peak || {};
+  const quiet = report.quiet || {};
+  const monthRows = Array.isArray(report.byMonth) ? report.byMonth : [];
+  const weekdayRows = Array.isArray(report.byWeekday) ? report.byWeekday : [];
+  const timeRows = Array.isArray(report.byTime) ? report.byTime : [];
+  const peakName = peak.name || "—";
+  const quietName = quiet.name || "—";
+  return `
+    <section class="panel dashboard-card dashboard-time-report-card">
+      <div class="dashboard-card-head">
+        <div>
+          <h3>Цагийн тайлан</h3>
+          <p>${htmlSafe(report.periodLabel || "")} • slot capacity-тай харьцуулсан оргил ба сул цаг</p>
+        </div>
+        <strong>${Number(report.utilization || 0)}%</strong>
+      </div>
+      <div class="dashboard-time-summary">
+        <article><span>Нийт захиалсан slot</span><strong>${formatNumber(report.totalBookings || 0)}</strong><small>${formatNumber(report.totalCapacity || 0)} боломжит slot</small></article>
+        <article><span>Өдрийн оргил цаг</span><strong>${htmlSafe(peakName)}</strong><small>${Number(peak.utilization || 0)}% · ${formatNumber(peak.bookings || 0)}/${formatNumber(peak.capacity || 0)}</small></article>
+        <article><span>Хамгийн сул цаг</span><strong>${htmlSafe(quietName)}</strong><small>${Number(quiet.utilization || 0)}% · ${formatNumber(quiet.bookings || 0)}/${formatNumber(quiet.capacity || 0)}</small></article>
+      </div>
+      <div class="dashboard-time-report-grid">
+        <article>
+          <h4>Цагаар</h4>
+          <p>Тухайн хугацаанд цаг бүр хэдэн slot ашиглагдсаныг харуулна.</p>
+          ${dashboardSlotReportRows(timeRows)}
+        </article>
+        <article>
+          <h4>Гаригаар</h4>
+          <p>Ажлын болон амралтын өдрийн ачааллын ялгааг харна.</p>
+          ${dashboardSlotReportRows(weekdayRows)}
+        </article>
+        <article>
+          <h4>Сараар</h4>
+          <p>Сүүлийн саруудын slot ашиглалтын trend.</p>
+          ${dashboardSlotReportRows(monthRows)}
+        </article>
+      </div>
+    </section>`;
+}
+
 function dashboardDonutMarkup(items, total, valueKey = "share") {
   const sum = items.reduce((result, item) => result + Number(item[valueKey] || 0), 0) || 1;
   let offset = 0;
@@ -7191,6 +7253,7 @@ function renderDashboard() {
   const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
   const demographics = dashboardCustomerDemographics();
   const customerStats = dashboardDataCache?.summary?.customerStats || null;
+  const timeReport = dashboardDataCache?.summary?.timeReport || null;
   const activeCustomers = customerStats ? [] : sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
   const customerCount = customerStats ? Number(customerStats.count || 0) : activeCustomers.length;
   const activeGroupCount = customerStats ? Number(customerStats.activeGroups || 0) : sourceState.customerGroups.filter(group => (group.members || []).length > 0).length;
@@ -7300,6 +7363,8 @@ function renderDashboard() {
         </table>
       </div>
     </section>
+
+    ${dashboardTimeReportMarkup(timeReport)}
   `;
 }
 
@@ -7330,6 +7395,9 @@ function exportDashboardExcel() {
   const serviceRows = dashboardServiceRows(month, salon).filter(item => item.key !== "kass").map(item => [item.name, item.share, item.count]);
   const paymentRows = dashboardPaymentRows(month, salon).map(item => [item.name, item.share, item.amount]);
   const demographics = dashboardCustomerDemographics();
+  const timeReport = dashboardDataCache?.summary?.timeReport || null;
+  const timeReportExcelRows = section => (Array.isArray(timeReport?.[section]) ? timeReport[section] : [])
+    .map(item => [item.name, Number(item.bookings || 0), Number(item.capacity || 0), Number(item.utilization || 0)]);
   const customerCount = dashboardDataCache?.summary?.customerStats
     ? Number(dashboardDataCache.summary.customerStats.count || 0)
     : sourceState.customers.filter(item => !item.deleted && !item.deletedAt).length;
@@ -7351,6 +7419,15 @@ function exportDashboardExcel() {
         ...demographics.districts.flatMap(item => (item.khoroos || []).map(khoroo => ["Хороо", `${item.name} · ${khoroo.name}`, khoroo.value, khoroo.share]))
       ])}
       ${dashboardWorksheet("Ажилтны гүйцэтгэл", [["Ажилтан", "Үндсэн салбар", "Ажилласан салбар", "Оролт", "Орлого", "Үйлчилгээний урамшуулал", "Кассын урамшуулал", "Нийт урамшуулал"], ...staffRows.map(item => [item.name, item.homeSalon, item.workedSalon, item.visits, item.revenue, item.serviceReward, item.kassReward, item.totalReward])])}
+      ${dashboardWorksheet("Цагийн тайлан", [
+        ["Хэсэг", "Нэр", "Захиалсан slot", "Боломжит slot", "Ашиглалт %"],
+        ["Ерөнхий", "Нийт", Number(timeReport?.totalBookings || 0), Number(timeReport?.totalCapacity || 0), Number(timeReport?.utilization || 0)],
+        ["Оргил", timeReport?.peak?.name || "", Number(timeReport?.peak?.bookings || 0), Number(timeReport?.peak?.capacity || 0), Number(timeReport?.peak?.utilization || 0)],
+        ["Сул", timeReport?.quiet?.name || "", Number(timeReport?.quiet?.bookings || 0), Number(timeReport?.quiet?.capacity || 0), Number(timeReport?.quiet?.utilization || 0)],
+        ...timeReportExcelRows("byTime").map(row => ["Цагаар", ...row]),
+        ...timeReportExcelRows("byWeekday").map(row => ["Гаригаар", ...row]),
+        ...timeReportExcelRows("byMonth").map(row => ["Сараар", ...row])
+      ])}
     </Workbook>`;
   const blob = new Blob(["\ufeff", workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
   const url = URL.createObjectURL(blob);

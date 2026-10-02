@@ -15,6 +15,7 @@ test("dashboard loads a server read model before the optional staff detail sourc
   assert.match(app, /dashboardDataCache\?\.summary\?\.serviceRows/);
   assert.match(app, /dashboardDataCache\?\.summary\?\.paymentRows/);
   assert.match(app, /dashboardDataCache\?\.summary\?\.demographics/);
+  assert.match(app, /dashboardDataCache\?\.summary\?\.timeReport/);
   assert.match(app, /dashboardDistrictMarkup\(demographics\.districts\)/, "District demographics must render the top-khoroo layout.");
   assert.match(api, /'khoroos' => array_slice\(\$khorooRows, 0, 3\)/, "Dashboard summary must return only the top three khoroos per district.");
   assert.match(api, /\$districtRow\['featured'\] = \$districtIndex < 3/, "Dashboard summary must mark the three largest districts for khoroo expansion.");
@@ -36,6 +37,7 @@ test("dashboard summary returns aggregates instead of raw customer and booking a
   assert.match(api, /'serviceRows' => \$serviceRows/);
   assert.match(api, /'paymentRows' => \$paymentRows/);
   assert.match(api, /'customerStats' =>/);
+  assert.match(api, /'timeReport' => \$timeReport/);
   assert.match(api, /'operations' =>/);
   assert.match(api, /'system' =>/);
   assert.doesNotMatch(api, /'data'\s*=>\s*\$source/);
@@ -44,6 +46,21 @@ test("dashboard summary returns aggregates instead of raw customer and booking a
   assert.match(api, /\$includeOperationalData = !\$isDeleted && empty\(\$item\['deleted'\]\)/);
   assert.match(api, /foreach \(\$paymentRows as \$paymentRow\)/);
   assert.doesNotMatch(api, /if \(\$isDeleted\) \{[\s\S]{0,120}continue;/);
+});
+
+test("dashboard time report is aggregated server-side and rendered as the bottom card", () => {
+  assert.match(api, /function dashboard_build_time_report/);
+  assert.match(api, /dashboard_archive_booking_rows/);
+  assert.match(api, /salon_capacity_for_slot\(\$salon, \$dateText, \$slotTime\)/);
+  assert.match(api, /'byTime' => \$timeRows/);
+  assert.match(api, /'byWeekday' => \$weekdayRows/);
+  assert.match(api, /'byMonth' => \$monthRows/);
+  assert.match(api, /\['cancelled', 'rejected'\]/);
+  assert.match(app, /function dashboardTimeReportMarkup/);
+  assert.match(app, /<h3>Цагийн тайлан<\/h3>/);
+  assert.match(app, /\$\{dashboardTimeReportMarkup\(timeReport\)\}/, "Time report card must be appended at the bottom of the overview dashboard.");
+  assert.match(app, /dashboardWorksheet\("Цагийн тайлан"/, "Dashboard Excel export must include the time report sheet.");
+  assert.match(styles, /\.dashboard-time-report-card/);
 });
 
 test("performance statements sent to the browser contain only calculation fields", () => {

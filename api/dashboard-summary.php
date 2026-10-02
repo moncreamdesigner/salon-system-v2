@@ -205,6 +205,240 @@ function dashboard_total_capacity(array $salons, array $holidays, array $firstBo
     return $total;
 }
 
+function dashboard_time_empty_bucket(string $name): array
+{
+    return ['name' => $name, 'bookings' => 0, 'capacity' => 0, 'utilization' => 0];
+}
+
+function dashboard_time_bucket(array &$map, string $key, ?string $name = null): array
+{
+    if (!isset($map[$key])) $map[$key] = dashboard_time_empty_bucket($name ?? $key);
+    return $map[$key];
+}
+
+function dashboard_normalized_booking_time(mixed $value): string
+{
+    $clean = trim((string)$value);
+    if (preg_match('/^(\d{1,2}):(\d{2})/', $clean, $match) !== 1) return '';
+    $hour = max(0, min(23, (int)$match[1]));
+    $minute = max(0, min(59, (int)$match[2]));
+    return sprintf('%02d:%02d', $hour, $minute);
+}
+
+function dashboard_time_report_finalize(array $bucket): array
+{
+    $capacity = (int)($bucket['capacity'] ?? 0);
+    $bookings = (int)($bucket['bookings'] ?? 0);
+    $bucket['bookings'] = $bookings;
+    $bucket['capacity'] = $capacity;
+    $bucket['utilization'] = $capacity > 0 ? min(100, (int)round($bookings / $capacity * 100)) : 0;
+    return $bucket;
+}
+
+function dashboard_time_report_rows(array $map, ?array $order = null, int $limit = 0): array
+{
+    if ($order !== null) {
+        $rows = [];
+        foreach ($order as $key => $name) {
+            if (!isset($map[$key])) $map[$key] = dashboard_time_empty_bucket($name);
+            $rows[] = dashboard_time_report_finalize($map[$key]);
+        }
+    } else {
+        ksort($map, SORT_NATURAL);
+        $rows = array_map('dashboard_time_report_finalize', array_values($map));
+    }
+    if ($limit > 0) $rows = array_slice($rows, 0, $limit);
+    return $rows;
+}
+
+function dashboard_archive_booking_rows(string $fromDate, string $toDate, string $salon): array
+{
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fromDate) !== 1 || preg_match('/^\d{4}-\d{2}-\d{2}$/', $toDate) !== 1 || $fromDate > $toDate) return [];
+    $sql = 'SELECT booking_id, salon, booking_date AS date, booking_time AS time, status FROM app_booking_archive WHERE booking_date >= ? AND booking_date <= ?';
+    $params = [$fromDate, $toDate];
+    if ($salon !== '') {
+        $sql .= ' AND salon = ?';
+        $params[] = $salon;
+    }
+    $statement = db()->prepare($sql);
+    $statement->execute($params);
+    return array_values(array_filter($statement->fetchAll(), 'is_array'));
+}
+
+function dashboard_time_month_range(string $month, DateTimeImmutable $today): array
+{
+    $timezone = new DateTimeZone('Asia/Ulaanbaatar');
+    $start = new DateTimeImmutable($month . '-01', $timezone);
+    $end = $start->modify('last day of this month');
+    if ($end > $today) $end = $today;
+    return [$start, $end];
+}
+
+function dashboard_time_add_capacity(array &$byTime, array &$byWeekday, array &$byMonth, array $salons, array $holidays, DateTimeImmutable $start, DateTimeImmutable $end): void
+{
+    if ($start > $end) return;
+    $weekdayLabels = [0 => 'Ням', 1 => 'Даваа', 2 => 'Мягмар', 3 => 'Лхагва', 4 => 'Пүрэв', 5 => 'Баасан', 6 => 'Бямба'];
+    foreach ($salons as $salon) {
+        if (!is_array($salon)) continue;
+        $salonName = trim((string)($salon['name'] ?? ''));
+        for ($date = $start; $date <= $end; $date = $date->modify('+1 day')) {
+            $dateText = $date->format('Y-m-d');
+            $holidayHours = holiday_hours_for_date($holidays, $salonName, $dateText);
+            if ($holidayHours['closed']) continue;
+            $schedule = salon_schedule_for_date($salon, $dateText);
+            $duration = max(5, (int)($schedule['duration'] ?? 30));
+            $weekend = in_array((int)$date->format('w'), [0, 6], true);
+            $open = dashboard_minutes((string)($holidayHours['start'] ?? $schedule[$weekend ? 'weekendStart' : 'workStart'] ?? ($weekend ? '10:00' : '09:00')));
+            $close = dashboard_minutes((string)($holidayHours['end'] ?? $schedule[$weekend ? 'weekendEnd' : 'workEnd'] ?? '19:00'));
+            $latest = $close - 120;
+            if ($latest < $open) continue;
+            $weekday = (int)$date->format('w');
+            $month = $date->format('Y-m');
+            for ($slotMinutes = $open; $slotMinutes <= $latest; $slotMinutes += $duration) {
+                $slotTime = sprintf('%02d:%02d', intdiv($slotMinutes, 60), $slotMinutes % 60);
+                $capacity = salon_capacity_for_slot($salon, $dateText, $slotTime);
+                if ($capacity <= 0) continue;
+                $byTime[$slotTime] = dashboard_time_bucket($byTime, $slotTime);
+                $byTime[$slotTime]['capacity'] += $capacity;
+                $byWeekday[(string)$weekday] = dashboard_time_bucket($byWeekday, (string)$weekday, $weekdayLabels[$weekday]);
+                $byWeekday[(string)$weekday]['capacity'] += $capacity;
+                $byMonth[$month] = dashboard_time_bucket($byMonth, $month, dashboard_time_month_label($month));
+                $byMonth[$month]['capacity'] += $capacity;
+            }
+        }
+    }
+}
+
+function dashboard_time_month_label(string $month): string
+{
+    if (preg_match('/^(\d{4})-(\d{2})$/', $month, $match) !== 1) return $month;
+    return (int)$match[1] . ' оны ' . (int)$match[2] . ' сар';
+}
+
+function dashboard_build_time_report(array $currentBookings, array $salons, array $holidays, string $month, bool $isTotal, string $scopeSalon, DateTimeImmutable $today): array
+{
+    $timezone = new DateTimeZone('Asia/Ulaanbaatar');
+    $currentMonthStart = new DateTimeImmutable($month . '-01', $timezone);
+    $scopedSalons = array_values(array_filter($salons, static fn(array $salon): bool =>
+        $scopeSalon === '' || trim((string)($salon['name'] ?? '')) === $scopeSalon
+    ));
+    $months = [];
+    if ($isTotal) {
+        $firstMonth = $today->format('Y-m');
+        foreach ($currentBookings as $booking) {
+            if (!is_array($booking)) continue;
+            if ($scopeSalon !== '' && trim((string)($booking['salon'] ?? '')) !== $scopeSalon) continue;
+            $date = dashboard_event_date($booking);
+            $bookingMonth = dashboard_month($date);
+            if ($bookingMonth !== '' && $bookingMonth < $firstMonth) $firstMonth = $bookingMonth;
+        }
+        $archiveMinSql = 'SELECT MIN(booking_date) FROM app_booking_archive';
+        $archiveParams = [];
+        if ($scopeSalon !== '') {
+            $archiveMinSql .= ' WHERE salon = ?';
+            $archiveParams[] = $scopeSalon;
+        }
+        $archiveMinStatement = db()->prepare($archiveMinSql);
+        $archiveMinStatement->execute($archiveParams);
+        $archiveMin = dashboard_month((string)$archiveMinStatement->fetchColumn());
+        if ($archiveMin !== '' && $archiveMin < $firstMonth) $firstMonth = $archiveMin;
+        $cursor = new DateTimeImmutable($firstMonth . '-01', $timezone);
+        $lastMonth = new DateTimeImmutable($today->format('Y-m') . '-01', $timezone);
+        for (; $cursor <= $lastMonth; $cursor = $cursor->modify('+1 month')) $months[] = $cursor->format('Y-m');
+    } else {
+        for ($cursor = $currentMonthStart->modify('-5 months'); $cursor <= $currentMonthStart; $cursor = $cursor->modify('+1 month')) {
+            $months[] = $cursor->format('Y-m');
+        }
+    }
+
+    $rangeStartMonth = $months[0] ?? $month;
+    [$rangeStart, ] = dashboard_time_month_range($rangeStartMonth, $today);
+    [, $rangeEnd] = dashboard_time_month_range($months[count($months) - 1] ?? $month, $today);
+    $archiveBookings = dashboard_archive_booking_rows($rangeStart->format('Y-m-d'), $rangeEnd->format('Y-m-d'), $scopeSalon);
+    $bookings = [];
+    $seen = [];
+    foreach (array_merge($currentBookings, $archiveBookings) as $booking) {
+        if (!is_array($booking)) continue;
+        $date = dashboard_event_date($booking);
+        if ($date === '' || $date < $rangeStart->format('Y-m-d') || $date > $rangeEnd->format('Y-m-d')) continue;
+        $bookingSalon = trim((string)($booking['salon'] ?? ''));
+        if ($scopeSalon !== '' && $bookingSalon !== $scopeSalon) continue;
+        $identity = trim((string)($booking['id'] ?? $booking['booking_id'] ?? '')) ?: sha1($bookingSalon . '|' . $date . '|' . ($booking['time'] ?? '') . '|' . ($booking['phone'] ?? ''));
+        if (isset($seen[$identity])) continue;
+        $seen[$identity] = true;
+        $bookings[] = $booking + ['date' => $date, 'salon' => $bookingSalon];
+    }
+
+    $byTime = [];
+    $byWeekday = [];
+    $byMonth = [];
+    if ($isTotal) {
+        dashboard_time_add_capacity($byTime, $byWeekday, $byMonth, $scopedSalons, $holidays, $rangeStart, $rangeEnd);
+    } else {
+        [$periodStart, $periodEnd] = dashboard_time_month_range($month, $today);
+        dashboard_time_add_capacity($byTime, $byWeekday, $byMonth, $scopedSalons, $holidays, $periodStart, $periodEnd);
+        $byMonth = [];
+        $trendStart = $rangeStart;
+        $trendEnd = $rangeEnd;
+        $trendTime = [];
+        $trendWeekday = [];
+        dashboard_time_add_capacity($trendTime, $trendWeekday, $byMonth, $scopedSalons, $holidays, $trendStart, $trendEnd);
+    }
+
+    $periodStartText = $isTotal ? $rangeStart->format('Y-m-d') : ($month . '-01');
+    $periodEndText = $isTotal ? $rangeEnd->format('Y-m-d') : dashboard_time_month_range($month, $today)[1]->format('Y-m-d');
+    $weekdayLabels = [0 => 'Ням', 1 => 'Даваа', 2 => 'Мягмар', 3 => 'Лхагва', 4 => 'Пүрэв', 5 => 'Баасан', 6 => 'Бямба'];
+    foreach ($bookings as $booking) {
+        $date = (string)$booking['date'];
+        if ($date < $periodStartText || $date > $periodEndText) {
+            $forMonthOnly = false;
+        } else {
+            $forMonthOnly = true;
+        }
+        $status = (string)($booking['status'] ?? '');
+        if (in_array($status, ['cancelled', 'rejected'], true)) continue;
+        $time = dashboard_normalized_booking_time($booking['time'] ?? '');
+        if ($time === '') continue;
+        $dateObject = new DateTimeImmutable($date, $timezone);
+        $weekday = (int)$dateObject->format('w');
+        $bookingMonth = $dateObject->format('Y-m');
+        if ($forMonthOnly) {
+            $byTime[$time] = dashboard_time_bucket($byTime, $time);
+            $byTime[$time]['bookings']++;
+            $byWeekday[(string)$weekday] = dashboard_time_bucket($byWeekday, (string)$weekday, $weekdayLabels[$weekday]);
+            $byWeekday[(string)$weekday]['bookings']++;
+        }
+        $byMonth[$bookingMonth] = dashboard_time_bucket($byMonth, $bookingMonth, dashboard_time_month_label($bookingMonth));
+        $byMonth[$bookingMonth]['bookings']++;
+    }
+
+    $weekdayOrder = ['1' => 'Даваа', '2' => 'Мягмар', '3' => 'Лхагва', '4' => 'Пүрэв', '5' => 'Баасан', '6' => 'Бямба', '0' => 'Ням'];
+    $timeRows = dashboard_time_report_rows($byTime);
+    $weekdayRows = dashboard_time_report_rows($byWeekday, $weekdayOrder);
+    $monthRows = dashboard_time_report_rows($byMonth);
+    $peak = null;
+    $quiet = null;
+    foreach ($timeRows as $row) {
+        if ((int)$row['capacity'] <= 0) continue;
+        if ($peak === null || $row['utilization'] > $peak['utilization'] || ($row['utilization'] === $peak['utilization'] && $row['bookings'] > $peak['bookings'])) $peak = $row;
+        if ($quiet === null || $row['utilization'] < $quiet['utilization'] || ($row['utilization'] === $quiet['utilization'] && $row['bookings'] < $quiet['bookings'])) $quiet = $row;
+    }
+    $totalBookings = array_sum(array_map(static fn(array $row): int => (int)$row['bookings'], $timeRows));
+    $totalCapacity = array_sum(array_map(static fn(array $row): int => (int)$row['capacity'], $timeRows));
+    return [
+        'periodLabel' => $isTotal ? 'Нийт хугацаа' : dashboard_time_month_label($month),
+        'note' => 'Цуцалсан/татгалзсан цагийг хасаж, salon schedule болон slot capacity-тай харьцуулсан.',
+        'totalBookings' => $totalBookings,
+        'totalCapacity' => $totalCapacity,
+        'utilization' => $totalCapacity > 0 ? min(100, (int)round($totalBookings / $totalCapacity * 100)) : 0,
+        'peak' => $peak,
+        'quiet' => $quiet,
+        'byTime' => $timeRows,
+        'byWeekday' => $weekdayRows,
+        'byMonth' => $monthRows,
+    ];
+}
+
 $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Ulaanbaatar'));
 $requestedPeriod = trim((string)($_GET['month'] ?? ''));
 $isTotal = $requestedPeriod === 'all';
@@ -609,6 +843,8 @@ $demographics = [
     'districts' => $districtRows,
 ];
 
+$timeReport = dashboard_build_time_report((array)$source['bookings'], $allSalons, (array)$source['holidays'], $requestedMonth, $isTotal, $salon, $today);
+
 $months = array_keys($monthsFound);
 rsort($months);
 $summary = [
@@ -618,6 +854,7 @@ $summary = [
     'sourceTotals' => $sourceTotals,
     'topServices' => $topRows,
     'demographics' => $demographics,
+    'timeReport' => $timeReport,
     'customerStats' => [
         'count' => $activeCustomers, 'activeGroups' => $activeGroups,
         'activeCourses' => $activeCourses, 'bonusBalance' => $bonusBalance,
