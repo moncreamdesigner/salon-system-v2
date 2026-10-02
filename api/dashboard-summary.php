@@ -314,15 +314,27 @@ function dashboard_time_month_label(string $month): string
     return (int)$match[1] . ' оны ' . (int)$match[2] . ' сар';
 }
 
-function dashboard_build_time_report(array $currentBookings, array $salons, array $holidays, string $month, bool $isTotal, string $scopeSalon, DateTimeImmutable $today): array
+function dashboard_date_range_label(DateTimeImmutable $start, DateTimeImmutable $end): string
+{
+    return $start->format('Y-m-d') . ' – ' . $end->format('Y-m-d');
+}
+
+function dashboard_build_time_report(array $currentBookings, array $salons, array $holidays, string $month, bool $isTotal, string $scopeSalon, DateTimeImmutable $today, ?DateTimeImmutable $customStart = null, ?DateTimeImmutable $customEnd = null): array
 {
     $timezone = new DateTimeZone('Asia/Ulaanbaatar');
     $currentMonthStart = new DateTimeImmutable($month . '-01', $timezone);
     $scopedSalons = array_values(array_filter($salons, static fn(array $salon): bool =>
         $scopeSalon === '' || trim((string)($salon['name'] ?? '')) === $scopeSalon
     ));
+    $hasCustomRange = $customStart !== null && $customEnd !== null && $customStart <= $customEnd;
     $months = [];
-    if ($isTotal) {
+    if ($hasCustomRange) {
+        $rangeStart = $customStart;
+        $rangeEnd = $customEnd;
+        $cursor = new DateTimeImmutable($rangeStart->format('Y-m') . '-01', $timezone);
+        $lastMonth = new DateTimeImmutable($rangeEnd->format('Y-m') . '-01', $timezone);
+        for (; $cursor <= $lastMonth; $cursor = $cursor->modify('+1 month')) $months[] = $cursor->format('Y-m');
+    } elseif ($isTotal) {
         $firstMonth = $today->format('Y-m');
         foreach ($currentBookings as $booking) {
             if (!is_array($booking)) continue;
@@ -350,9 +362,11 @@ function dashboard_build_time_report(array $currentBookings, array $salons, arra
         }
     }
 
-    $rangeStartMonth = $months[0] ?? $month;
-    [$rangeStart, ] = dashboard_time_month_range($rangeStartMonth, $today);
-    [, $rangeEnd] = dashboard_time_month_range($months[count($months) - 1] ?? $month, $today);
+    if (!$hasCustomRange) {
+        $rangeStartMonth = $months[0] ?? $month;
+        [$rangeStart, ] = dashboard_time_month_range($rangeStartMonth, $today);
+        [, $rangeEnd] = dashboard_time_month_range($months[count($months) - 1] ?? $month, $today);
+    }
     $archiveBookings = dashboard_archive_booking_rows($rangeStart->format('Y-m-d'), $rangeEnd->format('Y-m-d'), $scopeSalon);
     $bookings = [];
     $seen = [];
@@ -371,7 +385,9 @@ function dashboard_build_time_report(array $currentBookings, array $salons, arra
     $byTime = [];
     $byWeekday = [];
     $byMonth = [];
-    if ($isTotal) {
+    if ($hasCustomRange) {
+        dashboard_time_add_capacity($byTime, $byWeekday, $byMonth, $scopedSalons, $holidays, $rangeStart, $rangeEnd);
+    } elseif ($isTotal) {
         dashboard_time_add_capacity($byTime, $byWeekday, $byMonth, $scopedSalons, $holidays, $rangeStart, $rangeEnd);
     } else {
         [$periodStart, $periodEnd] = dashboard_time_month_range($month, $today);
@@ -384,8 +400,8 @@ function dashboard_build_time_report(array $currentBookings, array $salons, arra
         dashboard_time_add_capacity($trendTime, $trendWeekday, $byMonth, $scopedSalons, $holidays, $trendStart, $trendEnd);
     }
 
-    $periodStartText = $isTotal ? $rangeStart->format('Y-m-d') : ($month . '-01');
-    $periodEndText = $isTotal ? $rangeEnd->format('Y-m-d') : dashboard_time_month_range($month, $today)[1]->format('Y-m-d');
+    $periodStartText = ($hasCustomRange || $isTotal) ? $rangeStart->format('Y-m-d') : ($month . '-01');
+    $periodEndText = ($hasCustomRange || $isTotal) ? $rangeEnd->format('Y-m-d') : dashboard_time_month_range($month, $today)[1]->format('Y-m-d');
     $weekdayLabels = [0 => 'Ням', 1 => 'Даваа', 2 => 'Мягмар', 3 => 'Лхагва', 4 => 'Пүрэв', 5 => 'Баасан', 6 => 'Бямба'];
     foreach ($bookings as $booking) {
         $date = (string)$booking['date'];
@@ -425,7 +441,7 @@ function dashboard_build_time_report(array $currentBookings, array $salons, arra
     $totalBookings = array_sum(array_map(static fn(array $row): int => (int)$row['bookings'], $timeRows));
     $totalCapacity = array_sum(array_map(static fn(array $row): int => (int)$row['capacity'], $timeRows));
     return [
-        'periodLabel' => $isTotal ? 'Нийт хугацаа' : dashboard_time_month_label($month),
+        'periodLabel' => $hasCustomRange ? dashboard_date_range_label($rangeStart, $rangeEnd) : ($isTotal ? 'Нийт хугацаа' : dashboard_time_month_label($month)),
         'note' => 'Цуцалсан/татгалзсан цагийг хасаж, salon schedule болон slot capacity-тай харьцуулсан.',
         'totalBookings' => $totalBookings,
         'totalCapacity' => $totalCapacity,
@@ -444,6 +460,14 @@ $isTotal = $requestedPeriod === 'all';
 $requestedMonth = preg_match('/^\d{4}-\d{2}$/', $requestedPeriod) === 1
     ? $requestedPeriod
     : $today->format('Y-m');
+$requestedFrom = dashboard_date((string)($_GET['from'] ?? ''));
+$requestedTo = dashboard_date((string)($_GET['to'] ?? ''));
+$customStart = null;
+$customEnd = null;
+if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedFrom) === 1 && preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedTo) === 1 && $requestedFrom <= $requestedTo) {
+    $customStart = new DateTimeImmutable($requestedFrom, new DateTimeZone('Asia/Ulaanbaatar'));
+    $customEnd = new DateTimeImmutable($requestedTo, new DateTimeZone('Asia/Ulaanbaatar'));
+}
 $requestedSalon = trim((string)($_GET['salon'] ?? ''));
 $salon = ($user['role'] ?? '') === 'salon' ? trim((string)($user['salon'] ?? '')) : $requestedSalon;
 $monthStart = new DateTimeImmutable($requestedMonth . '-01', new DateTimeZone('Asia/Ulaanbaatar'));
@@ -842,7 +866,7 @@ $demographics = [
     'districts' => $districtRows,
 ];
 
-$timeReport = dashboard_build_time_report((array)$source['bookings'], $allSalons, (array)$source['holidays'], $requestedMonth, $isTotal, $salon, $today);
+$timeReport = dashboard_build_time_report((array)$source['bookings'], $allSalons, (array)$source['holidays'], $requestedMonth, $isTotal, $salon, $today, $customStart, $customEnd);
 
 $months = array_keys($monthsFound);
 rsort($months);

@@ -2496,13 +2496,14 @@ async function refreshServerStateForView(viewName = activeView) {
         }
       }
       if (viewName === "dashboard" && dashboardDataCache?.source) {
-        const dashboardSections = ["customers", "bookings", "services", "kassSchedules", "staff", "assignments", "salons", "pricePolicy", "voucherRoles", "voucherLogs", "performanceStatements", "performanceAdjustments"];
+        const dashboardSections = DASHBOARD_SUMMARY_SECTIONS;
         const dashboardRevisionResult = await serverApi(`revision.php?sections=${encodeURIComponent(dashboardSections.join(","))}`);
         const remoteRevisions = dashboardRevisionResult.sectionRevisions || {};
         const dashboardChanged = dashboardSections.some(key => Number(remoteRevisions[key] || 0) !== Number(dashboardDataCache.revisions?.[key] || 0));
         if (!dashboardChanged) return changed;
         dashboardDataCache = null;
-        await loadDashboardAnalyticsSource(document.getElementById("dashboardMonth")?.value || monthText(todayText()), dashboardSelectedSalon());
+        const dashboardRange = dashboardDateRange();
+        await loadDashboardAnalyticsSource(document.getElementById("dashboardMonth")?.value || monthText(todayText()), dashboardSelectedSalon(), dashboardRange.from, dashboardRange.to);
         return true;
       }
       if (viewName === "performance" && performanceAnalyticsSource) {
@@ -6353,14 +6354,24 @@ function dashboardMonthMeta(key) {
   };
 }
 
-function dashboardAnalyticsKey(month, salon) {
-  return `${month}|${salon || "all"}`;
+const DASHBOARD_SUMMARY_SECTIONS = ["customers", "customerGroups", "bookings", "holidays", "staff", "assignments", "salons"];
+
+function dashboardDateRange() {
+  const from = document.getElementById("dashboardFromDate")?.value || "";
+  const to = document.getElementById("dashboardToDate")?.value || "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to
+    ? { from, to }
+    : { from: "", to: "" };
 }
 
-async function loadDashboardAnalyticsSource(month = monthText(todayText()), salon = "") {
+function dashboardAnalyticsKey(month, salon, from = "", to = "") {
+  return `${month}|${salon || "all"}|${from || ""}|${to || ""}`;
+}
+
+async function loadDashboardAnalyticsSource(month = monthText(todayText()), salon = "", from = "", to = "") {
   if (IS_LOCAL_RUNTIME) return;
   const effectiveSalon = isSalonAccount() ? activeAccount.salon : salon;
-  const requestKey = dashboardAnalyticsKey(month, effectiveSalon);
+  const requestKey = dashboardAnalyticsKey(month, effectiveSalon, from, to);
   if (dashboardDataCache?.key === requestKey || dashboardAnalyticsLoadingKey === requestKey) return;
   const requestSequence = ++dashboardAnalyticsRequestSequence;
   dashboardAnalyticsLoadingKey = requestKey;
@@ -6368,6 +6379,10 @@ async function loadDashboardAnalyticsSource(month = monthText(todayText()), salo
   try {
     const params = new URLSearchParams({ month });
     if (effectiveSalon) params.set("salon", effectiveSalon);
+    if (from && to) {
+      params.set("from", from);
+      params.set("to", to);
+    }
     let result;
     let usedLegacySource = false;
     try {
@@ -6789,10 +6804,11 @@ function dashboardTimeReportMarkup(report) {
         <strong>${Number(report.utilization || 0)}%</strong>
       </div>
       <div class="dashboard-time-summary">
-        <article><span>Нийт захиалсан slot</span><strong>${formatNumber(report.totalBookings || 0)}</strong><small>${formatNumber(report.totalCapacity || 0)} боломжит slot</small></article>
+        <article><span>Захиалсан цаг</span><strong>${formatNumber(report.totalBookings || 0)}</strong><small>${formatNumber(report.totalCapacity || 0)} авах боломжтой цаг</small></article>
         <article><span>Өдрийн оргил цаг</span><strong>${htmlSafe(peakName)}</strong><small>${Number(peak.utilization || 0)}% · ${formatNumber(peak.bookings || 0)}/${formatNumber(peak.capacity || 0)}</small></article>
         <article><span>Хамгийн сул цаг</span><strong>${htmlSafe(quietName)}</strong><small>${Number(quiet.utilization || 0)}% · ${formatNumber(quiet.bookings || 0)}/${formatNumber(quiet.capacity || 0)}</small></article>
       </div>
+      <p class="dashboard-time-note">Авах боломжтой цагийг салбарын цагийн хуваарь, нэг цагт авах хүний тоо, цайны цаг болон амралтын өдрийн тохиргоогоор тооцсон.</p>
       <div class="dashboard-time-report-grid">
         <article>
           <h4>Цагаар</h4>
@@ -6811,6 +6827,12 @@ function dashboardTimeReportMarkup(report) {
         </article>
       </div>
     </section>`;
+}
+
+function dashboardTimeReportPageHtml(report) {
+  return report
+    ? dashboardTimeReportMarkup(report)
+    : `<section class="panel dashboard-card"><div class="empty-state">Цагийн тайлан ачаалж байна…</div></section>`;
 }
 
 function dashboardDonutMarkup(items, total, valueKey = "share") {
@@ -6952,6 +6974,7 @@ function dashboardStaffRows(month, salon) {
 
 const dashboardViewModes = [
   { value: "overview", label: "Ерөнхий тойм" },
+  { value: "time", label: "Цагийн тайлан" },
   { value: "operations", label: "Өдрийн ажиллагаа" },
   { value: "cashflow", label: "Мөнгөн урсгал" },
   { value: "system", label: "Системийн хяналт" }
@@ -6959,11 +6982,11 @@ const dashboardViewModes = [
 
 function dashboardAllowedViewModes() {
   const permissions = {
-    admin: ["overview", "operations", "cashflow", "system"],
-    manager: ["overview", "operations"],
-    salon: ["operations"],
-    finance: ["overview", "cashflow"],
-    director: ["overview", "cashflow"]
+    admin: ["overview", "time", "operations", "cashflow", "system"],
+    manager: ["overview", "time", "operations"],
+    salon: ["time", "operations"],
+    finance: ["overview", "time", "cashflow"],
+    director: ["overview", "time", "cashflow"]
   };
   const allowed = permissions[activeAccount.role] || ["overview"];
   return dashboardViewModes.filter(item => allowed.includes(item.value));
@@ -7176,8 +7199,9 @@ function renderDashboard() {
   if (!document.getElementById("dashboardView")?.isConnected) return;
   const requestedMonth = document.getElementById("dashboardMonth")?.value || monthText(todayText());
   const requestedSalon = isSalonAccount() ? activeAccount.salon : (document.getElementById("dashboardSalon")?.value || "");
-  if (!IS_LOCAL_RUNTIME && dashboardDataCache?.key !== dashboardAnalyticsKey(requestedMonth, requestedSalon)) {
-    void loadDashboardAnalyticsSource(requestedMonth, requestedSalon);
+  const requestedRange = dashboardDateRange();
+  if (!IS_LOCAL_RUNTIME && dashboardDataCache?.key !== dashboardAnalyticsKey(requestedMonth, requestedSalon, requestedRange.from, requestedRange.to)) {
+    void loadDashboardAnalyticsSource(requestedMonth, requestedSalon, requestedRange.from, requestedRange.to);
     return;
   }
   const sourceState = dashboardDataCache?.source || state;
@@ -7198,7 +7222,9 @@ function renderDashboard() {
   const modeSelect = document.getElementById("dashboardViewMode");
   const monthSelect = document.getElementById("dashboardMonth");
   const salonSelect = document.getElementById("dashboardSalon");
-  if (!content || !modeSelect || !monthSelect || !salonSelect) return;
+  const fromInput = document.getElementById("dashboardFromDate");
+  const toInput = document.getElementById("dashboardToDate");
+  if (!content || !modeSelect || !monthSelect || !salonSelect || !fromInput || !toInput) return;
 
   const previousMode = modeSelect.value;
   const allowedModes = dashboardAllowedViewModes();
@@ -7242,6 +7268,10 @@ function renderDashboard() {
     content.innerHTML = dashboardSystemHtml(month, salon);
     return;
   }
+  if (viewMode === "time") {
+    content.innerHTML = dashboardTimeReportPageHtml(dashboardDataCache?.summary?.timeReport || null);
+    return;
+  }
 
   const branchRows = dashboardRowsForBranches(month);
   const serviceRows = dashboardServiceRows(month, salon)
@@ -7253,7 +7283,6 @@ function renderDashboard() {
   const trendMonths = dashboardDemoData.months.slice(Math.max(0, monthIndex - 5), monthIndex + 1).map(item => ({ ...item, value: dashboardSnapshot(item, salon).revenue }));
   const demographics = dashboardCustomerDemographics();
   const customerStats = dashboardDataCache?.summary?.customerStats || null;
-  const timeReport = dashboardDataCache?.summary?.timeReport || null;
   const activeCustomers = customerStats ? [] : sourceState.customers.filter(item => !item.deleted && !item.deletedAt);
   const customerCount = customerStats ? Number(customerStats.count || 0) : activeCustomers.length;
   const activeGroupCount = customerStats ? Number(customerStats.activeGroups || 0) : sourceState.customerGroups.filter(group => (group.members || []).length > 0).length;
@@ -7363,8 +7392,6 @@ function renderDashboard() {
         </table>
       </div>
     </section>
-
-    ${dashboardTimeReportMarkup(timeReport)}
   `;
 }
 
@@ -19458,7 +19485,7 @@ function bindEvents() {
     }
   });
   document.getElementById("databaseClearOperationalData")?.addEventListener("click", clearOperationalDatabase);
-  ["dashboardViewMode", "dashboardMonth", "dashboardSalon"].forEach(id => {
+  ["dashboardViewMode", "dashboardMonth", "dashboardSalon", "dashboardFromDate", "dashboardToDate"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => {
       renderDashboard();
       renderInfoHeader("dashboard");

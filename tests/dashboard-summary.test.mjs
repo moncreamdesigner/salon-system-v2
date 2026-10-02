@@ -6,6 +6,7 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const api = fs.readFileSync(new URL("../api/dashboard-summary.php", import.meta.url), "utf8");
 const analytics = fs.readFileSync(new URL("../api/analytics-source.php", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
 test("dashboard loads a server read model before the optional staff detail source", () => {
   assert.match(app, /serverApi\(`dashboard-summary\.php\?\$\{params\.toString\(\)\}`\)/);
@@ -48,7 +49,7 @@ test("dashboard summary returns aggregates instead of raw customer and booking a
   assert.doesNotMatch(api, /if \(\$isDeleted\) \{[\s\S]{0,120}continue;/);
 });
 
-test("dashboard time report is aggregated server-side and rendered as the bottom card", () => {
+test("dashboard time report is aggregated server-side and rendered as a separate view", () => {
   assert.match(api, /function dashboard_build_time_report/);
   assert.match(api, /dashboard_archive_booking_rows/);
   assert.match(api, /salon_capacity_for_slot\(\$salon, \$dateText, \$slotTime\)/);
@@ -59,9 +60,21 @@ test("dashboard time report is aggregated server-side and rendered as the bottom
   assert.doesNotMatch(api, /function dashboard_time_month_range[\s\S]*if \(\$end > \$today\) \$end = \$today;/, "Time report capacity must cover the full selected month so every weekday remains visible.");
   assert.match(app, /function dashboardTimeReportMarkup/);
   assert.match(app, /<h3>Цагийн тайлан<\/h3>/);
-  assert.match(app, /\$\{dashboardTimeReportMarkup\(timeReport\)\}/, "Time report card must be appended at the bottom of the overview dashboard.");
+  assert.match(app, /\{ value: "time", label: "Цагийн тайлан" \}/, "Time report must be available as a separate dashboard view.");
+  assert.match(app, /if \(viewMode === "time"\)/);
+  assert.doesNotMatch(app, /\$\{dashboardTimeReportMarkup\(timeReport\)\}/, "Time report must not remain appended to the overview dashboard.");
+  assert.match(html, /id="dashboardFromDate"/);
+  assert.match(html, /id="dashboardToDate"/);
+  assert.match(api, /\$_GET\['from'\]/);
+  assert.match(api, /\$_GET\['to'\]/);
   assert.match(app, /dashboardWorksheet\("Цагийн тайлан"/, "Dashboard Excel export must include the time report sheet.");
   assert.match(styles, /\.dashboard-time-report-card/);
+});
+
+test("dashboard auto refresh compares the same sections returned by the summary", () => {
+  assert.match(app, /const DASHBOARD_SUMMARY_SECTIONS = \["customers", "customerGroups", "bookings", "holidays", "staff", "assignments", "salons"\]/);
+  assert.match(app, /const dashboardSections = DASHBOARD_SUMMARY_SECTIONS/);
+  assert.match(api, /\$keys = \['customers', 'customerGroups', 'bookings', 'holidays', 'staff', 'assignments', 'salons'\]/);
 });
 
 test("performance statements sent to the browser contain only calculation fields", () => {
