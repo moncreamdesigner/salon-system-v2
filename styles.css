@@ -5878,13 +5878,13 @@ tr:last-child td {
 }
 
 .dashboard-filter-fields {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-wrap: wrap;
 }
 
 .dashboard-filter-fields label {
-  width: min(220px, 22vw);
-  min-width: 180px;
+  width: 210px;
+  min-width: 150px;
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -5927,7 +5927,7 @@ tr:last-child td {
 
 .dashboard-filter-actions {
   flex: 0 0 auto;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .dashboard-scope-note {

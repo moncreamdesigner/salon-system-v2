@@ -72,7 +72,7 @@ test("dashboard time report is aggregated server-side and rendered as a separate
   assert.match(html, /id="dashboardFromDate"/);
   assert.match(html, /id="dashboardToDate"/);
   assert.match(html, /dashboard-scope-note hidden/);
-  assert.match(styles, /\.dashboard-filter-fields\s*\{[^}]*flex:\s*1 1 auto;[^}]*flex-wrap:\s*wrap;/s);
+  assert.match(styles, /\.dashboard-filter-fields\s*\{[^}]*flex:\s*0 1 auto;[^}]*flex-wrap:\s*wrap;/s);
   assert.match(styles, /\.dashboard-filter-actions\s*\{[^}]*flex:\s*0 0 auto;/s);
   assert.match(api, /\$_GET\['from'\]/);
   assert.match(api, /\$_GET\['to'\]/);
