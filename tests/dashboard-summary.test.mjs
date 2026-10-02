@@ -78,6 +78,10 @@ test("dashboard time report is aggregated server-side and rendered as a separate
   assert.match(api, /\$_GET\['to'\]/);
   assert.match(app, /dashboardWorksheet\("Цагийн тайлан"/, "Dashboard Excel export must include the time report sheet.");
   assert.match(styles, /\.dashboard-time-report-card/);
+  assert.match(styles, /\.dashboard-card-head h3\s*\{[^}]*font-size:\s*15px;/s);
+  assert.match(styles, /\.dashboard-time-summary strong\s*\{[^}]*font-size:\s*22px;/s);
+  assert.match(styles, /\.dashboard-time-row-meta\s*\{[^}]*font-size:\s*12px;/s);
+  assert.match(styles, /\.dashboard-progress-track\s*\{[^}]*height:\s*10px;/s);
 });
 
 test("dashboard auto refresh compares the same sections returned by the summary", () => {
