@@ -5863,11 +5863,10 @@ tr:last-child td {
   min-height: 76px;
   margin-bottom: 12px;
   display: flex;
-  align-items: end;
+  align-items: flex-start;
   justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
-  padding-bottom: 0;
 }
 
 .dashboard-filter-fields,
