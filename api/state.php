@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/customer-mutations.php';
 require_once __DIR__ . '/customer-entity-store.php';
+require_once __DIR__ . '/performance-integrity.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -800,6 +801,9 @@ try {
     }
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
+    if (is_array($sections['performanceStatements'] ?? null)) {
+        $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);
+    }
     assert_branch_customer_type_permissions($currentSections, $sections, $user);
     if ($clientSectionRevisions === null) {
         // Old browser tabs do not know section revisions. Preserve existing

@@ -10360,6 +10360,25 @@ function performancePaymentEligible(payment = {}, cashierPolicy = {}) {
   return Boolean(roleId && (cashierPolicy.voucherRoleIds || []).map(String).includes(roleId));
 }
 
+function performanceTransactionIdentity(item) {
+  // Names and labels can be edited. The original event identifies a payout.
+  // Rows without an event ID are kept: guessing could hide legitimate work.
+  if (!item || !String(item.id || "").trim()) return "";
+  return JSON.stringify([String(item.id), String(item.type || ""), String(item.staffId || item.staff || ""), String(item.salon || "")]);
+}
+
+function dedupePerformanceTransactions(transactions) {
+  const seen = new Set();
+  return (Array.isArray(transactions) ? transactions : []).filter(item => {
+    if (!item || typeof item !== "object") return false;
+    const key = performanceTransactionIdentity(item);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function calculatePerformanceTransactions({ policyOverride = null, sourceState = null } = {}) {
   sourceState ||= activeView === "performance" && performanceAnalyticsSource ? performanceAnalyticsSource : state;
   const scopedSource = sourceState !== state;
@@ -10600,10 +10619,11 @@ function calculatePerformanceTransactions({ policyOverride = null, sourceState =
     });
   });
   performanceCalculationSource = previousCalculationSource;
+  const uniqueTransactions = dedupePerformanceTransactions(transactions);
   if (!policyOverride && !scopedSource) {
-    performanceRawTransactionsCache = { version: performanceDataVersion, items: transactions };
+    performanceRawTransactionsCache = { version: performanceDataVersion, items: uniqueTransactions };
   }
-  return transactions;
+  return uniqueTransactions;
 }
 
 function performanceTransactionsForSource(sourceState) {
@@ -10618,7 +10638,7 @@ function performanceTransactionsForSource(sourceState) {
   if (!statements.size) return calculated;
   const result = calculated.filter(item => !statements.has(performanceStatementScopeKey(String(item.date || "").slice(0, 7), item.salon)));
   statements.forEach(statement => {
-    (Array.isArray(statement.transactions) ? statement.transactions : []).forEach(item => result.push(structuredClone(item)));
+    dedupePerformanceTransactions(statement.transactions).forEach(item => result.push(structuredClone(item)));
   });
   return result;
 }
@@ -10656,7 +10676,7 @@ function performanceTransactions({ ignoreStatements = false, policyOverride = nu
   }
   const live = calculated.filter(item => !statements.has(performanceStatementScopeKey(String(item.date || "").slice(0, 7), item.salon)));
   statements.forEach(statement => {
-    (Array.isArray(statement.transactions) ? statement.transactions : []).forEach(item => live.push(structuredClone(item)));
+    dedupePerformanceTransactions(statement.transactions).forEach(item => live.push(structuredClone(item)));
   });
   performanceTransactionsCache = { version: performanceDataVersion, items: live };
   return live;
@@ -10716,6 +10736,7 @@ function archivePerformanceStatement(statement, reason) {
 }
 
 function upsertPerformanceStatement({ month, salon, status, transactions, policy, reason = "", actor: actorOverride = "" }) {
+  const uniqueTransactions = dedupePerformanceTransactions(transactions);
   const existing = performanceStatementFor(month, salon);
   if (existing) archivePerformanceStatement(existing, reason || "Шинэ хувилбараар сольсон");
   const now = new Date().toISOString();
@@ -10726,9 +10747,9 @@ function upsertPerformanceStatement({ month, salon, status, transactions, policy
     salon,
     status,
     policyVersion: Number(policy?.version || currentPerformancePolicy().version || 1),
-    transactions: structuredClone(transactions || []),
-    totalRevenue: Math.round((transactions || []).reduce((sum, item) => sum + Number(item.revenue || 0), 0)),
-    totalCommission: Math.round((transactions || []).reduce((sum, item) => sum + Number(item.commission || 0), 0)),
+    transactions: structuredClone(uniqueTransactions),
+    totalRevenue: Math.round(uniqueTransactions.reduce((sum, item) => sum + Number(item.revenue || 0), 0)),
+    totalCommission: Math.round(uniqueTransactions.reduce((sum, item) => sum + Number(item.commission || 0), 0)),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     updatedBy: actor,
