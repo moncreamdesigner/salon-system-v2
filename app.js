@@ -8888,6 +8888,27 @@ function serviceDateKey(value) {
   return `${year}-${String(first).padStart(2, "0")}-${String(second).padStart(2, "0")}`;
 }
 
+function serviceHistorySortKey(item = {}) {
+  return serviceDateKey(item.date || item.createdAt || item.registeredAt || "");
+}
+
+function orderedServiceHistoryEntries(customer = {}) {
+  const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
+  return history
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const dateOrder = serviceHistorySortKey(right.item).localeCompare(serviceHistorySortKey(left.item));
+      if (dateOrder) return dateOrder;
+      const registeredOrder = String(right.item.registeredAt || right.item.createdAt || "").localeCompare(String(left.item.registeredAt || left.item.createdAt || ""));
+      if (registeredOrder) return registeredOrder;
+      return left.index - right.index;
+    });
+}
+
+function latestServiceHistoryItem(customer = {}) {
+  return orderedServiceHistoryEntries(customer)[0]?.item || null;
+}
+
 function todaySalonTreatment(customer, salon = activeAccount.salon) {
   const today = todayText();
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
@@ -9992,7 +10013,7 @@ function renderPendingDiagnosisWorkForm(item, historyIndex) {
 function renderCustomerServiceHistory(customer) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   if (!history.length) return `<div class="empty-state">Үйлчилгээний түүх алга</div>`;
-  return history.map((item, index) => {
+  return orderedServiceHistoryEntries(customer).map(({ item, index }) => {
     const isCourse = item.kind === "course";
     const isKass = item.kind === "kass" || item.kind === "product";
     const isDiagnosis = item.kind === "diagnosis";
@@ -14555,7 +14576,8 @@ async function deleteCustomerHistoryItem(customerId, historyIndex) {
   const remainingCourse = customerCourseEntryStatus(customer);
   customer.activeCourse = remainingCourse?.kind === "course";
   customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
-  customer.currentTreatment = customer.serviceHistory[0] ? currentTreatmentFromHistory(customer, customer.serviceHistory[0], customer.serviceHistory[0].kind === "course" ? customer.course || "Курс" : "Нэг удаа") : null;
+  const latestHistoryItem = latestServiceHistoryItem(customer);
+  customer.currentTreatment = latestHistoryItem ? currentTreatmentFromHistory(customer, latestHistoryItem, latestHistoryItem.kind === "course" ? customer.course || "Курс" : "Нэг удаа") : null;
   customer.unpaid = customerBalance(customer) > 0;
   state.audit.unshift({
     id: entityId("audit"),
