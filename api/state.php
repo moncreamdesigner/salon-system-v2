@@ -331,7 +331,28 @@ function scope_sections_for_user(array $data, array $user): array
 {
     if (($user['role'] ?? '') !== 'salon') return $data;
     $salon = (string)($user['salon'] ?? '');
-    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'staff', 'voucherLogs', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
+    // Keep incoming staff records so the destination can select them on the
+    // assignment date. Historical assignments remain available for corrections;
+    // the client checks the selected date and active status before selection.
+    if (is_array($data['staff'] ?? null)) {
+        $incomingStaffIds = [];
+        $incomingStaffNames = [];
+        foreach ((array)($data['assignments'] ?? []) as $assignment) {
+            if (!is_array($assignment) || ($assignment['to'] ?? '') !== $salon) continue;
+            if (trim((string)($assignment['staffId'] ?? '')) !== '') {
+                $incomingStaffIds[(string)$assignment['staffId']] = true;
+            } elseif (trim((string)($assignment['staff'] ?? '')) !== '') {
+                $incomingStaffNames[(string)$assignment['staff']] = true;
+            }
+        }
+        $data['staff'] = array_values(array_filter($data['staff'], static function ($staff) use ($salon, $incomingStaffIds, $incomingStaffNames): bool {
+            if (!is_array($staff)) return false;
+            return ($staff['salon'] ?? '') === $salon
+                || isset($incomingStaffIds[(string)($staff['id'] ?? '')])
+                || isset($incomingStaffNames[(string)($staff['name'] ?? '')]);
+        }));
+    }
+    foreach (['bookings', 'kassSchedules', 'services', 'holidays', 'assignments', 'voucherLogs', 'performanceStatements', 'performanceStatementHistory', 'performanceAdjustments'] as $section) {
         if (!is_array($data[$section] ?? null)) continue;
         $data[$section] = array_values(array_filter($data[$section], static fn($item): bool =>
             is_array($item) && item_belongs_to_salon($item, $salon, $section)
@@ -613,7 +634,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $revision = (int)$pdo->query("SELECT meta_value FROM app_meta WHERE meta_key = 'revision'")->fetchColumn();
     $requestedSections = array_values(array_filter(array_map('trim', explode(',', (string)($_GET['sections'] ?? ''))), static fn(string $key): bool => preg_match('/^[A-Za-z0-9_:-]{1,80}$/', $key) === 1));
     assert_sections_readable_by_user($requestedSections, $user);
-    $data = scope_sections_for_user(load_all_sections($pdo, $requestedSections), $user);
+    $loadSections = $requestedSections;
+    $assignmentDependency = ($user['role'] ?? '') === 'salon'
+        && in_array('staff', $requestedSections, true)
+        && !in_array('assignments', $requestedSections, true);
+    if ($assignmentDependency) $loadSections[] = 'assignments';
+    $data = scope_sections_for_user(load_all_sections($pdo, $loadSections), $user);
+    if ($assignmentDependency) unset($data['assignments']);
     json_response([
         'ok' => true,
         'revision' => $revision,

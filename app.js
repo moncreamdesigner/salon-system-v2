@@ -2305,7 +2305,7 @@ function showServerLogin(message = "Системд нэвтэрнэ үү") {
 const VIEW_SERVER_SECTIONS = {
   bookings: ["salons", "holidays"],
   customers: ["customerGroups", "salons", "customerTypes", "customerTypeRules", "generalSettings"],
-  profile: ["giftCards", "voucherRoles", "voucherLogs", "services", "staff", "salons", "pricePolicy", "discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings"],
+  profile: ["giftCards", "voucherRoles", "voucherLogs", "services", "staff", "assignments", "salons", "pricePolicy", "discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings"],
   kass: ["kassSchedules", "staff", "assignments", "salons", "generalSettings"],
   performance: ["salons", "generalSettings"],
   vouchers: ["voucherRoles"],

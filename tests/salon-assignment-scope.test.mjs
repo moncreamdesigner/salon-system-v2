@@ -44,3 +44,26 @@ test("destination salon can view an assignment but only the home salon can manag
   assert.equal(assignmentContext.assignmentIsVisibleToAccount(outgoing), true);
   assert.equal(assignmentContext.assignmentCanBeManaged(outgoing), true);
 });
+
+test("profile requests assignments and staff-only requests load the scope dependency", () => {
+  assert.match(appSource, /profile: \[[^\n]*"staff", "assignments"/);
+  assert.match(stateApiSource, /\$assignmentDependency[\s\S]*in_array\('staff', \$requestedSections, true\)/);
+  assert.match(stateApiSource, /if \(\$assignmentDependency\) \$loadSections\[\] = 'assignments';/);
+  assert.match(stateApiSource, /isset\(\$incomingStaffIds\[\(string\)\(\$staff\['id'\]/);
+});
+
+test("incoming staff can be selected only on active assignment dates", () => {
+  const context = vm.createContext({
+    state: { assignments: [{ staffId: 2, staff: "Бадамханд", from: "Хан-Уул салбар", to: "Чингэлтэй салбар", startDate: "2026-10-08", endDate: "2026-10-10", status: "active" }] },
+    todayText: () => "2026-10-08"
+  });
+  vm.runInContext(functionSource("staffHasActiveAssignment"), context);
+  const staff = { id: 2, name: "Бадамханд", salon: "Хан-Уул салбар" };
+  assert.equal(context.staffHasActiveAssignment(staff, "Чингэлтэй салбар", "2026-10-08"), true);
+  assert.equal(context.staffHasActiveAssignment(staff, "Чингэлтэй салбар", "2026-10-10"), true);
+  assert.equal(context.staffHasActiveAssignment(staff, "Чингэлтэй салбар", "2026-10-07"), false);
+  assert.equal(context.staffHasActiveAssignment(staff, "Чингэлтэй салбар", "2026-10-11"), false);
+  assert.equal(context.staffHasActiveAssignment(staff, "Бусад салбар", "2026-10-08"), false);
+  context.state.assignments[0].status = "cancelled";
+  assert.equal(context.staffHasActiveAssignment(staff, "Чингэлтэй салбар", "2026-10-08"), false);
+});
