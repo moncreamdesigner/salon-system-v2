@@ -1,9 +1,36 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 const appSource = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const htmlSource = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+
+const paymentContext = vm.createContext({ giftCardStatus: card => card.status });
+vm.runInContext(appSource.slice(appSource.indexOf("function giftCardPaymentLimit("), appSource.indexOf("function giftCardPaymentMessage(")), paymentContext);
+
+test("a smaller gift card offers a partial payment without changing its balance", () => {
+  const card = { status: "fresh", remainingAmount: 50000 };
+  const amount = paymentContext.giftCardPaymentLimit(card, 75000);
+  assert.equal(amount, 50000);
+  assert.equal(75000 - amount, 25000);
+  assert.equal(card.remainingAmount, 50000);
+});
+
+test("gift card payment respects smaller debts and balance after bonuses", () => {
+  const card = { status: "partial", remainingAmount: 50000 };
+  assert.equal(paymentContext.giftCardPaymentLimit(card, 20000), 20000);
+  assert.equal(paymentContext.giftCardPaymentLimit(card, 75000 - 30000), 45000);
+  assert.equal(paymentContext.giftCardPaymentLimit(card, 0), 0);
+  assert.equal(paymentContext.giftCardPaymentLimit(card, -100), 0);
+});
+
+test("unavailable gift cards never offer a payment", () => {
+  assert.equal(paymentContext.giftCardPaymentLimit(null, 75000), 0);
+  for (const status of ["used", "expired", "inactive"]) {
+    assert.equal(paymentContext.giftCardPaymentLimit({ status, remainingAmount: 50000 }, 75000), 0);
+  }
+});
 
 test("new gift cards use the entered expiry date or remain unlimited", () => {
   assert.match(appSource, /const expiryDate = document\.getElementById\("giftCardExpiry"\)\.value \|\| "";/);

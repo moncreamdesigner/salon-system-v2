@@ -11416,6 +11416,11 @@ function findGiftCard(number = "") {
   return state.giftCards.find(card => String(card.cardNumber || "").toLowerCase() === q) || null;
 }
 
+function giftCardPaymentLimit(card, balance) {
+  if (!card || !["fresh", "partial"].includes(giftCardStatus(card))) return 0;
+  return Math.max(0, Math.min(Number(card.remainingAmount || 0), Number(balance || 0)));
+}
+
 function giftCardPaymentMessage(number = "") {
   const card = findGiftCard(number);
   if (!String(number || "").trim()) return `<span>Картын дугаар оруулна уу</span>`;
@@ -14116,7 +14121,12 @@ function bindInlinePaymentForms(customer) {
       if (bonusInput) bonusInput.readOnly = bonusApplied;
       if (amountInput) {
         amountInput.readOnly = false;
-        amountInput.value = bonusApplied ? moneyInputValue(Math.max(0, balance - bonusAmount)) : moneyInputValue(balance);
+        const payableBalance = Math.max(0, balance - (bonusApplied ? bonusAmount : 0));
+        const maxAmount = method?.value === "gift_card"
+          ? giftCardPaymentLimit(findGiftCard(giftCardInput?.value), payableBalance)
+          : payableBalance;
+        amountInput.dataset.max = String(maxAmount);
+        amountInput.value = moneyInputValue(maxAmount);
       }
     };
     amountInput?.addEventListener("input", () => {
@@ -14129,10 +14139,12 @@ function bindInlinePaymentForms(customer) {
         ? Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus))
         : 0;
       const selectedMethod = method?.value || "";
-      const payableBalance = selectedMethod === "customer_credit"
+      const payableBalance = selectedMethod === "gift_card"
+        ? giftCardPaymentLimit(findGiftCard(giftCardInput?.value), balance - appliedBonusAmount)
+        : selectedMethod === "customer_credit"
         ? Math.max(0, Math.min(balance - appliedBonusAmount, availableCustomerCredit))
         : Math.max(0, balance - appliedBonusAmount);
-      amountInput.value = moneyInputValue(Math.max(1, Math.min(parseMoneyInput(raw), payableBalance)));
+      amountInput.value = moneyInputValue(Math.max(0, Math.min(parseMoneyInput(raw), payableBalance)));
     });
     bonusInput?.addEventListener("input", () => {
       bonusInput.value = moneyInputValue(Math.max(0, Math.min(parseMoneyInput(bonusInput.value), maxBonus)));
@@ -14178,12 +14190,16 @@ function bindInlinePaymentForms(customer) {
         }
       } else {
         if (amountInput) {
-          const maxAmount = creditPaymentMode ? Math.min(balance, availableCustomerCredit) : balance;
+          const appliedBonusAmount = bonusApplied ? Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus)) : 0;
+          const payableBalance = Math.max(0, balance - appliedBonusAmount);
+          const maxAmount = value === "gift_card"
+            ? giftCardPaymentLimit(card, payableBalance)
+            : creditPaymentMode ? Math.min(payableBalance, availableCustomerCredit) : payableBalance;
           amountInput.dataset.max = String(maxAmount);
           amountInput.value = moneyInputValue(maxAmount);
         }
         if (submitButton) {
-          submitButton.disabled = balance <= 0 || (creditPaymentMode && availableCustomerCredit <= 0);
+          submitButton.disabled = balance <= 0 || (creditPaymentMode && availableCustomerCredit <= 0) || (value === "gift_card" && !validCard);
           submitButton.textContent = "Хадгалах";
         }
       }
@@ -14359,7 +14375,7 @@ function bindInlinePaymentForms(customer) {
           return;
         }
         if (amount > Number(card.remainingAmount || 0)) {
-          showToast(`Картын үлдэгдэл ${money(card.remainingAmount)}`);
+          showToast(`Картаар төлөх дүнг ${money(card.remainingAmount)}-өөс ихгүй оруулна уу. Үлдсэн төлбөрийг өөр аргаар төлж болно.`, "error");
           return;
         }
         referenceLabel = card.cardNumber;
