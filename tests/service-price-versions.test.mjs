@@ -83,3 +83,12 @@ test("brand-new future services are hidden until their first effective date", ()
   assert.equal(ctx.serviceOptionsForKind("course", {}, "2026-10-19").length, 0);
   assert.equal(ctx.serviceOptionsForKind("course", {}, "2026-10-20").length, 1);
 });
+
+test("renaming a catalog service preserves old course closure prices and later edits keep its aliases", () => {
+  const ctx = setup();
+  let renamed = ctx.withServicePriceVersion(original, { ...newPrice, name: "Бактерын эсрэг эмчилгээ" }, "2026-10-20");
+  renamed = ctx.withServicePriceVersion(renamed, { name: renamed.name, price: 700000, singleVisitPrice: 100000, visits: "8 удаа" }, "2026-11-01");
+  assert.ok(renamed.previousNames.includes("Курс"));
+  ctx.serviceSettingsData.course = [renamed];
+  assert.equal(ctx.configuredCourseSingleVisitPrice({ kind: "course", title: "Курс", date: "2026-10-01", basePrice: 540000 }), 75000);
+});

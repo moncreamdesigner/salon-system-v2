@@ -62,7 +62,8 @@ function assert_new_course_price_current(array $current, array $incoming): void
             $date = substr((string)($service['date'] ?? ''), 0, 10);
             foreach ($catalog as $item) {
                 if (!is_array($item) || (($item['customer'] ?? '') === 'Хүүхэд') !== ($audience === 'Хүүхэд')) continue;
-                if ($clean((string)($item['name'] ?? '')) !== $clean((string)($service['service'] ?? $service['title'] ?? ''))) continue;
+                $names = array_map($clean, array_merge([(string)($item['name'] ?? '')], (array)($item['previousNames'] ?? [])));
+                if (!in_array($clean((string)($service['service'] ?? $service['title'] ?? '')), $names, true)) continue;
                 $versions = array_values(array_filter((array)($item['priceVersions'] ?? []), static fn($version): bool => is_array($version) && ($version['effectiveFrom'] ?? '') <= $date));
                 if (!$versions) continue;
                 usort($versions, static fn($a, $b): int => strcmp($b['effectiveFrom'], $a['effectiveFrom']));

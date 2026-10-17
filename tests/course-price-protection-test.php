@@ -44,3 +44,8 @@ $fresh['customers'][0]['serviceHistory'][0]['basePrice'] = 540000;
 assert_new_course_price_current($pricedState, $fresh);
 assert_new_course_price_current($pricedState, $current);
 echo "Stale enrollment price protection tests passed\n";
+$pricedState['_serviceSettings']['data']['course'][0]['name'] = 'Шинэ нэр';
+$pricedState['_serviceSettings']['data']['course'][0]['previousNames'] = ['Курс'];
+$fresh['customers'][0]['serviceHistory'][0]['date'] = '2026-10-20';
+must_reject_price(fn() => assert_new_course_price_current($pricedState, $fresh));
+echo "Renamed service price protection tests passed\n";

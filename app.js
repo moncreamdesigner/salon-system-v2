@@ -5558,7 +5558,8 @@ function withServicePriceVersion(previous, next, effectiveFrom) {
   versions.push({ effectiveFrom, price: Number(next.price), singleVisitPrice: Number(next.singleVisitPrice || 0), visits: next.visits || "" });
   // Keep the original catalog price as the historical baseline. Future prices
   // are selected by registration date, never by the date of a later visit.
-  return { ...next, availableFrom: previous?.availableFrom || (previous ? "" : effectiveFrom), price: Number(baseline.price), singleVisitPrice: Number(baseline.singleVisitPrice || 0), visits: baseline.visits || next.visits || "", priceVersions: versions.sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)) };
+  const previousNames = [...new Set([...(previous?.previousNames || []), previous?.name !== next.name ? previous?.name : ""].filter(Boolean))];
+  return { ...previous, ...next, previousNames, availableFrom: previous?.availableFrom || (previous ? "" : effectiveFrom), price: Number(baseline.price), singleVisitPrice: Number(baseline.singleVisitPrice || 0), visits: baseline.visits || next.visits || "", priceVersions: versions.sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)) };
 }
 
 function updateServiceFormMode() {
@@ -10201,7 +10202,7 @@ function configuredCourseSingleVisitPrice(item = {}) {
   const serviceName = standardServiceName(item.service || item.title || item.name || "", "course");
   const registrationDate = item.priceSnapshot?.registrationDate || item.date || item.createdAt || todayText();
   const candidates = serviceSettingsData.course.filter(entry =>
-    standardServiceName(entry.name || "", "course") === serviceName
+    [entry.name, ...(entry.previousNames || [])].some(name => standardServiceName(name || "", "course") === serviceName)
   ).map(entry => servicePriceAtDate(entry, registrationDate));
   const configured = candidates.find(entry => Number(entry.price) === Number(item.basePrice || item.price)) || (candidates.length === 1 ? candidates[0] : null);
   return Math.max(0, Number(configured?.singleVisitPrice || 0));
