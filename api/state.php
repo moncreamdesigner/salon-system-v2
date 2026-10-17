@@ -4,6 +4,7 @@ require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/customer-mutations.php';
 require_once __DIR__ . '/customer-entity-store.php';
 require_once __DIR__ . '/performance-integrity.php';
+require_once __DIR__ . '/course-price-protection.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -828,6 +829,7 @@ try {
     }
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
+    assert_course_prices_preserved($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);
     }
@@ -859,6 +861,15 @@ try {
             'removedCount' => $removedCount,
             'message' => 'Олон хэрэглэгч, үйлчилгээ эсвэл төлбөр нэг дор хасагдах гэж байгаа тул хадгалалтыг хамгаалж зогсоолоо.',
         ], 409);
+    }
+    $pricingBackupId = null;
+    if (is_array($sections['_serviceSettings']['data'] ?? null)) {
+        $oldPricing = $currentSections['_serviceSettings']['data'] ?? [];
+        $newPricing = $sections['_serviceSettings']['data'];
+        assert_service_price_versions_preserved($oldPricing, $newPricing);
+        if (($oldPricing['single'] ?? []) != ($newPricing['single'] ?? []) || ($oldPricing['course'] ?? []) != ($newPricing['course'] ?? [])) {
+            $pricingBackupId = backup_before_service_price_change($pdo, $currentRevision);
+        }
     }
     $upsert = $pdo->prepare('INSERT INTO app_sections (section_key, payload, revision) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE payload = VALUES(payload), revision = VALUES(revision), updated_at = CURRENT_TIMESTAMP');
     foreach ($sections as $key => $value) {
@@ -915,6 +926,7 @@ try {
         'sectionRevisions' => array_fill_keys(array_keys($sections), $nextRevision),
         'savedSections' => array_keys($sections),
         'savedBy' => $user['username'] ?? 'admin',
+        'pricingBackupId' => $pricingBackupId,
     ];
     if ($operationId !== '') {
         $operation = $pdo->prepare('INSERT INTO app_operations (operation_id, revision, actor_user_id, actor_username, actor_role, actor_salon, sections, result_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');

@@ -5543,11 +5543,30 @@ function renderProductGroupControls() {
   }
 }
 
+function servicePriceAtDate(item = {}, date = todayText()) {
+  const dateKey = String(date || "").slice(0, 10);
+  const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? dateKey : todayText();
+  const version = (Array.isArray(item.priceVersions) ? item.priceVersions : [])
+    .filter(entry => entry.effectiveFrom <= targetDate)
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+  return { ...item, ...(version || {}), priceEffectiveFrom: version?.effectiveFrom || "0000-01-01" };
+}
+
+function withServicePriceVersion(previous, next, effectiveFrom) {
+  const baseline = previous || next;
+  const versions = (Array.isArray(previous?.priceVersions) ? previous.priceVersions : []).filter(entry => entry.effectiveFrom !== effectiveFrom);
+  versions.push({ effectiveFrom, price: Number(next.price), singleVisitPrice: Number(next.singleVisitPrice || 0), visits: next.visits || "" });
+  // Keep the original catalog price as the historical baseline. Future prices
+  // are selected by registration date, never by the date of a later visit.
+  return { ...next, availableFrom: previous?.availableFrom || (previous ? "" : effectiveFrom), price: Number(baseline.price), singleVisitPrice: Number(baseline.singleVisitPrice || 0), visits: baseline.visits || next.visits || "", priceVersions: versions.sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)) };
+}
+
 function updateServiceFormMode() {
   const kind = document.getElementById("serviceKind")?.value || "single";
   document.querySelectorAll(".course-only").forEach(item => item.classList.toggle("hidden", kind !== "course"));
   document.querySelectorAll(".product-only").forEach(item => item.classList.toggle("hidden", kind !== "products"));
   document.querySelectorAll(".service-customer-field").forEach(item => item.classList.toggle("hidden", kind === "products"));
+  document.querySelectorAll(".service-price-effective-field").forEach(item => item.classList.toggle("hidden", kind === "products"));
   enhanceNativeSelects(["serviceKind", "serviceCustomerType", "serviceBrand"]);
 }
 
@@ -5563,6 +5582,7 @@ function resetServiceForm() {
   form.reset();
   document.getElementById("serviceVisits").value = "4";
   document.getElementById("serviceSingleVisitPrice").value = "";
+  document.getElementById("servicePriceEffectiveFrom").value = todayText();
   document.getElementById("serviceSaleQty").value = "3";
   document.getElementById("serviceSubmitBtn").textContent = "Нэмэх";
   serviceEditingRef = null;
@@ -5582,6 +5602,12 @@ function fillServiceFormForEdit(kind, index, group = "") {
   document.getElementById("serviceCustomerType").value = item.customer || "Том хүн";
   document.getElementById("serviceVisits").value = parseInt(item.visits, 10) || 4;
   document.getElementById("serviceSingleVisitPrice").value = Number(item.singleVisitPrice || 0) || "";
+  const latestPriceDate = [...(item.priceVersions || [])].map(entry => entry.effectiveFrom).concat(todayText()).sort().at(-1);
+  document.getElementById("servicePriceEffectiveFrom").value = latestPriceDate;
+  const editPrice = servicePriceAtDate(item, latestPriceDate);
+  document.getElementById("servicePrice").value = editPrice.price || "";
+  document.getElementById("serviceSingleVisitPrice").value = editPrice.singleVisitPrice || "";
+  document.getElementById("serviceVisits").value = parseInt(editPrice.visits, 10) || 4;
   document.getElementById("serviceSaleQty").value = parseInt(item.saleNote, 10) || 3;
   document.getElementById("serviceSalePrice").value = item.sale || "";
   document.getElementById("serviceBrand").value = group || activeProductGroup;
@@ -5644,6 +5670,8 @@ function bindServiceSettingsForm() {
     kind.addEventListener("change", updateServiceFormMode);
     kind.dataset.bound = "1";
   }
+  const effectiveInput = document.getElementById("servicePriceEffectiveFrom");
+  if (effectiveInput && !effectiveInput.value) effectiveInput.value = todayText();
   if (form && !form.dataset.bound) {
     form.addEventListener("submit", event => {
       event.preventDefault();
@@ -5652,6 +5680,9 @@ function bindServiceSettingsForm() {
       const name = formValue("serviceName");
       const price = Number(formValue("servicePrice")) || 0;
       if (!name || !price) return;
+      const effectiveFrom = formValue("servicePriceEffectiveFrom") || todayText();
+      if (selectedKind !== "products" && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) return showToast("Үнэ хэрэгжих огноог сонгоно уу", "error");
+      if (selectedKind !== "products" && effectiveFrom < todayText()) return showToast("Шинэ үнийг өнгөрсөн огнооноос хэрэгжүүлэх боломжгүй", "error");
       const singleVisitPrice = Number(formValue("serviceSingleVisitPrice")) || 0;
       if (selectedKind === "course" && singleVisitPrice <= 0) {
         showToast("Курс хаах үед тооцох нэг удаагийн үнийг оруулна уу", "error");
@@ -5686,7 +5717,7 @@ function bindServiceSettingsForm() {
         activeServiceMainTab = "products";
         activeProductGroup = brand;
       } else {
-        const item = {
+        let item = {
           ...itemPayload,
           customer: document.getElementById("serviceCustomerType").value,
           price
@@ -5695,6 +5726,7 @@ function bindServiceSettingsForm() {
           item.visits = `${Number(formValue("serviceVisits")) || 1} удаа`;
           item.singleVisitPrice = singleVisitPrice;
         }
+        item = withServicePriceVersion(serviceEditingRef?.kind === selectedKind ? beforeItem : null, item, effectiveFrom);
         if (serviceEditingRef) {
           const oldCollection = serviceCollectionForRef(serviceEditingRef);
           if (serviceEditingRef.kind === selectedKind) oldCollection[serviceEditingRef.index] = item;
@@ -5791,7 +5823,7 @@ function renderSettingsServices() {
     `).join("");
   } else {
     const isCourse = activeServiceMainTab === "course";
-    const items = serviceSettingsData[activeServiceMainTab];
+    const items = serviceSettingsData[activeServiceMainTab].map(item => servicePriceAtDate(item));
     headEl.innerHTML = `
       <tr>
         <th>Код</th>
@@ -5807,7 +5839,7 @@ function renderSettingsServices() {
         <td>${serviceCodeBadge(item.code)}</td>
         <td><strong>${standardServiceName(item.name, activeServiceMainTab)}</strong></td>
         <td><span class="service-customer-text">${item.customer}</span></td>
-        <td><strong>${money(item.price)}</strong></td>
+        <td><strong>${money(item.price)}</strong>${(item.priceVersions || []).filter(version => version.effectiveFrom > todayText()).map(version => `<div class="muted">${htmlSafe(version.effectiveFrom)}-с: ${money(version.price)}${isCourse ? ` · ${htmlSafe(version.visits)} · нэг удаа ${money(version.singleVisitPrice)}` : ""}</div>`).join("")}</td>
         ${isCourse ? `<td><span class="service-visit-text">${serviceVisitText(item)}</span></td><td><strong>${Number(item.singleVisitPrice || 0) > 0 ? money(item.singleVisitPrice) : "Тохируулаагүй"}</strong></td>` : ""}
         <td>${serviceActionButtons(activeServiceMainTab, index)}</td>
       </tr>
@@ -10164,13 +10196,24 @@ function courseEligiblePaidAmount(item = {}) {
 }
 
 function configuredCourseSingleVisitPrice(item = {}) {
-  const storedPrice = Number(item.singleVisitPrice || 0);
+  const storedPrice = Number(item.priceSnapshot?.singleVisitPrice || item.singleVisitPrice || 0);
   if (storedPrice > 0) return storedPrice;
   const serviceName = standardServiceName(item.service || item.title || item.name || "", "course");
-  const configured = serviceSettingsData.course.find(entry =>
+  const registrationDate = item.priceSnapshot?.registrationDate || item.date || item.createdAt || todayText();
+  const candidates = serviceSettingsData.course.filter(entry =>
     standardServiceName(entry.name || "", "course") === serviceName
-  );
+  ).map(entry => servicePriceAtDate(entry, registrationDate));
+  const configured = candidates.find(entry => Number(entry.price) === Number(item.basePrice || item.price)) || (candidates.length === 1 ? candidates[0] : null);
   return Math.max(0, Number(configured?.singleVisitPrice || 0));
+}
+
+function coursePriceSnapshot(item = {}) {
+  return item.priceSnapshot || {
+    registrationDate: item.date || todayText(),
+    basePrice: Number(item.basePrice || item.price || 0),
+    singleVisitPrice: configuredCourseSingleVisitPrice(item),
+    visitsTotal: Number(item.visitsTotal || parseVisitCount(item.visits || item.name) || 1)
+  };
 }
 
 function courseTransferInfo(item = {}, requestedSingleVisitPrice = null) {
@@ -12422,7 +12465,7 @@ function renderProfileServiceInlineForm(customer) {
       ${editingItem ? "" : profileServiceTabsHtml(kind)}
       <div class="customer-service-grid profile-service-row">
         <label class="service-select-field">Үйлчилгээ
-          <select class="input" id="profileServiceSelect" ${editingItem?.transferClosed ? "disabled" : ""}>${serviceOptionHtml(kind, selectedOptionIndex, customer)}</select>
+          <select class="input" id="profileServiceSelect" ${editingItem?.transferClosed || editingItem?.kind === "course" ? "disabled" : ""}>${editingItem?.kind === "course" ? `<option value="${selectedOptionIndex}">${htmlSafe(editingItem.service || editingItem.title)} · ${money(editingItem.basePrice || editingItem.price)}</option>` : serviceOptionHtml(kind, selectedOptionIndex, customer, editingItem?.date || todayText())}</select>
         </label>
         <label>Огноо
           <input class="input" id="profileServiceDate" type="date" value="${editingItem?.date || todayText()}" required>
@@ -13508,8 +13551,10 @@ function profileServicePriceParts(customer) {
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const kind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
-  const item = serviceOptionsForKind(kind, customer)[Number(document.getElementById("profileServiceSelect")?.value || 0)];
-  if (editingItem?.transferClosed) {
+  const item = editingItem?.kind === "course"
+    ? { name: editingItem.service || editingItem.title, ...editingItem }
+    : serviceOptionsForKind(kind, customer, formValue("profileServiceDate") || todayText())[Number(document.getElementById("profileServiceSelect")?.value || 0)];
+  if (editingItem?.transferClosed || editingItem?.kind === "course") {
     return {
       item,
       basePrice: Number(editingItem.basePrice || editingItem.price || 0),
@@ -13859,6 +13904,13 @@ function bindProfileServiceInlineForm(customer) {
     updateProfileServicePrice(customer);
   });
   document.getElementById("profileServiceDate")?.addEventListener("change", event => {
+    const serviceSelect = document.getElementById("profileServiceSelect");
+    if (serviceSelect && !editingItem) {
+      const selected = Number(serviceSelect.value || 0);
+      serviceSelect.innerHTML = serviceOptionHtml(customer.profileServiceKind || "single", selected, customer, event.target.value || todayText());
+      enhanceNativeSelects([serviceSelect.id]);
+    }
+    updateProfileServicePrice(customer);
     const staffSelect = document.getElementById("profileServiceStaff");
     if (!staffSelect) return;
     const selectedStaff = staffSelect.value;
@@ -13918,6 +13970,7 @@ function bindProfileServiceInlineForm(customer) {
       historyItem.singleVisitPrice = Math.max(0, Number(item.singleVisitPrice || 0));
       historyItem.price = Number(priceParts.basePrice || 0);
       historyItem.balance = Math.max(0, Number(priceParts.basePrice || 0) - Number(priceParts.employeeDiscountAmount || 0));
+      historyItem.priceSnapshot = coursePriceSnapshot(historyItem);
       historyItem.vipRoom = false;
       historyItem.vipRoomFee = 0;
       historyItem.masterStaffFee = 0;
@@ -13938,11 +13991,15 @@ function bindProfileServiceInlineForm(customer) {
         historyItem.visitsTotal = editingItem.visitsTotal || historyItem.visitsTotal;
       }
       if (kind === "course") {
-        historyItem.singleVisitPrice = Number(editingItem.singleVisitPrice || historyItem.singleVisitPrice || 0);
+        historyItem.priceSnapshot = coursePriceSnapshot(editingItem);
+        historyItem.singleVisitPrice = historyItem.priceSnapshot.singleVisitPrice;
+        historyItem.visitsTotal = editingItem.visitsTotal;
+        historyItem.price = editingItem.price;
         historyItem.closurePerformanceAdjustments = editingItem.closurePerformanceAdjustments || [];
         historyItem.courseClosurePricing = editingItem.courseClosurePricing || null;
       }
       historyItem.balance = Math.max(0, Number(priceParts.total || 0) - paidAmount);
+      if (kind === "course") historyItem.balance = Number(editingItem.balance || 0);
       if (editingItem.transferClosed) {
         Object.assign(historyItem, {
           title: editingItem.title,
@@ -14668,13 +14725,15 @@ function startDemoTreatment(customerId) {
   openCustomerServiceModal(customerId);
 }
 
-function serviceOptionsForKind(kind, customer = null) {
+function serviceOptionsForKind(kind, customer = null, date = todayText()) {
   const items = kind === "course" ? serviceSettingsData.course : serviceSettingsData.single;
   const audience = customer ? serviceAudienceForCustomer(customer) : "";
   return items
     .filter(item => !audience || (audience === "Хүүхэд" ? item.customer === "Хүүхэд" : item.customer !== "Хүүхэд"))
+    .filter(item => !item.availableFrom || item.availableFrom <= date)
     .map((item, index) => ({ ...item, index }))
-    .sort((a, b) => kind === "course" ? parseVisitCount(b.visits || b.name) - parseVisitCount(a.visits || a.name) || a.index - b.index : a.index - b.index);
+    .sort((a, b) => kind === "course" ? parseVisitCount(b.visits || b.name) - parseVisitCount(a.visits || a.name) || a.index - b.index : a.index - b.index)
+    .map(item => servicePriceAtDate(item, date));
 }
 
 function serviceOptionLabel(item, kind) {
@@ -14682,8 +14741,8 @@ function serviceOptionLabel(item, kind) {
   return kind === "course" ? `${name} · ${serviceVisitText(item)}` : name;
 }
 
-function serviceOptionHtml(kind, selectedIndex = 0, customer = null) {
-  return serviceOptionsForKind(kind, customer).map((item, index) => `<option value="${index}" ${index === selectedIndex ? "selected" : ""}>${serviceOptionLabel(item, kind)}</option>`).join("");
+function serviceOptionHtml(kind, selectedIndex = 0, customer = null, date = todayText()) {
+  return serviceOptionsForKind(kind, customer, date).map((item, index) => `<option value="${index}" ${index === selectedIndex ? "selected" : ""}>${serviceOptionLabel(item, kind)}</option>`).join("");
 }
 
 function parseVisitCount(value) {
@@ -15203,7 +15262,8 @@ function updateCustomerServicePrice(kind = "single") {
   const select = document.getElementById("customerServiceSelect");
   const customerId = Number(document.getElementById("customerServiceForm")?.dataset.customerId || 0);
   const customer = state.customers.find(item => Number(item.id) === customerId) || null;
-  const item = serviceOptionsForKind(kind, customer)[Number(select?.value || 0)] || serviceOptionsForKind(kind, customer)[0];
+  const options = serviceOptionsForKind(kind, customer, formValue("customerServiceDate") || todayText());
+  const item = options[Number(select?.value || 0)] || options[0];
   document.getElementById("customerServicePrice").textContent = item ? money(item.price || 0) : "—";
 }
 
@@ -15252,7 +15312,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
       const select = document.getElementById("customerServiceSelect");
       const hydrateKind = kind => {
         form.dataset.kind = kind;
-        select.innerHTML = serviceOptionHtml(kind, 0, customer);
+        select.innerHTML = serviceOptionHtml(kind, 0, customer, formValue("customerServiceDate") || todayText());
         document.querySelectorAll(".service-modal-tab").forEach(tab => tab.classList.toggle("active", tab.dataset.kind === kind));
         updateCustomerServicePrice(kind);
         enhanceNativeSelects(["customerServiceSelect", "customerServiceStaff", "customerServiceSalon"]);
@@ -15266,6 +15326,10 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
         enhanceNativeSelects(["customerServiceStaff"]);
       });
       document.getElementById("customerServiceDate")?.addEventListener("change", event => {
+        const selected = Number(select.value || 0);
+        select.innerHTML = serviceOptionHtml(form.dataset.kind, selected, customer, event.target.value || todayText());
+        updateCustomerServicePrice(form.dataset.kind);
+        enhanceNativeSelects([select.id]);
         const staffSelect = document.getElementById("customerServiceStaff");
         if (!staffSelect) return;
         const salon = showSalon ? formValue("customerServiceSalon") : activeAccount.salon;
@@ -15276,7 +15340,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
       form.addEventListener("submit", event => {
         event.preventDefault();
         const kind = form.dataset.kind;
-        const item = serviceOptionsForKind(kind, customer)[Number(select.value || 0)];
+        const item = serviceOptionsForKind(kind, customer, formValue("customerServiceDate") || todayText())[Number(select.value || 0)];
         if (!item) return;
         const date = formValue("customerServiceDate") || todayText();
         const staff = formValue("customerServiceStaff");
@@ -15302,6 +15366,7 @@ function openCustomerServiceModal(customerId, defaultKind = "single") {
           historyItem.visitsTotal = parseInt(item.visits, 10) || 4;
           historyItem.visits = [];
           historyItem.singleVisitPrice = Math.max(0, Number(item.singleVisitPrice || 0));
+          historyItem.priceSnapshot = coursePriceSnapshot(historyItem);
           customer.activeCourse = true;
           customer.course = `Курс 0/${historyItem.visitsTotal}`;
         } else {

@@ -8788,6 +8788,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   flex: 0 0 94px !important;
 }
 
+.service-add-form:has(.service-price-effective-field:not(.hidden)) {
+  flex-wrap: wrap;
+}
+
+.service-add-form .service-price-effective-field {
+  flex: 0 0 168px !important;
+  min-width: 158px;
+}
+
 .service-qty-field {
   flex: 0 0 68px !important;
 }
