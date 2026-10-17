@@ -41,6 +41,41 @@ function assert_course_prices_preserved(array $current, array $incoming): void
     }
 }
 
+function assert_new_course_price_current(array $current, array $incoming): void
+{
+    if (!is_array($incoming['customers'] ?? null)) return;
+    $oldIds = [];
+    foreach ((array)($current['customers'] ?? []) as $customer) {
+        foreach ((array)($customer['serviceHistory'] ?? []) as $service) {
+            if (is_array($service)) $oldIds[(string)($customer['id'] ?? '')][(string)($service['id'] ?? '')] = true;
+        }
+    }
+    $catalog = (array)($current['_serviceSettings']['data']['course'] ?? []);
+    $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar'));
+    $clean = static fn(string $name): string => trim(preg_replace('/\s+/u', ' ', preg_replace(['/\s*\/\s*\d+\s*удаагийн\s*оролт\s*\/\s*/u', '/\s*\/\s*хүүхэд\s*\/\s*/u', '/\s*[Хх]үүхэд\s*/u'], ' ', $name) ?? $name) ?? $name);
+    foreach ($incoming['customers'] as $customer) {
+        if (!is_array($customer)) continue;
+        $age = !empty($customer['birthYear']) ? (int)$today->format('Y') - (int)$customer['birthYear'] : (int)($customer['age'] ?? 0);
+        $audience = $age > 0 && $age <= (int)($current['generalSettings']['childAgeLimit'] ?? 9) ? 'Хүүхэд' : 'Том хүн';
+        foreach ((array)($customer['serviceHistory'] ?? []) as $service) {
+            if (!is_array($service) || ($service['kind'] ?? '') !== 'course' || isset($oldIds[(string)($customer['id'] ?? '')][(string)($service['id'] ?? '')])) continue;
+            $date = substr((string)($service['date'] ?? ''), 0, 10);
+            foreach ($catalog as $item) {
+                if (!is_array($item) || (($item['customer'] ?? '') === 'Хүүхэд') !== ($audience === 'Хүүхэд')) continue;
+                if ($clean((string)($item['name'] ?? '')) !== $clean((string)($service['service'] ?? $service['title'] ?? ''))) continue;
+                $versions = array_values(array_filter((array)($item['priceVersions'] ?? []), static fn($version): bool => is_array($version) && ($version['effectiveFrom'] ?? '') <= $date));
+                if (!$versions) continue;
+                usort($versions, static fn($a, $b): int => strcmp($b['effectiveFrom'], $a['effectiveFrom']));
+                $expected = $versions[0];
+                if ((float)($service['basePrice'] ?? $service['price'] ?? 0) !== (float)$expected['price']) {
+                    throw new DomainException('Шинэ курсын үнэ шинэчлэгдсэн байна. Хуудсаа шинэчлээд үйлчилгээг дахин сонгоно уу. Өмнөх курсын үнэд нөлөөлөхгүй.');
+                }
+                break;
+            }
+        }
+    }
+}
+
 function assert_service_price_versions_preserved(array $previous, array $next): void
 {
     $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d');

@@ -33,3 +33,14 @@ must_reject_price(fn() => assert_service_price_versions_preserved(['course' => [
 $changedVersion = $item; $changedVersion['priceVersions'][0]['price'] = 700000;
 must_reject_price(fn() => assert_service_price_versions_preserved(['course' => [$item]], ['course' => [$changedVersion]]));
 echo "Course price protection tests passed\n";
+$pricedState = $current;
+$pricedState['_serviceSettings'] = ['data' => ['course' => [['name' => 'Курс', 'customer' => 'Том хүн', 'priceVersions' => [['effectiveFrom' => '2026-10-20', 'price' => 650000]]]]]];
+$fresh = ['customers' => [['id' => 2, 'age' => 30, 'serviceHistory' => [[...$course, 'id' => 'new', 'title' => 'Курс', 'date' => '2026-10-20']]]]];
+must_reject_price(fn() => assert_new_course_price_current($pricedState, $fresh));
+$fresh['customers'][0]['serviceHistory'][0]['basePrice'] = 650000;
+assert_new_course_price_current($pricedState, $fresh);
+$fresh['customers'][0]['serviceHistory'][0]['date'] = '2026-10-19';
+$fresh['customers'][0]['serviceHistory'][0]['basePrice'] = 540000;
+assert_new_course_price_current($pricedState, $fresh);
+assert_new_course_price_current($pricedState, $current);
+echo "Stale enrollment price protection tests passed\n";

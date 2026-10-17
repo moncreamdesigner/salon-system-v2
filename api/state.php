@@ -792,7 +792,7 @@ try {
     // entity mutation only sends customers/audit. Always load the setting as a
     // read dependency so the server and browser enforce the same day limit.
     $loadKeys = $partial
-        ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings'])))
+        ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings', '_serviceSettings'])))
         : [];
     $currentSections = load_all_sections($pdo, $loadKeys);
     if ($mutationKeys) {
@@ -830,6 +830,7 @@ try {
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
     assert_course_prices_preserved($currentSections, $sections);
+    if (!$bulkCustomerImport) assert_new_course_price_current($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);
     }

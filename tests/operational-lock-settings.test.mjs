@@ -5,7 +5,7 @@ const source = fs.readFileSync(new URL("../api/state.php", import.meta.url), "ut
 
 assert.match(
   source,
-  /array_merge\(array_keys\(\$sections\), \$mutationKeys, \['generalSettings'\]\)/,
+  /array_merge\(array_keys\(\$sections\), \$mutationKeys, \['generalSettings', '_serviceSettings'\]\)/,
   "Partial customer saves must load generalSettings before enforcing the operational lock"
 );
 assert.match(
