@@ -8,6 +8,13 @@ const publicSource = fs.readFileSync(new URL("../public.js", import.meta.url), "
 const htaccess = fs.readFileSync(new URL("../.htaccess", import.meta.url), "utf8");
 const version = JSON.parse(fs.readFileSync(new URL("../version.json", import.meta.url), "utf8")).version;
 
+test("online shop opens separately without changing booking navigation", () => {
+  assert.match(html, /<a href="https:\/\/www\.moncream\.mn" target="_blank" rel="noopener noreferrer"[^>]*>[\s\S]*?ОНЛАЙН ДЭЛГҮҮР[\s\S]*?<\/a>/);
+  assert.equal((html.match(/data-public-target=/g) || []).length, 3);
+  const css = fs.readFileSync(new URL("../public.css", import.meta.url), "utf8");
+  assert.match(css, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+});
+
 test("public page never reloads itself to synchronize the admin build", () => {
   assert.doesNotMatch(html, /version\.json/);
   assert.doesNotMatch(html, /window\.location\.reload\s*\(/);
