@@ -9,7 +9,7 @@ const htaccess = fs.readFileSync(new URL("../.htaccess", import.meta.url), "utf8
 const version = JSON.parse(fs.readFileSync(new URL("../version.json", import.meta.url), "utf8")).version;
 
 test("online shop opens separately without changing booking navigation", () => {
-  assert.match(html, /<a href="https:\/\/www\.moncream\.mn" target="_blank" rel="noopener noreferrer"[^>]*>[\s\S]*?ОНЛАЙН ДЭЛГҮҮР[\s\S]*?<\/a>/);
+  assert.match(html, /<a href="https:\/\/www\.moncream\.mn" target="_blank" rel="noopener noreferrer" aria-label="Дэлгүүр \(шинэ цонхонд нээгдэнэ\)">[\s\S]*?<span>ДЭЛГҮҮР<\/span>[\s\S]*?<\/a>/);
   assert.equal((html.match(/data-public-target=/g) || []).length, 3);
   const css = fs.readFileSync(new URL("../public.css", import.meta.url), "utf8");
   assert.match(css, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
