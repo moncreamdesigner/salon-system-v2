@@ -2028,6 +2028,9 @@ async function saveServerStateNow() {
     void flushMediaTrashRequestsThrough(savingMutationVersion);
     if (serverRetryNoticeOperationId === savingOperationId) serverRetryNoticeOperationId = "";
     if (confirmedCustomerMessages.length) showToast(confirmedCustomerMessages.at(-1));
+    if (savingSections.includes("generalSettings") && activeView === "settingsServices") {
+      showToast("Хүүхдийн насны хязгаар хадгалагдлаа");
+    }
     if (serverConflictResolutionActive) {
       serverConflictResolutionActive = false;
       hideServerSyncOverlay();
@@ -2310,7 +2313,7 @@ const VIEW_SERVER_SECTIONS = {
   performance: ["salons", "generalSettings"],
   vouchers: ["voucherRoles"],
   giftCards: ["generalSettings"],
-  settingsServices: ["_serviceSettings"],
+  settingsServices: ["_serviceSettings", "generalSettings"],
   settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules"],
   settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings"],
   settingsHumanResources: ["staff", "assignments", "salons", "generalSettings"],
@@ -5645,7 +5648,7 @@ function saveChildAgeLimit() {
   });
   saveState(["generalSettings", "audit"]);
   setChildAgeLimit(next);
-  showToast("Хүүхдийн насны хязгаар хадгалагдлаа");
+  if (IS_LOCAL_RUNTIME) showToast("Хүүхдийн насны хязгаар хадгалагдлаа");
 }
 
 function bindServiceSettingsForm() {

@@ -20,6 +20,12 @@ const context = {
 vm.createContext(context);
 vm.runInContext(`${helpers}\nthis.api = { serverSectionsForView, serverViewSectionsLoaded, markAllViewsCurrent };`, context);
 
+assert.ok(context.api.serverSectionsForView("settingsServices").includes("generalSettings"), "Service settings must load the age-limit section and its revision before editing");
+const ageSaver = app.slice(app.indexOf("function saveChildAgeLimit("), app.indexOf("function bindServiceSettingsForm("));
+assert.match(ageSaver, /saveState\(\["generalSettings", "audit"\]\)/);
+assert.match(ageSaver, /if \(IS_LOCAL_RUNTIME\) showToast/);
+assert.match(app, /savingSections\.includes\("generalSettings"\) && activeView === "settingsServices"/);
+
 assert.equal(context.api.serverViewSectionsLoaded("bookings"), false, "An unopened booking view is not authoritative");
 context.loadedServerSections.add("bookings");
 assert.equal(context.api.serverViewSectionsLoaded("bookings"), false, "A view remains blocked while a dependency is missing");
