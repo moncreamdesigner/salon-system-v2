@@ -7016,6 +7016,7 @@ function dashboardStaffRows(month, salon) {
 const dashboardViewModes = [
   { value: "overview", label: "Ерөнхий тойм" },
   { value: "time", label: "Цагийн тайлан" },
+  { value: "events", label: "Арга хэмжээ" },
   { value: "operations", label: "Өдрийн ажиллагаа" },
   { value: "cashflow", label: "Мөнгөн урсгал" },
   { value: "system", label: "Системийн хяналт" }
@@ -7023,11 +7024,11 @@ const dashboardViewModes = [
 
 function dashboardAllowedViewModes() {
   const permissions = {
-    admin: ["overview", "time", "operations", "cashflow", "system"],
-    manager: ["overview", "time", "operations"],
-    salon: ["time", "operations"],
-    finance: ["overview", "time", "cashflow"],
-    director: ["overview", "time", "cashflow"]
+    admin: ["overview", "time", "events", "operations", "cashflow", "system"],
+    manager: ["overview", "time", "events", "operations"],
+    salon: ["time", "events", "operations"],
+    finance: ["overview", "time", "events", "cashflow"],
+    director: ["overview", "time", "events", "cashflow"]
   };
   const allowed = permissions[activeAccount.role] || ["overview"];
   return dashboardViewModes.filter(item => allowed.includes(item.value));
@@ -7247,7 +7248,22 @@ function dashboardSystemHtml(month, salon) {
 
 function renderDashboard() {
   if (!document.getElementById("dashboardView")?.isConnected) return;
-  void window.EventSettings.renderDashboard();
+  const eventTab = dashboardSelectedViewMode() === "events";
+  const eventPanel = document.getElementById("eventDashboard");
+  if (eventPanel) eventPanel.hidden = !eventTab;
+  const dashboardContent = document.getElementById("dashboardContent");
+  if (dashboardContent) dashboardContent.hidden = eventTab;
+  for (const id of ["dashboardMonth", "dashboardFromDate", "dashboardToDate"]) {
+    const label = document.getElementById(id)?.closest("label");
+    if (label) label.hidden = eventTab;
+  }
+  const exportButton = document.getElementById("dashboardExportExcel");
+  if (exportButton) exportButton.hidden = eventTab;
+  if (eventTab) {
+    renderDashboardViewTabs("events");
+    void window.EventSettings.renderDashboard();
+    return;
+  }
   const requestedMonth = document.getElementById("dashboardMonth")?.value || monthText(todayText());
   const requestedSalon = isSalonAccount() ? activeAccount.salon : (document.getElementById("dashboardSalon")?.value || "");
   const requestedRange = dashboardDateRange();
@@ -19657,6 +19673,10 @@ function bindEvents() {
     const button = event.currentTarget;
     button.disabled = true;
     try {
+      if (dashboardSelectedViewMode() === "events") {
+        await window.EventSettings.renderDashboard(true);
+        return;
+      }
       await refreshServerStateForView("dashboard");
       if (activeView === "dashboard") {
         renderDashboard();

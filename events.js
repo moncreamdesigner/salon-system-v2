@@ -28,7 +28,6 @@ window.EventSettings = (() => {
     if (el("eventStartDate")) el("eventStartDate").value = todayText();
     if (el("eventSubmit")) el("eventSubmit").textContent = "Нэмэх";
     if (el("eventCancel")) el("eventCancel").hidden = true;
-    if (el("eventFormTitle")) el("eventFormTitle").textContent = "Арга хэмжээ үүсгэх";
   }
   function draw() {
     const body = el("eventRows");
@@ -117,7 +116,6 @@ window.EventSettings = (() => {
           }
           el("eventSubmit").textContent = "Хадгалах";
           el("eventCancel").hidden = false;
-          el("eventFormTitle").textContent = "Арга хэмжээ засах";
           form.scrollIntoView({ behavior: "smooth", block: "nearest" });
           el("eventName").focus();
         } else {
@@ -187,7 +185,7 @@ window.EventSettings = (() => {
         draft.dirty = false;
         reportKey = "";
         reportCatalogLoadedAt = 0;
-        message(draft.saved ? "Арга хэмжээний бүртгэл хадгалагдлаа" : "Арга хэмжээнээс хасагдлаа");
+        message("");
       } catch (error) {
         if (error.status === 409) await fetchMembership(true);
         message(error.message);
@@ -208,7 +206,6 @@ window.EventSettings = (() => {
       month.value = todayText().slice(0, 7);
       for (const input of [mode, month, eventSelect]) input.addEventListener("change", () => void renderDashboard(true));
       el("eventReportRefresh").addEventListener("click", () => void renderDashboard(true));
-      el("dashboardRefresh")?.addEventListener("click", () => void renderDashboard(true));
     }
     month.parentElement.hidden = mode.value !== "month";
     eventSelect.parentElement.hidden = mode.value !== "single";

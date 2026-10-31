@@ -126,6 +126,7 @@ test("profile defaults blank, hides expired events and only saves explicit choic
   assert.equal(posts[0].customerId, "12");
   assert.equal(posts[0].eventId, "latest");
   assert.equal(context.window.EventSettings.hasPending, false);
+  assert.equal(element("profileEventMessage").textContent, "", "Successful save must not leave an extra explanation below the controls");
   element("profileEventSelect").handlers.change({ target: { value: "" } });
   await element("profileEventSave").handlers.click();
   assert.equal(posts[1].eventId, "", "Blank saves an explicit removal");
@@ -172,6 +173,45 @@ test("event UI uses Mongolian labels and requires only the start date", () => {
   assert.match(html, /Арга хэмжээний тайлан/);
   assert.match(ui, /profile-card-title">Арга хэмжээ/);
   assert.doesNotMatch(html, />Event(?:\s|<)/);
+});
+
+test("creation is cardless, both management titles are removed, and checkbox uses the theme", () => {
+  assert.match(html, /<section class="event-create-section" aria-label="Арга хэмжээ үүсгэх">/);
+  assert.doesNotMatch(html, /id="eventFormTitle"|<h2>Арга хэмжээний жагсаалт<\/h2>|Хоосон бол хугацаагүй/);
+  const styles = read("styles.css");
+  assert.match(styles, /\.event-create-section\s*\{[^}]*margin-bottom:\s*20px;/);
+  assert.match(styles, /input\[type="checkbox"\]\s*\{[^}]*accent-color:\s*var\(--accent\)/);
+});
+
+test("event report is an independent dashboard tab and does not fetch financial analytics", () => {
+  const element = fakeElements(["dashboardView", "eventDashboard", "dashboardContent", "dashboardMonth", "dashboardFromDate", "dashboardToDate", "dashboardExportExcel"]);
+  for (const id of ["dashboardMonth", "dashboardFromDate", "dashboardToDate"]) element(id).closest = () => element(id).parentElement;
+  let mode = "events";
+  let reports = 0;
+  let analytics = 0;
+  const context = vm.createContext({
+    document: { getElementById: element },
+    dashboardSelectedViewMode: () => mode,
+    window: { EventSettings: { renderDashboard: () => reports++ } },
+    renderDashboardViewTabs: value => assert.equal(value, "events"),
+    monthText: () => "2026-10", todayText: () => "2026-10-31", isSalonAccount: () => false,
+    dashboardDateRange: () => ({ from: "", to: "" }), IS_LOCAL_RUNTIME: false, dashboardDataCache: null,
+    dashboardAnalyticsKey: () => "key", loadDashboardAnalyticsSource: () => analytics++
+  });
+  const renderSource = app.slice(app.indexOf("function renderDashboard()"), app.indexOf("function releaseRenderedView("));
+  // Only the requested function is invoked; later declarations remain inert.
+  vm.runInContext(renderSource, context);
+  context.renderDashboard();
+  assert.equal(element("eventDashboard").hidden, false);
+  assert.equal(element("dashboardContent").hidden, true);
+  assert.equal(reports, 1);
+  assert.equal(analytics, 0);
+  mode = "overview";
+  context.renderDashboard();
+  assert.equal(element("eventDashboard").hidden, true);
+  assert.equal(element("dashboardContent").hidden, false);
+  assert.equal(element("dashboardMonth").parentElement.hidden, false);
+  assert.equal(analytics, 1);
 });
 
 test("event dashboard loads once and sends all, monthly and single filters with the selected salon", async () => {

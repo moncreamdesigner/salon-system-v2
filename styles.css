@@ -3,6 +3,11 @@
 .event-form-fields label:first-child { flex: 2 1 260px; }
 .event-form-fields .event-unlimited { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 44px; }
 .event-form-fields .event-unlimited input { width: auto; }
+.event-form-fields .event-unlimited input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+.event-create-section { padding: 8px 0; margin-bottom: 20px; }
+#eventsView .event-list-heading { justify-content: flex-end; }
+#eventMessage:empty, #profileEventMessage:empty { display: none; }
+#eventDashboard[hidden], #dashboardContent[hidden], #dashboardExportExcel[hidden], .dashboard-filter-fields label[hidden] { display: none !important; }
 .event-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 #eventMessage { min-height: 1.5em; }
 .event-error { color: #bd2929; }
@@ -5877,11 +5882,12 @@ tr:last-child td {
 
 .dashboard-filter-panel {
   min-height: 76px;
-  margin-bottom: 12px;
+  padding: 24px 16px;
+  margin-bottom: 16px;
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 20px 10px;
   flex-wrap: wrap;
 }
 
@@ -5901,10 +5907,10 @@ tr:last-child td {
   width: 210px;
   min-width: 150px;
   display: grid;
-  gap: 6px;
+  gap: 9px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .dashboard-view-tabs {

@@ -8,6 +8,16 @@ const analytics = fs.readFileSync(new URL("../api/analytics-source.php", import.
 const styles = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
+test("dashboard filter actions line up with the inputs, below their labels", () => {
+  assert.match(styles, /\.dashboard-filter-panel\s*\{[^}]*align-items:\s*flex-end;/s);
+});
+
+test("dashboard filter card has breathing room and medium-weight labels", () => {
+  assert.match(styles, /\.dashboard-filter-panel\s*\{[^}]*padding:\s*24px 16px;[^}]*gap:\s*20px 10px;/s);
+  assert.match(styles, /\.dashboard-filter-fields label\s*\{[^}]*gap:\s*9px;[^}]*font-weight:\s*500;/s);
+  assert.match(styles, /\.dashboard-filter-fields label\s*\{[^}]*font-size:\s*12px;/s);
+});
+
 test("dashboard loads a server read model before the optional staff detail source", () => {
   assert.match(app, /serverApi\(`dashboard-summary\.php\?\$\{params\.toString\(\)\}`\)/);
   assert.match(app, /summary: result\.summary/);
