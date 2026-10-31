@@ -40,7 +40,7 @@ try {
         if (($_GET['mode'] ?? '') === 'dashboard') {
             $mode = (string)($_GET['filter'] ?? 'month');
             $month = (string)($_GET['month'] ?? substr($today, 0, 7));
-            if (!in_array($mode, ['all', 'month', 'single'], true) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) throw new InvalidArgumentException('Event-ийн тайлангийн шүүлтүүр буруу байна.');
+            if (!in_array($mode, ['all', 'month', 'single'], true) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) throw new InvalidArgumentException('Арга хэмжээний тайлангийн шүүлтүүр буруу байна.');
             $salon = ($user['role'] ?? '') === 'salon' ? (string)$user['salon'] : trim((string)($_GET['salon'] ?? ''));
             json_response(['ok' => true, 'summary' => event_dashboard_summary($allRows, $mode, $month, (string)($_GET['eventId'] ?? ''), $salon)]);
         }
@@ -57,8 +57,8 @@ try {
     $input = request_payload();
     $id = (string)($input['id'] ?? '');
     $action = (string)($input['action'] ?? 'save');
-    if (!in_array($action, ['save', 'delete', 'assign'], true)) throw new InvalidArgumentException('Event-ийн үйлдэл буруу байна.');
-    if ($action !== 'assign' && (!preg_match('/^[A-Za-z0-9._:-]{1,100}$/', $id) || filter_var($input['version'] ?? null, FILTER_VALIDATE_INT) === false || (int)$input['version'] < 0)) throw new InvalidArgumentException('Event-ийн дугаар/хувилбар буруу байна.');
+    if (!in_array($action, ['save', 'delete', 'assign'], true)) throw new InvalidArgumentException('Арга хэмжээний үйлдэл буруу байна.');
+    if ($action !== 'assign' && (!preg_match('/^[A-Za-z0-9._:-]{1,100}$/', $id) || filter_var($input['version'] ?? null, FILTER_VALIDATE_INT) === false || (int)$input['version'] < 0)) throw new InvalidArgumentException('Арга хэмжээний дугаар/хувилбар буруу байна.');
     $pdo->beginTransaction();
     // Use the same lock as other app-section writers, including future registration
     // mutations, so a registration and deletion cannot race each other.
@@ -105,5 +105,5 @@ try {
 } catch (Throwable $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     error_log('Event request failed: ' . $error->getMessage());
-    json_response(['ok' => false, 'message' => 'Event хадгалах/ачаалах боломжгүй байна. Дахин оролдоно уу.'], 500);
+    json_response(['ok' => false, 'message' => 'Арга хэмжээ хадгалах/ачаалах боломжгүй байна. Дахин оролдоно уу.'], 500);
 }

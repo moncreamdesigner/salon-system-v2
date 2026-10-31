@@ -6315,7 +6315,7 @@ function infoForView(name) {
       ["Ирээдүй", state.discounts.filter(item => item.startDate > today).length],
       ["Салбар", new Set(state.discounts.flatMap(item => item.salons || [])).size]
     ]],
-    events: ["EVENT", [["Нийт", window.EventSettings?.count || 0]]],
+    events: ["АРГА ХЭМЖЭЭ", [["Нийт", window.EventSettings?.count || 0]]],
     settingsBonus: ["БОНУС ТОХИРГОО", [
       ["Хэрэглэгч", `${customerTypeRule("Хэрэглэгч").bonusPercent}%`],
       ["Дээд хувь", "10%"],

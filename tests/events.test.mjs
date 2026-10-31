@@ -9,7 +9,7 @@ const ui = read("events.js");
 const api = read("api/events.php");
 
 test("event menu follows discounts and loads only its own data plus delete-code settings", () => {
-  assert.match(html, /data-view="settingsDiscounts">Хямдрал<\/button>\s*<button class="nav-item" data-view="events">Event/);
+  assert.match(html, /data-view="settingsDiscounts">Хямдрал<\/button>\s*<button class="nav-item" data-view="events">Арга хэмжээ/);
   assert.match(app, /events: \["generalSettings"\]/);
   assert.match(app, /name === "events"\) window.EventSettings.render\(\)/);
   assert.match(ui, /serverApi\("events.php"/);
@@ -104,7 +104,7 @@ test("profile defaults blank, hides expired events and only saves explicit choic
   const posts = [];
   const context = vm.createContext({ window: {}, document: { getElementById: element }, todayText: () => "2026-10-31", serverApi: async (path, options = {}) => {
     if (!options.method) return { membership: { eventId: "", token: "original-token" }, events: [
-      { id: "latest", name: "New event", endDate: "2026-11-30" },
+      { id: "latest", name: "New event", endDate: "" },
       { id: "ended", name: "Expired event", endDate: "2026-10-30" }
     ] };
     const payload = JSON.parse(options.body);
@@ -116,6 +116,7 @@ test("profile defaults blank, hides expired events and only saves explicit choic
   context.window.EventSettings.bindProfile({ id: 12 });
   await tick();
   assert.equal(element("profileEventSelect").value, "");
+  assert.match(element("profileEventSelect").innerHTML, /New event/, "Unlimited events must be available");
   assert.doesNotMatch(element("profileEventSelect").innerHTML, /Expired event/);
   assert.equal(posts.length, 0);
   element("profileEventSelect").handlers.change({ target: { value: "latest" } });
@@ -130,6 +131,47 @@ test("profile defaults blank, hides expired events and only saves explicit choic
   assert.equal(posts[1].eventId, "", "Blank saves an explicit removal");
   assert.equal(posts[1].token, "new-token");
   assert.equal(element("profileEventSelect").value, "");
+});
+
+test("unlimited events can be created without an end date and later given one", async () => {
+  const element = fakeElements(["eventForm", "eventName", "eventStartDate", "eventEndDate", "eventUnlimited", "eventSubmit", "eventCancel", "eventFormTitle", "eventRows", "eventFields", "eventRefresh", "eventMessage"]);
+  element("eventMessage").classList = { toggle() {} };
+  element("eventForm").reset = () => { for (const id of ["eventName", "eventStartDate", "eventEndDate"]) element(id).value = ""; };
+  element("eventForm").scrollIntoView = () => {};
+  element("eventName").focus = () => {};
+  let stored = [];
+  const posts = [];
+  const context = vm.createContext({ window: {}, document: { getElementById: element }, todayText: () => "2026-10-31", entityId: () => "unlimited", editIcon: () => "edit", trashIcon: () => "delete", activeView: "events", renderInfoHeader() {}, showToast() {}, serverApi: async (path, options = {}) => {
+    if (!options.method) return { events: stored };
+    const body = JSON.parse(options.body); posts.push(body);
+    stored = [{ ...body, version: body.version + 1, registrationCount: 0 }];
+    return { event: stored[0] };
+  } });
+  vm.runInContext(ui, context);
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  context.window.EventSettings.render(); await tick();
+  assert.equal(element("eventUnlimited").checked, true);
+  assert.equal(element("eventEndDate").disabled, true);
+  element("eventName").value = "Хугацаагүй арга хэмжээ";
+  element("eventForm").handlers.submit({ preventDefault() {} }); await tick();
+  assert.equal(posts[0].endDate, "");
+  assert.match(element("eventRows").innerHTML, /Хугацаагүй/);
+  await element("eventRows").handlers.click({ target: { closest: () => ({ dataset: { eventEdit: "unlimited" } }) } });
+  element("eventUnlimited").handlers.change({ target: { checked: false } });
+  assert.equal(element("eventEndDate").disabled, false);
+  element("eventEndDate").value = "2026-11-30";
+  element("eventForm").handlers.submit({ preventDefault() {} }); await tick();
+  assert.equal(posts[1].endDate, "2026-11-30");
+  assert.equal(posts[1].id, "unlimited");
+});
+
+test("event UI uses Mongolian labels and requires only the start date", () => {
+  assert.match(html, /id="eventStartDate" type="date" required/);
+  assert.match(html, /id="eventEndDate" type="date" disabled/);
+  assert.match(html, /id="eventUnlimited" type="checkbox" checked/);
+  assert.match(html, /Арга хэмжээний тайлан/);
+  assert.match(ui, /profile-card-title">Арга хэмжээ/);
+  assert.doesNotMatch(html, />Event(?:\s|<)/);
 });
 
 test("event dashboard loads once and sends all, monthly and single filters with the selected salon", async () => {

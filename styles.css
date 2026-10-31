@@ -1,6 +1,8 @@
 .event-form-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; border: 0; padding: 0; margin: 16px 0; }
 .event-form-fields label { display: grid; gap: 8px; flex: 1 1 180px; font-weight: 600; }
 .event-form-fields label:first-child { flex: 2 1 260px; }
+.event-form-fields .event-unlimited { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 44px; }
+.event-form-fields .event-unlimited input { width: auto; }
 .event-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 #eventMessage { min-height: 1.5em; }
 .event-error { color: #bd2929; }

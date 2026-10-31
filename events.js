@@ -21,21 +21,25 @@ window.EventSettings = (() => {
     editing = null;
     draftId = entityId("event");
     el("eventForm")?.reset();
+    if (el("eventUnlimited")) {
+      el("eventUnlimited").checked = true;
+      el("eventEndDate").disabled = true;
+    }
     if (el("eventStartDate")) el("eventStartDate").value = todayText();
     if (el("eventSubmit")) el("eventSubmit").textContent = "Нэмэх";
     if (el("eventCancel")) el("eventCancel").hidden = true;
-    if (el("eventFormTitle")) el("eventFormTitle").textContent = "Event үүсгэх";
+    if (el("eventFormTitle")) el("eventFormTitle").textContent = "Арга хэмжээ үүсгэх";
   }
   function draw() {
     const body = el("eventRows");
     if (!body) return;
     body.innerHTML = rows.map(row => `<tr>
-      <td><strong>${html(row.name)}</strong></td><td>${html(row.startDate)}</td><td>${html(row.endDate)}</td>
+      <td><strong>${html(row.name)}</strong></td><td>${html(row.startDate)}</td><td>${html(row.endDate || "Хугацаагүй")}</td>
       <td>${Number(row.registrationCount) || 0}</td>
       <td><div class="table-actions">
         <button type="button" class="secondary-btn icon-action" data-event-edit="${html(row.id)}" aria-label="Засах" ${busy ? "disabled" : ""}>${editIcon()}</button>
-        <button type="button" class="danger-btn icon-danger" data-event-delete="${html(row.id)}" aria-label="Устгах" ${busy || row.hasRegistrations || row.registrationCount > 0 ? "disabled" : ""} title="${row.hasRegistrations || row.registrationCount > 0 ? "Хүн бүртгэгдсэн event-ийг устгах боломжгүй" : "Устгах"}">${trashIcon()}</button>
-      </div></td></tr>`).join("") || '<tr><td colspan="5">Event бүртгэгдээгүй байна.</td></tr>';
+        <button type="button" class="danger-btn icon-danger" data-event-delete="${html(row.id)}" aria-label="Устгах" ${busy || row.hasRegistrations || row.registrationCount > 0 ? "disabled" : ""} title="${row.hasRegistrations || row.registrationCount > 0 ? "Хүн бүртгэгдсэн арга хэмжээг устгах боломжгүй" : "Устгах"}">${trashIcon()}</button>
+      </div></td></tr>`).join("") || '<tr><td colspan="5">Арга хэмжээ бүртгэгдээгүй байна.</td></tr>';
     if (el("eventFields")) el("eventFields").disabled = busy;
     if (el("eventRefresh")) el("eventRefresh").disabled = busy;
   }
@@ -85,10 +89,17 @@ window.EventSettings = (() => {
         const name = el("eventName").value.trim();
         const startDate = el("eventStartDate").value;
         const endDate = el("eventEndDate").value;
-        if (!name || !startDate || !endDate || endDate < startDate) return note("Нэр, эхлэх/дуусах огноогоо зөв оруулна уу.", true);
-        void mutate({ action: "save", id: editing?.id || draftId, version: editing?.version || 0, name, startDate, endDate }, editing ? "Event шинэчлэгдлээ" : "Event нэмэгдлээ");
+        if (!name || !startDate || (endDate && endDate < startDate)) return note("Нэр, эхлэх огноо болон дуусах огноо оруулсан бол түүнийг зөв оруулна уу.", true);
+        void mutate({ action: "save", id: editing?.id || draftId, version: editing?.version || 0, name, startDate, endDate }, editing ? "Арга хэмжээ шинэчлэгдлээ" : "Арга хэмжээ нэмэгдлээ");
       });
       el("eventCancel").addEventListener("click", reset);
+      el("eventUnlimited")?.addEventListener("change", event => {
+        el("eventEndDate").disabled = event.target.checked;
+        if (event.target.checked) el("eventEndDate").value = "";
+      });
+      el("eventEndDate").addEventListener("change", () => {
+        if (el("eventUnlimited")) el("eventUnlimited").checked = !el("eventEndDate").value;
+      });
       el("eventRefresh").addEventListener("click", () => { if (!busy) void load(); });
       el("eventRows").addEventListener("click", async event => {
         const button = event.target.closest("[data-event-edit], [data-event-delete]");
@@ -99,17 +110,21 @@ window.EventSettings = (() => {
           editing = { ...row };
           el("eventName").value = row.name;
           el("eventStartDate").value = row.startDate;
-          el("eventEndDate").value = row.endDate;
+          el("eventEndDate").value = row.endDate || "";
+          if (el("eventUnlimited")) {
+            el("eventUnlimited").checked = !row.endDate;
+            el("eventEndDate").disabled = !row.endDate;
+          }
           el("eventSubmit").textContent = "Хадгалах";
           el("eventCancel").hidden = false;
-          el("eventFormTitle").textContent = "Event засах";
+          el("eventFormTitle").textContent = "Арга хэмжээ засах";
           form.scrollIntoView({ behavior: "smooth", block: "nearest" });
           el("eventName").focus();
         } else {
-          if (row.hasRegistrations || row.registrationCount > 0) return note("Хүн бүртгэгдсэн event-ийг устгах боломжгүй.", true);
+          if (row.hasRegistrations || row.registrationCount > 0) return note("Хүн бүртгэгдсэн арга хэмжээг устгах боломжгүй.", true);
           const code = await requestActionCode("delete", true);
           if (!code || busy) return;
-          await mutate({ action: "delete", id: row.id, version: row.version, code }, "Event устлаа");
+          await mutate({ action: "delete", id: row.id, version: row.version, code }, "Арга хэмжээ устлаа");
         }
       });
     }
@@ -118,8 +133,8 @@ window.EventSettings = (() => {
   }
   function profileCard(customer) {
     return `<section class="profile-side-card" id="profileEventCard" data-customer-id="${html(customer.id)}">
-      <div class="profile-card-title">Event</div>
-      <div class="profile-event-controls"><select class="input" id="profileEventSelect" aria-label="Event" disabled><option value="">–</option></select><button class="primary-btn" id="profileEventSave" type="button" disabled>Хадгалах</button></div>
+      <div class="profile-card-title">Арга хэмжээ</div>
+      <div class="profile-event-controls"><select class="input" id="profileEventSelect" aria-label="Арга хэмжээ" disabled><option value="">–</option></select><button class="primary-btn" id="profileEventSave" type="button" disabled>Хадгалах</button></div>
       <p class="muted-row" id="profileEventMessage" role="status" aria-live="polite"></p></section>`;
   }
   function bindProfile(customer) {
@@ -133,7 +148,7 @@ window.EventSettings = (() => {
     const paint = () => {
       if (!current()) return;
       const select = el("profileEventSelect");
-      const selectable = draft.events.filter(event => event.endDate >= todayText());
+      const selectable = draft.events.filter(event => !event.endDate || event.endDate >= todayText());
       select.innerHTML = '<option value="">–</option>' + selectable.map(event => `<option value="${html(event.id)}">${html(event.name)}</option>`).join("");
       select.value = draft.selected;
       select.disabled = !draft.loaded || draft.busy;
@@ -172,7 +187,7 @@ window.EventSettings = (() => {
         draft.dirty = false;
         reportKey = "";
         reportCatalogLoadedAt = 0;
-        message(draft.saved ? "Event бүртгэл хадгалагдлаа" : "Event-ээс хасагдлаа");
+        message(draft.saved ? "Арга хэмжээний бүртгэл хадгалагдлаа" : "Арга хэмжээнээс хасагдлаа");
       } catch (error) {
         if (error.status === 409) await fetchMembership(true);
         message(error.message);
@@ -209,7 +224,7 @@ window.EventSettings = (() => {
         const catalog = await serverApi("events.php");
         if (sequence !== reportSequence || !panel.isConnected) return;
         const selected = eventSelect.value;
-        eventSelect.innerHTML = '<option value="">Event сонгох</option>' + catalog.events.map(event => `<option value="${html(event.id)}">${html(event.name)}</option>`).join("");
+        eventSelect.innerHTML = '<option value="">Арга хэмжээ сонгох</option>' + catalog.events.map(event => `<option value="${html(event.id)}">${html(event.name)}</option>`).join("");
         eventSelect.value = selected;
         reportCatalogLoadedAt = Date.now();
       }
@@ -217,8 +232,8 @@ window.EventSettings = (() => {
       const result = await serverApi(`events.php?${params}`);
       if (sequence !== reportSequence || !panel.isConnected) return;
       const summary = result.summary;
-      el("eventReportTotals").innerHTML = `<span>Event: <strong>${summary.eventCount}</strong></span><span>Нийт бүртгэл: <strong>${summary.registrations}</strong></span><span>Давхардаагүй хэрэглэгч: <strong>${summary.customers}</strong></span>`;
-      el("eventReportRows").innerHTML = summary.events.map(event => `<tr><td><strong>${html(event.name)}</strong></td><td>${html(event.startDate)} — ${html(event.endDate)}</td><td>${event.registrationCount}</td></tr>`).join("") || '<tr><td colspan="3">Мэдээлэл алга.</td></tr>';
+      el("eventReportTotals").innerHTML = `<span>Арга хэмжээ: <strong>${summary.eventCount}</strong></span><span>Нийт бүртгэл: <strong>${summary.registrations}</strong></span><span>Давхардаагүй хэрэглэгч: <strong>${summary.customers}</strong></span>`;
+      el("eventReportRows").innerHTML = summary.events.map(event => `<tr><td><strong>${html(event.name)}</strong></td><td>${html(event.startDate)} — ${html(event.endDate || "Хугацаагүй")}</td><td>${event.registrationCount}</td></tr>`).join("") || '<tr><td colspan="3">Мэдээлэл алга.</td></tr>';
       el("eventReportSalons").innerHTML = Object.entries(summary.salons).map(([name, count]) => `<span>${html(name)}: <strong>${count}</strong></span>`).join("");
       reportLoadedAt = Date.now();
       reportNote("");

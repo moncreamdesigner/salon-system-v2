@@ -4,23 +4,29 @@ declare(strict_types=1);
 function event_fields(array $input): array
 {
     $name = trim((string)($input['name'] ?? ''));
-    if ($name === '' || preg_match('/^.{1,200}$/us', $name) !== 1) throw new InvalidArgumentException('Event-ийн нэрийг оруулна уу (200 хүртэл тэмдэгт).');
+    if ($name === '' || preg_match('/^.{1,200}$/us', $name) !== 1) throw new InvalidArgumentException('Арга хэмжээний нэрийг оруулна уу (200 хүртэл тэмдэгт).');
     $dates = [];
     foreach (['startDate', 'endDate'] as $key) {
         $value = (string)($input[$key] ?? '');
+        if ($key === 'endDate' && $value === '') { $dates[$key] = ''; continue; }
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
         if (!$date || $date->format('Y-m-d') !== $value) throw new InvalidArgumentException('Эхлэх, дуусах огноог зөв оруулна уу.');
         $dates[$key] = $value;
     }
-    if ($dates['endDate'] < $dates['startDate']) throw new InvalidArgumentException('Дуусах огноо эхлэх огнооноос өмнө байж болохгүй.');
+    if ($dates['endDate'] !== '' && $dates['endDate'] < $dates['startDate']) throw new InvalidArgumentException('Дуусах огноо эхлэх огнооноос өмнө байж болохгүй.');
     return ['name' => $name] + $dates;
+}
+
+function event_has_ended(array $event, string $today): bool
+{
+    return !empty($event['endDate']) && $event['endDate'] < $today;
 }
 
 function event_registration_count(array $event): int
 {
     // Registrations are server-owned. Count all records, including cancelled
     // registrations: an event with registration history cannot be removed.
-    if (isset($event['registrations']) && !is_array($event['registrations'])) throw new DomainException('Event-ийн бүртгэлийн мэдээллийг шалгах шаардлагатай байна.');
+    if (isset($event['registrations']) && !is_array($event['registrations'])) throw new DomainException('Арга хэмжээний бүртгэлийн мэдээллийг шалгах шаардлагатай байна.');
     return count($event['registrations'] ?? []);
 }
 
@@ -44,7 +50,7 @@ function event_membership_state(array $events, string $customerId, string $today
         foreach (($event['registrations'] ?? []) as $registration) {
             if ((string)($registration['customerId'] ?? '') !== $customerId) continue;
             $versions[] = [$event['id'], (int)($registration['version'] ?? 0), event_registration_active($registration)];
-            if (empty($event['deletedAt']) && $event['endDate'] >= $today && event_registration_active($registration)) $selected[] = $event;
+            if (empty($event['deletedAt']) && !event_has_ended($event, $today) && event_registration_active($registration)) $selected[] = $event;
         }
     }
     usort($selected, static fn(array $a, array $b): int => strcmp($b['startDate'] . $b['id'], $a['startDate'] . $a['id']));
@@ -57,16 +63,16 @@ function event_assign_customer(array $events, string $customerId, string $eventI
     $state = event_membership_state($events, $customerId, $today);
     if (!hash_equals($state['token'], $token)) {
         if ($state['eventId'] === $eventId) return $events; // successful replay
-        throw new DomainException('Энэ хүний event бүртгэл өөрчлөгдсөн байна. Шинэчлээд дахин оролдоно уу.');
+        throw new DomainException('Энэ хүний арга хэмжээний бүртгэл өөрчлөгдсөн байна. Шинэчлээд дахин оролдоно уу.');
     }
     if ($eventId !== '') {
-        $target = array_values(array_filter($events, static fn(array $event): bool => $event['id'] === $eventId && empty($event['deletedAt']) && $event['endDate'] >= $today));
-        if ($target === []) throw new DomainException('Event дууссан эсвэл устгагдсан байна. Өөр event сонгоно уу.');
+        $target = array_values(array_filter($events, static fn(array $event): bool => $event['id'] === $eventId && empty($event['deletedAt']) && !event_has_ended($event, $today)));
+        if ($target === []) throw new DomainException('Арга хэмжээ дууссан эсвэл устгагдсан байна. Өөр арга хэмжээ сонгоно уу.');
     }
     foreach ($events as &$event) {
         // Completed events retain their historical attendance when a customer
         // joins a new event. A blank choice only clears their current selection.
-        if (!empty($event['deletedAt']) || $event['endDate'] < $today) continue;
+        if (!empty($event['deletedAt']) || event_has_ended($event, $today)) continue;
         $changed = false;
         $found = false;
         foreach ($event['registrations'] as &$registration) {
@@ -104,7 +110,7 @@ function event_dashboard_summary(array $events, string $mode, string $month, str
         if ($mode === 'month') {
             $first = $month . '-01';
             $last = (new DateTimeImmutable($first))->format('Y-m-t');
-            if ($event['endDate'] < $first || $event['startDate'] > $last) continue;
+            if (event_has_ended($event, $first) || $event['startDate'] > $last) continue;
         }
         $count = 0;
         foreach (($event['registrations'] ?? []) as $registration) {
@@ -125,20 +131,20 @@ function event_mutate(?array $current, array $input, string $action, string $act
 {
     $version = (int)($input['version'] ?? 0);
     if ($action === 'delete') {
-        if (!$current) throw new DomainException('Event олдсонгүй. Жагсаалтаа шинэчилнэ үү.');
-        if (event_registration_count($current) > 0) throw new DomainException('Хүн бүртгэгдсэн event-ийг устгах боломжгүй.');
+        if (!$current) throw new DomainException('Арга хэмжээ олдсонгүй. Жагсаалтаа шинэчилнэ үү.');
+        if (event_registration_count($current) > 0) throw new DomainException('Хүн бүртгэгдсэн арга хэмжээг устгах боломжгүй.');
         if (!empty($current['deletedAt'])) return $current;
-        if ($version !== (int)$current['version']) throw new DomainException('Event өөрчлөгдсөн байна. Жагсаалтаа шинэчлээд дахин оролдоно уу.');
+        if ($version !== (int)$current['version']) throw new DomainException('Арга хэмжээ өөрчлөгдсөн байна. Жагсаалтаа шинэчлээд дахин оролдоно уу.');
         return array_merge($current, ['deletedAt' => $now, 'deletedBy' => $actor, 'version' => $version + 1]);
     }
     $fields = event_fields($input);
-    if ($current && !empty($current['deletedAt'])) throw new DomainException('Энэ event устгагдсан байна.');
+    if ($current && !empty($current['deletedAt'])) throw new DomainException('Энэ арга хэмжээ устгагдсан байна.');
     if ($current && $version !== (int)$current['version']) {
         // A retried successful creation/save must never create a second event.
         if ((int)$current['version'] === $version + 1 && event_fields($current) === $fields) return $current;
-        throw new DomainException('Event өөрчлөгдсөн байна. Жагсаалтаа шинэчлээд дахин оролдоно уу.');
+        throw new DomainException('Арга хэмжээ өөрчлөгдсөн байна. Жагсаалтаа шинэчлээд дахин оролдоно уу.');
     }
-    if (!$current && $version !== 0) throw new DomainException('Засах event олдсонгүй.');
+    if (!$current && $version !== 0) throw new DomainException('Засах арга хэмжээ олдсонгүй.');
     return array_merge($current ?? ['id' => $input['id'], 'registrations' => [], 'createdAt' => $now, 'createdBy' => $actor], $fields,
         ['version' => $version + 1, 'updatedAt' => $now, 'updatedBy' => $actor]);
 }

@@ -66,4 +66,20 @@ $branchReport = event_dashboard_summary($reportEvents, 'single', '2026-11', 'ove
 check_event($branchReport['eventCount'] === 1 && $branchReport['registrations'] === 1 && $branchReport['customers'] === 1, 'Single-event reports must honor branch filters');
 $allReport = event_dashboard_summary($reportEvents, 'all', '2026-11', '', '');
 check_event($allReport['eventCount'] === 3 && $allReport['registrations'] === 5, 'All-event reports must retain expired event data');
+
+$unlimitedInput = array_merge($input, ['id' => 'unlimited', 'startDate' => '2026-10-31', 'endDate' => '']);
+$unlimited = event_mutate(null, $unlimitedInput, 'save', 'admin', 'now');
+check_event($unlimited['endDate'] === '', 'Empty end date must mean unlimited');
+check_event(!event_has_ended($unlimited, '2030-01-01'), 'Unlimited events do not expire automatically');
+rejects_event(fn() => event_fields(array_merge($unlimitedInput, ['startDate' => ''])));
+$unlimitedToken = event_membership_state([$unlimited], '12', $today)['token'];
+$unlimitedJoined = event_assign_customer([$unlimited], '12', 'unlimited', $unlimitedToken, 'Salon 1', 'admin', 'now', $today);
+check_event(event_membership_state($unlimitedJoined, '12', '2028-01-01')['eventId'] === 'unlimited', 'Unlimited assignments stay selected in later years');
+check_event(event_dashboard_summary($unlimitedJoined, 'month', '2028-06', '', '')['registrations'] === 1, 'Unlimited events appear in later monthly reports');
+check_event(event_dashboard_summary($unlimitedJoined, 'month', '2026-09', '', '')['eventCount'] === 0, 'Unlimited events must not appear before they start');
+$withEndDate = event_mutate($unlimitedJoined[0], array_merge($unlimitedInput, ['version' => $unlimitedJoined[0]['version'], 'endDate' => '2026-11-30']), 'save', 'admin', 'later');
+check_event($withEndDate['registrations'] === $unlimitedJoined[0]['registrations'], 'Adding an end date must preserve registrations');
+check_event(event_membership_state([$withEndDate], '12', '2026-12-01')['eventId'] === '', 'A later added end date hides expired events from current selection');
+check_event(event_dashboard_summary([$withEndDate], 'month', '2026-12', '', '')['eventCount'] === 0, 'Closed events disappear from later monthly filters');
+check_event(event_dashboard_summary([$withEndDate], 'all', '2026-12', '', '')['registrations'] === 1, 'Closed events retain historical registration data');
 echo "events-test: OK\n";
