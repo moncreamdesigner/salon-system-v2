@@ -102,5 +102,7 @@ test("non-admin accounts cannot create or convert branch customer types", () => 
 });
 
 test("employee policy checkboxes use the product accent color", () => {
-  assert.match(styleSource, /\.employee-discount-policy input\[type="checkbox"\]\s*\{\s*accent-color: var\(--accent\);\s*\}/);
+  const controls = fs.readFileSync(new URL("../form-fields.css", import.meta.url), "utf8");
+  assert.match(controls, /--checkbox-color: var\(--accent,/);
+  assert.match(controls, /input\[type="checkbox"\]:checked\s*\{[^}]*background-color: var\(--checkbox-color\)/);
 });

@@ -170,7 +170,8 @@ test("event UI uses Mongolian labels and requires only the start date", () => {
   assert.match(html, /id="eventStartDate" type="date" required/);
   assert.match(html, /id="eventEndDate" type="date" disabled/);
   assert.match(html, /id="eventUnlimited" type="checkbox" checked/);
-  assert.match(html, /Арга хэмжээний тайлан/);
+  assert.match(html, /class="event-report-toolbar"/);
+  assert.doesNotMatch(html, /<h2>Арга хэмжээний тайлан<\/h2>/);
   assert.match(ui, /profile-card-title">Арга хэмжээ/);
   assert.doesNotMatch(html, />Event(?:\s|<)/);
 });
@@ -180,9 +181,10 @@ test("creation is cardless, both management titles are removed, and checkbox use
   assert.doesNotMatch(html, /id="eventFormTitle"|<h2>Арга хэмжээний жагсаалт<\/h2>|Хоосон бол хугацаагүй/);
   const styles = read("styles.css");
   assert.match(styles, /\.event-create-section\s*\{[^}]*padding:\s*0;[^}]*margin:\s*0 0 var\(--form-section-gap\);/);
-  assert.match(styles, /input\[type="checkbox"\]\s*\{[^}]*accent-color:\s*var\(--accent\)/);
   assert.match(styles, /\.event-form-fields \.event-unlimited\s*\{[^}]*font-weight:\s*400;/);
-  assert.match(styles, /input\[type="checkbox"\]:checked\s*\{[^}]*background-color:\s*var\(--accent\);[^}]*stroke='%23fff'/);
+  const controls = read("form-fields.css");
+  assert.match(controls, /input\[type="checkbox"\]:checked\s*\{[^}]*background-image:\s*var\(--checkbox-check\)/);
+  assert.match(controls, /stroke='%23fff'/);
 });
 
 test("event list loads once per menu entry without an outer card or refresh button", async () => {
@@ -254,6 +256,10 @@ test("event dashboard loads once and sends all, monthly and single filters with 
   assert.equal(queries[0].get("salon"), "Salon 2");
   assert.match(element("eventReportEvent").innerHTML, /Expired event/, "Old events remain selectable in reports");
   assert.match(element("eventReportRows").innerHTML, /Safe &lt;name&gt;/);
+  assert.match(element("eventReportTotals").innerHTML, /event-report-metric/);
+  assert.match(element("eventReportTotals").innerHTML, /Нийт хүний бүртгэл/);
+  assert.match(element("eventReportSalons").innerHTML, /Salon 2/);
+  assert.match(element("eventReportSalons").innerHTML, /100%/);
   element("eventReportMode").value = "all";
   await context.window.EventSettings.renderDashboard(true);
   assert.equal(queries.at(-1).get("filter"), "all");
@@ -261,4 +267,9 @@ test("event dashboard loads once and sends all, monthly and single filters with 
   element("eventReportEvent").value = "ended";
   await context.window.EventSettings.renderDashboard(true);
   assert.equal(queries.at(-1).get("eventId"), "ended");
+});
+
+test("event report tab appears immediately before system monitoring", () => {
+  const modes = app.slice(app.indexOf("const dashboardViewModes ="), app.indexOf("function dashboardAllowedViewModes("));
+  assert.match(modes, /value: "cashflow"[\s\S]*value: "events"[\s\S]*value: "system"/);
 });

@@ -7,12 +7,12 @@ const htmlSource = fs.readFileSync(new URL("../index.html", import.meta.url), "u
 const styleSource = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 test("voucher reward checkbox uses the short label and aligned layout", () => {
-  assert.match(htmlSource, /<span>Урамшуулалд тооцох<\/span>\s*<input id="voucherRoleCashierEligible" type="checkbox">/);
+  assert.match(htmlSource, /<input id="voucherRoleCashierEligible" type="checkbox">\s*<span>Урамшуулалд тооцох<\/span>/);
   assert.doesNotMatch(htmlSource, /Кассын урамшуулалд тооцно/);
-  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?flex-direction: column;[\s\S]+?align-items: flex-start;/);
+  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?flex-direction: row;[\s\S]+?align-items: center;/);
   assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?width: max-content;[\s\S]+?border: 0;[\s\S]+?background: transparent;/);
-  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?align-self: start;/);
-  assert.doesNotMatch(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?align-self: end;/);
+  assert.match(styleSource, /\.voucher-commission-check\s*\{[\s\S]+?align-self: end;/);
+  assert.match(styleSource, /\.voucher-commission-check span\s*\{[^}]*font-weight: 400;/);
   assert.match(styleSource, /\.voucher-role-form\s*\{[\s\S]+?max-content minmax\(108px, 1fr\)/);
 });
 

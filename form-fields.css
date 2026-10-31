@@ -1,19 +1,28 @@
-/* Shared field-title typography for every page and dynamically rendered form.
-   Layout stays in each component; only titles use these canonical tokens.
-   Important declarations intentionally override legacy per-screen typography.
-   Buttons, checkbox/radio captions, help text and input values are not titles. */
+/* Shared typography and checkbox primitives for every page and dynamic form.
+   Component layout stays local. Titles, strong text and checks use these tokens.
+   Important declarations override legacy per-screen title/control styling.
+   Checkbox/radio captions, help text and input values are not field titles. */
 :root {
+  --font-weight-strong: 600;
   --field-label-size: 12px;
   --field-label-weight: 500;
   --field-label-color: #717771;
   --form-section-gap: 12px;
+  --checkbox-size: 16px;
+  --checkbox-color: var(--accent, var(--green, #68bd63));
+  --checkbox-border: var(--line-strong, #cdd6cd);
+  --checkbox-background: var(--surface, #fff);
+  --checkbox-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3.5 8 3 3 6-6' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
+
+b, strong, h1, h2, h3, h4, h5, h6, th { font-weight: var(--font-weight-strong); }
 
 @layer field-titles {
   label:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn):has(
     input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="button"], [type="submit"], [type="reset"]), select, textarea
   ),
   label[for]:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn),
+  label:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn):has(.custom-select, .native-select-proxy, .schedule-time-proxy, [role="combobox"]),
   label:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn):has(input:not([type="checkbox"], [type="radio"], [type="hidden"]), select, textarea) > :is(span, strong):first-child,
   .field-label, .form-label, .branch-field-label, .homepage-field-label,
   .discount-salon-field > span:first-child,
@@ -25,5 +34,46 @@
     font-size: var(--field-label-size) !important;
     font-weight: var(--field-label-weight) !important;
     color: var(--field-label-color) !important;
+  }
+}
+
+/* All checkboxes share these rules, including dynamically rendered options.
+   No display rule: intentionally hidden checkbox controls must remain hidden. */
+@layer checkbox-controls {
+  input[type="checkbox"] {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    width: var(--checkbox-size) !important;
+    height: var(--checkbox-size) !important;
+    min-width: var(--checkbox-size) !important;
+    flex: 0 0 var(--checkbox-size) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1px solid var(--checkbox-border) !important;
+    border-radius: 4px !important;
+    background-color: var(--checkbox-background) !important;
+    background-image: none !important;
+    background-size: 14px 14px !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    box-shadow: none !important;
+    vertical-align: middle;
+    cursor: pointer;
+  }
+  input[type="checkbox"]:checked {
+    background-color: var(--checkbox-color) !important;
+    border-color: var(--checkbox-color) !important;
+    background-image: var(--checkbox-check) !important;
+  }
+  input[type="checkbox"]:indeterminate {
+    background-color: var(--checkbox-color) !important;
+    border-color: var(--checkbox-color) !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") !important;
+  }
+  input[type="checkbox"]::before, input[type="checkbox"]::after { content: none !important; }
+  input[type="checkbox"]:focus-visible { outline: 2px solid var(--checkbox-color) !important; outline-offset: 3px; }
+  input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+  @media (forced-colors: active) {
+    input[type="checkbox"], input[type="checkbox"]:checked, input[type="checkbox"]:indeterminate { appearance: auto !important; -webkit-appearance: auto !important; background-image: none !important; forced-color-adjust: auto; }
   }
 }

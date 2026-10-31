@@ -231,11 +231,15 @@ window.EventSettings = (() => {
       const result = await serverApi(`events.php?${params}`);
       if (sequence !== reportSequence || !panel.isConnected) return;
       const summary = result.summary;
-      el("eventReportTotals").innerHTML = `<span>Арга хэмжээ: <strong>${summary.eventCount}</strong></span><span>Нийт бүртгэл: <strong>${summary.registrations}</strong></span><span>Давхардаагүй хэрэглэгч: <strong>${summary.customers}</strong></span>`;
-      el("eventReportRows").innerHTML = summary.events.map(event => `<tr><td><strong>${html(event.name)}</strong></td><td>${html(event.startDate)} — ${html(event.endDate || "Хугацаагүй")}</td><td>${event.registrationCount}</td></tr>`).join("") || '<tr><td colspan="3">Мэдээлэл алга.</td></tr>';
-      el("eventReportSalons").innerHTML = Object.entries(summary.salons).map(([name, count]) => `<span>${html(name)}: <strong>${count}</strong></span>`).join("");
+      const number = value => Math.max(0, Number(value) || 0);
+      const metrics = [["Арга хэмжээ", summary.eventCount], ["Нийт хүний бүртгэл", summary.registrations], ["Давхардаагүй хүн", summary.customers]];
+      el("eventReportTotals").innerHTML = metrics.map(([label, value]) => `<div class="event-report-metric"><span>${label}</span><strong>${number(value).toLocaleString("en-US")}</strong></div>`).join("");
+      const maxCount = Math.max(1, ...summary.events.map(event => number(event.registrationCount)));
+      el("eventReportRows").innerHTML = summary.events.map(event => `<tr><td><strong>${html(event.name)}</strong></td><td>${html(event.startDate)} — ${html(event.endDate || "Хугацаагүй")}</td><td><span class="event-report-count"><span class="event-report-bar" aria-hidden="true"><i style="width:${number(event.registrationCount) / maxCount * 100}%"></i></span><strong>${number(event.registrationCount)}</strong></span></td></tr>`).join("") || '<tr><td colspan="3">Сонгосон нөхцөлд арга хэмжээ алга.</td></tr>';
+      const registrations = Math.max(1, number(summary.registrations));
+      el("eventReportSalons").innerHTML = Object.entries(summary.salons).sort((a, b) => number(b[1]) - number(a[1])).map(([name, count]) => `<div class="event-report-branch"><div class="event-report-branch-head"><span>${html(name)}</span><strong>${number(count)} хүн · ${Math.round(number(count) / registrations * 100)}%</strong></div><div class="event-report-bar" aria-hidden="true"><i style="width:${Math.min(100, number(count) / registrations * 100)}%"></i></div></div>`).join("");
       reportLoadedAt = Date.now();
-      reportNote("");
+      reportNote(mode.value === "single" && !eventSelect.value ? "Арга хэмжээ сонгоно уу." : "");
     } catch (error) {
       if (sequence === reportSequence) {
         reportKey = "";
