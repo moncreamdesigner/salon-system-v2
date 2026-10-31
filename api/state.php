@@ -659,6 +659,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'PUT') {
 
 $payload = request_payload();
 $sections = $payload['data'] ?? null;
+if (is_array($sections) && array_key_exists('_events', $sections)) {
+    json_response(['ok' => false, 'message' => 'Event-ийг зөвхөн event цэсээр өөрчилнө үү.'], 422);
+}
 $customerMutations = is_array($payload['customerMutations'] ?? null)
     ? $payload['customerMutations']
     : [];

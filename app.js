@@ -947,6 +947,7 @@ function dirtySectionsForView(viewName = "") {
     vouchers: ["voucherRoles"],
     giftCards: ["giftCards"],
     settingsDiscounts: ["discounts"],
+    events: [],
     settingsHumanResources: ["staff", "assignments"],
     settingsSchedule: ["salons", "holidays"],
     settingsCatalog: ["homepageSettings"],
@@ -1775,6 +1776,7 @@ function applyServerData(data = {}, { partial = false } = {}) {
   // customer section again can freeze cashier devices for several seconds.
   // Only copy the top level because `_serviceSettings` is removed below.
   const incoming = { ...(data || {}) };
+  delete incoming._events; // Entity-owned; never replay through generic state.
   Object.keys(incoming).forEach(key => loadedServerSections.add(key));
   if (!partial) fullServerStateLoaded = true;
   const serviceSettings = incoming._serviceSettings;
@@ -2240,6 +2242,7 @@ function queueServerStateSave(delay = 450) {
 }
 
 window.khalgaiHasPendingSave = () => Boolean(
+  window.EventSettings?.hasPending ||
   serverSaveTimer ||
   serverSaveInFlight ||
   serverSavePending ||
@@ -2316,6 +2319,7 @@ const VIEW_SERVER_SECTIONS = {
   settingsServices: ["_serviceSettings", "generalSettings"],
   settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules"],
   settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings"],
+  events: ["generalSettings"],
   settingsHumanResources: ["staff", "assignments", "salons", "generalSettings"],
   settingsSchedule: ["salons", "holidays", "assignments", "staff", "generalSettings"],
   settingsCatalog: ["homepageSettings"],
@@ -6311,6 +6315,7 @@ function infoForView(name) {
       ["Ирээдүй", state.discounts.filter(item => item.startDate > today).length],
       ["Салбар", new Set(state.discounts.flatMap(item => item.salons || [])).size]
     ]],
+    events: ["EVENT", [["Нийт", window.EventSettings?.count || 0]]],
     settingsBonus: ["БОНУС ТОХИРГОО", [
       ["Хэрэглэгч", `${customerTypeRule("Хэрэглэгч").bonusPercent}%`],
       ["Дээд хувь", "10%"],
@@ -7242,6 +7247,7 @@ function dashboardSystemHtml(month, salon) {
 
 function renderDashboard() {
   if (!document.getElementById("dashboardView")?.isConnected) return;
+  void window.EventSettings.renderDashboard();
   const requestedMonth = document.getElementById("dashboardMonth")?.value || monthText(todayText());
   const requestedSalon = isSalonAccount() ? activeAccount.salon : (document.getElementById("dashboardSalon")?.value || "");
   const requestedRange = dashboardDateRange();
@@ -7598,6 +7604,7 @@ function renderActiveView(name = activeView, { force = false } = {}) {
   else if (name === "vouchers") renderVouchers();
   else if (name === "giftCards") renderGiftCards();
   else if (name === "settingsDiscounts") renderDiscountSettings();
+  else if (name === "events") window.EventSettings.render();
   else if (name === "dashboard") renderDashboard();
   else if (name === "settingsHumanResources") renderHumanResources();
   else if (name === "settingsSchedule") setScheduleSection(activeScheduleSection || "holidays");
@@ -13201,6 +13208,7 @@ function renderProfile() {
       <aside class="profile-side-column">
         ${renderProfileInfoPanel(customer)}
         ${renderProfileGroupPanel(customer, group, bonus)}
+        ${window.EventSettings.profileCard(customer)}
         ${renderCustomerCreditCard(customer)}
         <section class="profile-side-card profile-bonus-card">
           <div class="profile-card-title">Групп бонус</div>
@@ -13240,6 +13248,7 @@ function renderProfile() {
     renderProfile();
   });
   bindProfileInfoForm(customer);
+  window.EventSettings.bindProfile(customer);
   bindProfileServiceInlineForm(customer);
   bindPendingDiagnosisWorkForms(customer, document.getElementById("historyList"));
   document.getElementById("profileCreateGroupBtn")?.addEventListener("click", () => createCustomerGroup(customer.id));
@@ -19955,6 +19964,7 @@ function initializeSidebarNavigation() {
     vouchers: "M4 6h16v12H4zM8 6v12M12 9h5M12 13h5",
     giftCards: "M20 12v9H4v-9M2 7h20v5H2zM12 7v14M12 7H7.5A2.5 2.5 0 1 1 12 4.5V7Zm0 0h4.5A2.5 2.5 0 1 0 12 4.5V7Z",
     settingsDiscounts: "M19 5 5 19M7 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm14 14a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+    events: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Z",
     dashboard: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
     settingsHumanResources: "M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M8.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M16 11h6",
     settingsSchedule: "M4 5h16v16H4zM8 2v6M16 2v6M4 10h16M8 14h3M8 17h6",
