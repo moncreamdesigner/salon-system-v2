@@ -1,0 +1,29 @@
+/* Shared field-title typography for every page and dynamically rendered form.
+   Layout stays in each component; only titles use these canonical tokens.
+   Important declarations intentionally override legacy per-screen typography.
+   Buttons, checkbox/radio captions, help text and input values are not titles. */
+:root {
+  --field-label-size: 12px;
+  --field-label-weight: 500;
+  --field-label-color: #717771;
+  --form-section-gap: 12px;
+}
+
+@layer field-titles {
+  label:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn):has(
+    input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="button"], [type="submit"], [type="reset"]), select, textarea
+  ),
+  label[for]:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn),
+  label:not(.primary-btn, .secondary-btn, .danger-btn, .branch-file-btn):has(input:not([type="checkbox"], [type="radio"], [type="hidden"]), select, textarea) > :is(span, strong):first-child,
+  .field-label, .form-label, .branch-field-label, .homepage-field-label,
+  .discount-salon-field > span:first-child,
+  .discount-days-field > span:first-child,
+  .holiday-salon-field > span:first-child,
+  .sms-reminder-hours > span:first-child,
+  .sms-character-limit > span:first-child,
+  .performance-policy-options > span:first-child {
+    font-size: var(--field-label-size) !important;
+    font-weight: var(--field-label-weight) !important;
+    color: var(--field-label-color) !important;
+  }
+}

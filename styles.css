@@ -1,11 +1,12 @@
-.event-form-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; border: 0; padding: 0; margin: 16px 0; }
-.event-form-fields label { display: grid; gap: 8px; flex: 1 1 180px; font-weight: 600; }
+.event-form-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; border: 0; padding: 0; margin: 0; }
+.event-form-fields label { display: grid; gap: 6px; flex: 1 1 180px; }
 .event-form-fields label:first-child { flex: 2 1 260px; }
-.event-form-fields .event-unlimited { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 44px; }
+.event-form-fields .event-unlimited { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 44px; font-weight: 400; }
 .event-form-fields .event-unlimited input { width: auto; }
-.event-form-fields .event-unlimited input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
-.event-create-section { padding: 8px 0; margin-bottom: 20px; }
-#eventsView .event-list-heading { justify-content: flex-end; }
+.event-form-fields .event-unlimited input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); appearance: none; -webkit-appearance: none; flex: 0 0 16px; margin: 0; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); cursor: pointer; }
+.event-form-fields .event-unlimited input[type="checkbox"]:checked { background-color: var(--accent); border-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3.5 8 3 3 6-6' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-size: 14px 14px; background-position: center; background-repeat: no-repeat; }
+.event-form-fields .event-unlimited input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.event-create-section { padding: 0; margin: 0 0 var(--form-section-gap); }
 #eventMessage:empty, #profileEventMessage:empty { display: none; }
 #eventDashboard[hidden], #dashboardContent[hidden], #dashboardExportExcel[hidden], .dashboard-filter-fields label[hidden] { display: none !important; }
 .event-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }

@@ -5,6 +5,7 @@ window.EventSettings = (() => {
   let draftId = "";
   let busy = false;
   let loading = null;
+  let entryNeedsLoad = true;
   const profileDrafts = new Map();
   let reportKey = "";
   let reportSequence = 0;
@@ -40,7 +41,6 @@ window.EventSettings = (() => {
         <button type="button" class="danger-btn icon-danger" data-event-delete="${html(row.id)}" aria-label="Устгах" ${busy || row.hasRegistrations || row.registrationCount > 0 ? "disabled" : ""} title="${row.hasRegistrations || row.registrationCount > 0 ? "Хүн бүртгэгдсэн арга хэмжээг устгах боломжгүй" : "Устгах"}">${trashIcon()}</button>
       </div></td></tr>`).join("") || '<tr><td colspan="5">Арга хэмжээ бүртгэгдээгүй байна.</td></tr>';
     if (el("eventFields")) el("eventFields").disabled = busy;
-    if (el("eventRefresh")) el("eventRefresh").disabled = busy;
   }
   async function load() {
     if (loading) return loading;
@@ -99,7 +99,6 @@ window.EventSettings = (() => {
       el("eventEndDate").addEventListener("change", () => {
         if (el("eventUnlimited")) el("eventUnlimited").checked = !el("eventEndDate").value;
       });
-      el("eventRefresh").addEventListener("click", () => { if (!busy) void load(); });
       el("eventRows").addEventListener("click", async event => {
         const button = event.target.closest("[data-event-edit], [data-event-delete]");
         if (!button || busy) return;
@@ -127,7 +126,10 @@ window.EventSettings = (() => {
       });
     }
     draw();
-    void load();
+    if (entryNeedsLoad) {
+      entryNeedsLoad = false;
+      void load();
+    }
   }
   function profileCard(customer) {
     return `<section class="profile-side-card" id="profileEventCard" data-customer-id="${html(customer.id)}">
@@ -246,6 +248,7 @@ window.EventSettings = (() => {
   }
   return {
     render, profileCard, bindProfile, renderDashboard,
+    enter() { entryNeedsLoad = true; },
     get count() { return rows.length; },
     get hasPending() {
       if (busy || [...profileDrafts.values()].some(draft => draft.busy || draft.dirty)) return true;

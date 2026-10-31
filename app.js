@@ -7697,6 +7697,7 @@ function setView(name) {
     resetIncomingViewState(name);
   }
   activeView = name;
+  if (name === "events") window.EventSettings.enter();
   saveContextView = name;
   try {
     sessionStorage.setItem(ACTIVE_VIEW_SESSION_KEY, name);
@@ -14767,7 +14768,11 @@ function serviceOptionsForKind(kind, customer = null, date = todayText()) {
     .filter(item => !audience || (audience === "Хүүхэд" ? item.customer === "Хүүхэд" : item.customer !== "Хүүхэд"))
     .filter(item => !item.availableFrom || item.availableFrom <= date)
     .map((item, index) => ({ ...item, index }))
-    .sort((a, b) => kind === "course" ? parseVisitCount(b.visits || b.name) - parseVisitCount(a.visits || a.name) || a.index - b.index : a.index - b.index)
+    .sort((a, b) => {
+      const legacyOrder = Number(/^хуучин/i.test(String(a.name || "").trim())) - Number(/^хуучин/i.test(String(b.name || "").trim()));
+      if (legacyOrder) return legacyOrder;
+      return kind === "course" ? parseVisitCount(b.visits || b.name) - parseVisitCount(a.visits || a.name) || a.index - b.index : a.index - b.index;
+    })
     .map(item => servicePriceAtDate(item, date));
 }
 

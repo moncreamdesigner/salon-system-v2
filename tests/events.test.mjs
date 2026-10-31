@@ -179,8 +179,29 @@ test("creation is cardless, both management titles are removed, and checkbox use
   assert.match(html, /<section class="event-create-section" aria-label="Арга хэмжээ үүсгэх">/);
   assert.doesNotMatch(html, /id="eventFormTitle"|<h2>Арга хэмжээний жагсаалт<\/h2>|Хоосон бол хугацаагүй/);
   const styles = read("styles.css");
-  assert.match(styles, /\.event-create-section\s*\{[^}]*margin-bottom:\s*20px;/);
+  assert.match(styles, /\.event-create-section\s*\{[^}]*padding:\s*0;[^}]*margin:\s*0 0 var\(--form-section-gap\);/);
   assert.match(styles, /input\[type="checkbox"\]\s*\{[^}]*accent-color:\s*var\(--accent\)/);
+  assert.match(styles, /\.event-form-fields \.event-unlimited\s*\{[^}]*font-weight:\s*400;/);
+  assert.match(styles, /input\[type="checkbox"\]:checked\s*\{[^}]*background-color:\s*var\(--accent\);[^}]*stroke='%23fff'/);
+});
+
+test("event list loads once per menu entry without an outer card or refresh button", async () => {
+  assert.doesNotMatch(html, /id="eventRefresh"|class="panel event-list-panel"/);
+  assert.match(html, /class="event-list-section"/);
+  assert.match(app, /if \(name === "events"\) window.EventSettings.enter\(\)/);
+  const element = fakeElements(["eventForm", "eventName", "eventStartDate", "eventEndDate", "eventUnlimited", "eventSubmit", "eventCancel", "eventRows", "eventFields", "eventMessage"]);
+  element("eventMessage").classList = { toggle() {} };
+  element("eventForm").reset = () => {};
+  let gets = 0;
+  const context = vm.createContext({ window: {}, document: { getElementById: element }, todayText: () => "2026-10-31", entityId: () => "draft", activeView: "events", renderInfoHeader() {}, serverApi: async () => { gets++; return { events: [] }; } });
+  vm.runInContext(ui, context);
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  context.window.EventSettings.render(); await tick();
+  context.window.EventSettings.render(); await tick();
+  assert.equal(gets, 1, "Ordinary renders must not issue extra list reads");
+  context.window.EventSettings.enter();
+  context.window.EventSettings.render(); await tick();
+  assert.equal(gets, 2, "Re-entering the menu performs exactly one new read");
 });
 
 test("event report is an independent dashboard tab and does not fetch financial analytics", () => {

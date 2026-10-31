@@ -24,6 +24,24 @@ function setup() {
 const original = { name: "Курс", customer: "Том хүн", price: 540000, singleVisitPrice: 75000, visits: "8 удаа" };
 const newPrice = { ...original, price: 650000, singleVisitPrice: 90000 };
 
+test("legacy services appear last without changing prices or stored catalog order", () => {
+  const ctx = setup();
+  const catalog = [
+    { ...original, name: "Хуучин /уураг 8 курс/" },
+    { ...original, name: "Тэжээл 4 курс", visits: "4 удаа" },
+    { ...original, name: "ХУУЧИН /тэжээл 4 курс/", visits: "4 удаа" },
+    { ...original, name: "Уураг 8 курс" }
+  ];
+  ctx.serviceSettingsData.course = catalog;
+  const before = JSON.stringify(catalog);
+  const options = ctx.serviceOptionsForKind("course");
+  assert.deepEqual(Array.from(options, item => item.name), ["Уураг 8 курс", "Тэжээл 4 курс", "Хуучин /уураг 8 курс/", "ХУУЧИН /тэжээл 4 курс/"]);
+  assert.equal(options[2].price, original.price);
+  assert.equal(JSON.stringify(catalog), before);
+  ctx.serviceSettingsData.single = catalog;
+  assert.deepEqual(Array.from(ctx.serviceOptionsForKind("single"), item => item.name), ["Тэжээл 4 курс", "Уураг 8 курс", "Хуучин /уураг 8 курс/", "ХУУЧИН /тэжээл 4 курс/"]);
+});
+
 test("Oct 20 prices activate at the boundary without overwriting the old baseline", () => {
   const ctx = setup();
   const catalog = ctx.withServicePriceVersion(original, newPrice, "2026-10-20");
