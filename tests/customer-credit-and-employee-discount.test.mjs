@@ -43,7 +43,7 @@ test("transferred course credit is a ledger movement, not new cash revenue", () 
   assert.match(appSource, /type:\s*"course_transfer"/);
   assert.match(appSource, /type:\s*"credit_payment"/);
   assert.match(appSource, /!\["bonus", "gift_card", "customer_credit", "credit_transfer"/);
-  assert.match(appSource, /methodSelect\?\.value === "customer_credit" \? null : applyGroupPayment/);
+  assert.match(appSource, /\["customer_credit", "previous_payment"\]\.includes\(methodSelect\?\.value\) \? null : applyGroupPayment/);
   assert.match(appSource, /amountInput\.disabled = transferMode;/);
   assert.match(appSource, /amountInput\.required = !transferMode;/);
   assert.match(styleSource, /\.inline-payment-extra\.credit-transfer-mode\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);

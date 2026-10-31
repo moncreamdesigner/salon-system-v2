@@ -40,7 +40,7 @@ function revenue_is_actual(string $method): bool
 {
     $normalized = mb_strtolower(trim($method), 'UTF-8');
     $normalized = preg_replace('/\s+/u', '_', $normalized) ?? $normalized;
-    return !in_array($normalized, ['bonus', 'gift_card', 'customer_credit', 'credit_transfer', 'бонус', 'бэлгийн_карт', 'шилжүүлсэн_үлдэгдлээс'], true);
+    return !in_array($normalized, ['bonus', 'gift_card', 'customer_credit', 'credit_transfer', 'previous_payment', 'бонус', 'бэлгийн_карт', 'шилжүүлсэн_үлдэгдлээс'], true);
 }
 
 function revenue_legacy_paid(array $item): float

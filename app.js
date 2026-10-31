@@ -5062,7 +5062,7 @@ function kassRevenueType(kind = "") {
 
 function isActualKassRevenueRow(row = {}) {
   const method = String(row.method || "").trim().toLowerCase().replace(/\s+/g, "_");
-  return !["bonus", "gift_card", "customer_credit", "credit_transfer", "бонус", "бэлгийн_карт", "шилжүүлсэн_үлдэгдлээс"].includes(method);
+  return !["bonus", "gift_card", "customer_credit", "credit_transfer", "previous_payment", "бонус", "бэлгийн_карт", "шилжүүлсэн_үлдэгдлээс"].includes(method);
 }
 
 function kassRevenueSourceRows(sourceState = state) {
@@ -8899,6 +8899,7 @@ function customerPaidUsageWithinDays(customer, maxDays = 730, startedAt = "") {
   const startDate = serviceDateKey(startedAt);
   (customer?.serviceHistory || []).forEach(historyItem => {
     (historyItem.payments || []).forEach(payment => {
+      if (payment.method === "previous_payment") return;
       const paidDate = serviceDateKey(payment.date || payment.createdAt || historyItem.date || historyItem.createdAt);
       if (!paidDate) return;
       const age = daysBetween(paidDate, todayText());
@@ -10401,6 +10402,7 @@ function performanceVoucherRoleIdForPayment(payment = {}) {
 
 function performancePaymentEligible(payment = {}, cashierPolicy = {}) {
   const method = payment.method || "card";
+  if (method === "previous_payment") return false;
   if (!(cashierPolicy.paymentMethods || []).includes(method)) return false;
   if (method !== "voucher") return true;
   const roleId = performanceVoucherRoleIdForPayment(payment);
@@ -11424,6 +11426,7 @@ function paymentMethodOptionsLabel(value = "") {
     transfer: "Данс",
     cash: "Бэлэн",
     loan_app: "Зээлийн апп",
+    previous_payment: "Өмнө нь төлсөн",
     bonus: "Бонус",
     voucher: "Ваучер",
     gift_card: "Бэлгийн карт",
@@ -11443,6 +11446,7 @@ function paymentMethodOptions(selected = "card", { allowCreditTransfer = false, 
     ["loan_app", "Зээлийн апп"],
     ["voucher", "Ваучер"],
     ["gift_card", "Бэлгийн карт"],
+    ["previous_payment", "Өмнө нь төлсөн"],
     ...(allowSalary ? [["salary", "Цалингаас суутгах"]] : []),
     ...(creditBalance > 0 ? [["customer_credit", `Шилжүүлсэн үлдэгдлээс · ${money(creditBalance)}`]] : []),
     ...(allowCreditTransfer ? [["credit_transfer", "Шилжүүлэх / хаах"]] : [])
@@ -14217,6 +14221,7 @@ function bindInlinePaymentForms(customer) {
       const value = method?.value || "card";
       const transferMode = value === "credit_transfer";
       const creditPaymentMode = value === "customer_credit";
+      const previousPaymentMode = value === "previous_payment";
       extraPanel?.classList.toggle("show", ["voucher", "gift_card", "credit_transfer"].includes(value));
       form.querySelector(".inline-voucher-field")?.classList.toggle("hidden", value !== "voucher");
       form.querySelector(".inline-voucher-note-field")?.classList.toggle("hidden", value !== "voucher");
@@ -14235,7 +14240,8 @@ function bindInlinePaymentForms(customer) {
       const validCard = Boolean(card && ["fresh", "partial"].includes(giftCardStatus(card)) && Number(card.remainingAmount || 0) > 0);
       giftCardInput?.classList.toggle("gift-card-valid", validCard);
       giftCardInput?.classList.toggle("gift-card-invalid", value === "gift_card" && Boolean(giftCardInput.value.trim()) && !validCard);
-      bonusRow?.classList.toggle("hidden", transferMode || creditPaymentMode);
+      bonusRow?.classList.toggle("hidden", transferMode || creditPaymentMode || previousPaymentMode);
+      if (previousPaymentMode) setBonusApplied(false);
       amountField?.classList.toggle("hidden", transferMode);
       creditBalanceField?.classList.toggle("hidden", !creditPaymentMode);
       if (amountInput) {
@@ -14385,7 +14391,7 @@ function bindInlinePaymentForms(customer) {
         : currentBalance;
       const amount = Math.max(0, Math.min(parseMoneyInput(amountInput?.value), paymentLimit));
       const currentBonusUsed = (historyItem.payments || []).some(payment => Number(payment.bonusAmount || 0) > 0);
-      const bonusAmount = selectedMethodValue === "customer_credit" || currentBonusUsed || !bonusApplied ? 0 : Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus, Math.max(0, currentBalance - amount)));
+      const bonusAmount = ["customer_credit", "previous_payment"].includes(selectedMethodValue) || currentBonusUsed || !bonusApplied ? 0 : Math.max(0, Math.min(parseMoneyInput(bonusInput?.value), maxBonus, Math.max(0, currentBalance - amount)));
       const appliedAmount = Math.min(currentBalance, amount + bonusAmount);
       const methodLabel = methodSelect?.selectedOptions?.[0]?.textContent || "";
       if (!appliedAmount) {
@@ -14478,7 +14484,7 @@ function bindInlinePaymentForms(customer) {
       }
       const historySnapshot = structuredClone(historyItem);
       historyItem.payments = historyItem.payments || [];
-      const groupPayment = methodSelect?.value === "customer_credit" ? null : applyGroupPayment(group, amount, bonusAmount, paidDate, {
+      const groupPayment = ["customer_credit", "previous_payment"].includes(methodSelect?.value) ? null : applyGroupPayment(group, amount, bonusAmount, paidDate, {
         bonusEligible: !["voucher", "gift_card"].includes(methodSelect?.value || ""),
         bonusPercent: customer.type === "Тусгай хэрэглэгч"
           ? specialCustomerBonusPercent(customer, amount)

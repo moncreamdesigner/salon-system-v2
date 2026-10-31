@@ -53,6 +53,7 @@ function dashboard_payment_label(string $value): string
         'card' => 'Карт', 'qpay' => 'QPay', 'transfer' => 'Данс', 'cash' => 'Бэлэн',
         'loan_app' => 'Зээлийн апп', 'bonus' => 'Бонус', 'voucher' => 'Ваучер',
         'gift_card' => 'Бэлгийн карт', 'salary' => 'Цалингаас суутгах',
+        'previous_payment' => 'Өмнө нь төлсөн',
         'customer_credit' => 'Шилжүүлсэн үлдэгдлээс', 'credit_transfer' => 'Шилжүүлэх / хаах',
     ][$normalized] ?? ($value !== '' ? $value : 'Тодорхойгүй');
 }
@@ -61,7 +62,7 @@ function dashboard_actual_payment(string $method): bool
 {
     $normalized = strtolower(trim(preg_replace('/\s+/', '_', $method) ?? ''));
     return !in_array($normalized, [
-        'bonus', 'gift_card', 'customer_credit', 'credit_transfer',
+        'bonus', 'gift_card', 'customer_credit', 'credit_transfer', 'previous_payment',
         'бонус', 'бэлгийн_карт', 'шилжүүлсэн_үлдэгдлээс',
     ], true);
 }
