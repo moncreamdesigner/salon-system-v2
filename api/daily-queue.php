@@ -64,17 +64,18 @@ function daily_queue_recover_from_history(array $customers, string $date): array
         $latestTime = -1;
         $history = is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : [];
         $consider = static function (array $source, array $item) use (&$latest, &$latestTime, $customer, $date): void {
-            $value = trim((string)($source['registeredAt'] ?? $source['createdAt'] ?? $source['date'] ?? ''));
+            $value = trim((string)($source['performedAt'] ?? $source['registeredAt'] ?? $source['createdAt'] ?? $source['date'] ?? ''));
             $time = daily_queue_activity_time($value, $date);
             if ($latest !== null && $time < $latestTime) return;
             $latestTime = $time;
             $latest = [
-                'salon' => trim((string)($source['salon'] ?? $item['salon'] ?? $customer['salon'] ?? $customer['registeredSalon'] ?? '')),
+                'salon' => trim((string)($source['performedSalon'] ?? $source['salon'] ?? $item['salon'] ?? $customer['salon'] ?? $customer['registeredSalon'] ?? '')),
                 'assignedAt' => $value !== '' ? $value : $date . 'T00:00:00',
                 'activeUntil' => trim((string)($source['activeUntil'] ?? $item['activeUntil'] ?? '')),
             ];
         };
         foreach ($history as $item) {
+            if (is_array($item) && !empty($item['prepaidPending'])) continue;
             if (!is_array($item) || !empty($item['deleted']) || in_array((string)($item['kind'] ?? ''), ['kass', 'product'], true)) continue;
             $itemDate = substr((string)($item['date'] ?? $item['createdAt'] ?? ''), 0, 10);
             if ($itemDate === $date) $consider($item, $item);

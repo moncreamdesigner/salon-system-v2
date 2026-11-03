@@ -548,7 +548,7 @@ foreach ((array)$source['customers'] as $customer) {
         if (!$customerInScope) {
             foreach ((is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : []) as $scopeItem) {
                 if (!is_array($scopeItem)) continue;
-                if (trim((string)($scopeItem['salon'] ?? $scopeItem['branch'] ?? '')) === $salon) {
+                if (trim((string)($scopeItem['salon'] ?? $scopeItem['branch'] ?? '')) === $salon || trim((string)($scopeItem['performedSalon'] ?? '')) === $salon) {
                     $customerInScope = true;
                     break;
                 }
@@ -605,6 +605,7 @@ foreach ((array)$source['customers'] as $customer) {
         if ($itemMonth !== '') $monthsFound[$itemMonth] = true;
         $targetScopes = [''];
         if ($itemSalon !== '') $targetScopes[] = $itemSalon;
+        $operationalScopes = array_values(array_unique(['', trim((string)($item['performedSalon'] ?? $itemSalon))]));
 
         $kind = (string)($item['kind'] ?? 'single');
         if ($includeOperationalData) {
@@ -644,8 +645,8 @@ foreach ((array)$source['customers'] as $customer) {
                     if (isset($serviceCounts[$key])) $serviceCounts[$key]['kass'] += $qty;
                 }
             }
-        } elseif ($includeOperationalData) {
-            foreach ($targetScopes as $scope) {
+        } elseif ($includeOperationalData && empty($item['prepaidPending'])) {
+            foreach ($operationalScopes as $scope) {
                 foreach (dashboard_periods($itemMonth, $isTotal) as $period) {
                     $key = dashboard_scope_key($period, $scope);
                     if (isset($serviceCounts[$key])) $serviceCounts[$key]['single']++;

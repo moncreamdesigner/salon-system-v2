@@ -7253,6 +7253,43 @@ td.empty-state {
   transform-origin: top;
 }
 
+.profile-inline-service-form [data-prepaid-hide][hidden] {
+  display: none !important;
+}
+
+.profile-prepaid-toggle.check {
+  justify-self: start;
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.profile-service-tab-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.profile-service-tab-row > .service-modal-tabs {
+  flex: 1;
+  min-width: 280px;
+}
+
+.prepaid-completion-form {
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .prepaid-completion-form { grid-template-columns: 1fr 1fr; }
+}
+
 @media (min-width: 1101px) and (max-width: 1280px) {
   .profile-service-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -48,6 +48,7 @@ function customer_list_active_today(array $customer, string $today, string $salo
     if (!empty($customer['dailyQueueVacant'])) return true;
     $history = is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : [];
     foreach ($history as $item) {
+        if (is_array($item) && !empty($item['prepaidPending'])) continue;
         if (!is_array($item) || !empty($item['deleted'])) continue;
         $itemDate = substr((string)($item['date'] ?? $item['createdAt'] ?? ''), 0, 10);
         if ($itemDate === $today) return true;
@@ -95,9 +96,10 @@ $serviceCounts = ['single' => 0, 'course' => 0, 'kass' => 0];
 foreach ($rows as $customer) {
     if (!is_array($customer) || !empty($customer['deleted']) || !empty($customer['deletedAt'])) continue;
     foreach ((is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : []) as $item) {
+        if (is_array($item) && !empty($item['prepaidPending'])) continue;
         if (!is_array($item) || !empty($item['deleted'])) continue;
         $itemDate = substr((string)($item['date'] ?? $item['createdAt'] ?? ''), 0, 10);
-        $itemSalon = trim((string)($item['salon'] ?? customer_list_salon($customer)));
+        $itemSalon = trim((string)($item['performedSalon'] ?? $item['salon'] ?? customer_list_salon($customer)));
         if ($itemDate !== $today || ($salon !== '' && $itemSalon !== $salon)) continue;
         $kind = (string)($item['kind'] ?? 'single');
         if ($kind === 'course') $serviceCounts['course']++;

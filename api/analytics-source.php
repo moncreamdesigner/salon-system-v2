@@ -87,7 +87,8 @@ function analytics_compact_service(array $item): array
         'id', 'kind', 'deleted', 'date', 'createdAt', 'time', 'salon', 'branch',
         'title', 'service', 'staff', 'staffId', 'visitsTotal', 'basePrice', 'price',
         'total', 'balance', 'employeeDiscountAmount', 'vipRoomFee', 'masterStaffFee',
-        'paymentMethod', 'referenceLabel', 'singleVisitPrice', 'analyticsSkipKassPayments'
+        'paymentMethod', 'referenceLabel', 'singleVisitPrice', 'analyticsSkipKassPayments',
+        'prepaid', 'prepaidPending', 'performedSalon'
     ]);
     $copy['payments'] = array_values(array_map(
         static fn(array $payment): array => analytics_compact_payment($payment),
@@ -192,7 +193,8 @@ foreach ((array)$source['customers'] as $customer) {
         if ($salon !== '') {
             $parentSalonMatches = $itemSalon === $salon;
             if (($item['kind'] ?? '') !== 'course') {
-                if (!$parentSalonMatches) continue;
+                if (!$parentSalonMatches && trim((string)($item['performedSalon'] ?? '')) !== $salon) continue;
+                if (!$parentSalonMatches) $scopedItem['analyticsSkipKassPayments'] = true;
             } else {
                 $scopedItem['visits'] = array_values(array_filter(
                     is_array($item['visits'] ?? null) ? $item['visits'] : [],

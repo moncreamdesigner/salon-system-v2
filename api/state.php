@@ -5,6 +5,7 @@ require_once __DIR__ . '/customer-mutations.php';
 require_once __DIR__ . '/customer-entity-store.php';
 require_once __DIR__ . '/performance-integrity.php';
 require_once __DIR__ . '/course-price-protection.php';
+require_once __DIR__ . '/prepaid-services.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -366,7 +367,7 @@ function scope_sections_for_user(array $data, array $user): array
             $history = is_array($customer['serviceHistory'] ?? null) ? $customer['serviceHistory'] : [];
             $scopedHistory = array_values(array_filter($history, static function ($item) use ($salon): bool {
                 if (!is_array($item)) return false;
-                return trim((string)($item['salon'] ?? $item['branch'] ?? '')) === $salon;
+                return trim((string)($item['salon'] ?? $item['branch'] ?? '')) === $salon || trim((string)($item['performedSalon'] ?? '')) === $salon;
             }));
             $registeredSalon = trim((string)($customer['registeredSalon'] ?? $customer['salon'] ?? ''));
             $queueSalon = trim((string)($customer['dailyQueueSalon'] ?? ''));
@@ -579,7 +580,19 @@ function assert_customer_operations_unlocked(array $current, array $incoming, st
             }
             $oldService = $oldHistory[$serviceId];
             $oldServiceDate = operational_date($oldService, ['date', 'createdAt', 'registeredAt']);
-            if (operational_date_is_locked($oldServiceDate, $cutoff) && service_core_for_lock($oldService) !== service_core_for_lock($newService)) {
+            $completingPrepaid = prepaid_service_completing($oldService, $newService);
+            if ($completingPrepaid) {
+                $beforeCompletion = service_core_for_lock($oldService);
+                $afterCompletion = service_core_for_lock($newService);
+                foreach (['date', 'staff', 'staffId', 'performedSalon', 'performedAt', 'activeUntil', 'prepaidPending'] as $field) {
+                    unset($beforeCompletion[$field], $afterCompletion[$field]);
+                }
+                if ($beforeCompletion !== $afterCompletion) throw new DomainException('Үйлчилгээ үзүүлэхдээ анхны бүртгэлийн бусад мэдээллийг өөрчлөх боломжгүй.');
+            }
+            if ($completingPrepaid && operational_date_is_locked($serviceDate, $cutoff)) {
+                throw new DomainException('3 хоногоос өмнөх үйлчилгээг нөхөж бүртгэх боломжгүй.');
+            }
+            if (!$completingPrepaid && operational_date_is_locked($oldServiceDate, $cutoff) && service_core_for_lock($oldService) !== service_core_for_lock($newService)) {
                 throw new DomainException('3 хоногоос өмнөх үйлчилгээ, оношилгоог засах боломжгүй.');
             }
             foreach ([
@@ -833,6 +846,7 @@ try {
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
     assert_course_prices_preserved($currentSections, $sections);
+    assert_prepaid_services_preserved($currentSections, $sections, $user);
     if (!$bulkCustomerImport) assert_new_course_price_current($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);

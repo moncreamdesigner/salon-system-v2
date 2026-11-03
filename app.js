@@ -6097,8 +6097,9 @@ function customerTodayHeaderStats() {
   state.customers.forEach(customer => {
     if (customer.deleted || customer.deletedAt) return;
     (customer.serviceHistory || []).forEach(item => {
+      if (isPrepaidServicePending(item)) return;
       const itemDate = serviceDateKey(item.date || item.createdAt || "");
-      const itemSalon = item.salon || customerRegisteredSalon(customer);
+      const itemSalon = item.performedSalon || item.salon || customerRegisteredSalon(customer);
       if (itemDate !== today || (salon && itemSalon !== salon)) return;
       const kind = item.kind === "course" ? "Курс" : item.kind === "kass" || item.kind === "product" ? "Касс" : "Нэг удаа";
       serviceCounts.set(kind, (serviceCounts.get(kind) || 0) + 1);
@@ -6564,8 +6565,8 @@ function dashboardServiceRows(month, salon = "") {
   sourceState.customers.forEach(customer => {
     if (customer.deleted || customer.deletedAt) return;
     (customer.serviceHistory || []).forEach(item => {
-      if (!item || item.deleted) return;
-      const itemSalon = item.salon || item.branch || customer.salon || "";
+      if (!item || item.deleted || isPrepaidServicePending(item)) return;
+      const itemSalon = item.performedSalon || item.salon || item.branch || customer.salon || "";
       if (salon && itemSalon !== salon) return;
       const itemDate = serviceDateKey(item.date || item.createdAt || customer.registeredAt || "");
       if (item.kind === "course") {
@@ -8974,7 +8975,8 @@ function todaySalonTreatment(customer, salon = activeAccount.salon) {
   const today = todayText();
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
   for (const item of history) {
-    const itemSalon = item.salon || customer.salon || activeAccount.salon;
+    if (isPrepaidServicePending(item)) continue;
+    const itemSalon = item.performedSalon || item.salon || customer.salon || activeAccount.salon;
     if (["kass", "product"].includes(item.kind)) continue;
     if (item.kind === "diagnosis") {
       const activeUntil = new Date(item.activeUntil || 0).getTime();
@@ -9062,8 +9064,9 @@ function dailyQueueTreatmentFromHistory(customer, date = todayText(), salon = ""
     }
   };
   history.forEach(item => {
+    if (isPrepaidServicePending(item)) return;
     if (["kass", "product"].includes(item.kind)) return;
-    const itemSalon = item.salon || customer.salon || activeAccount.salon;
+    const itemSalon = item.performedSalon || item.salon || customer.salon || activeAccount.salon;
     if (item.kind === "course") {
       const visits = Array.isArray(item.visits) ? item.visits : [];
       const total = Number(item.visitsTotal || parseVisitCount(item.visits || item.service || item.title) || visits.length || 1);
@@ -9101,7 +9104,7 @@ function dailyQueueTreatmentFromHistory(customer, date = todayText(), salon = ""
       stage: item.kind === "diagnosis"
         ? (item.diagnosisPending ? "Оношилгоо хүлээж байна" : "Оношилгоо дууссан")
         : (Number(item.balance || 0) > 0 ? "Үйлчилгээ эхэлсэн" : "Төлбөр хаагдсан")
-    }, item.registeredAt || item.createdAt || item.date);
+    }, item.performedAt || item.registeredAt || item.createdAt || item.date);
   });
   return latest;
 }
@@ -9481,6 +9484,7 @@ function clearCustomerFilters() {
 }
 
 function customerSingleServiceIsActive(customer = {}, item = {}) {
+  if (isPrepaidServicePending(item)) return false;
   const title = String(item.title || item.service || "").toLowerCase();
   if (item.deleted || item.kind === "course" || item.kind === "kass" || item.kind === "product" || title.includes("курс")) return false;
   if (Number(item.balance || 0) > 0) return true;
@@ -10079,10 +10083,11 @@ function renderCustomerServiceHistory(customer) {
     const isKass = item.kind === "kass" || item.kind === "product";
     const isDiagnosis = item.kind === "diagnosis";
     const diagnosisPending = isDiagnosis && Boolean(item.diagnosisPending);
+    const prepaidPending = isPrepaidServicePending(item);
     const title = item.title || item.service || "Үйлчилгээ";
     const date = item.date || item.createdAt || customer.last || "-";
     const staff = item.staff || "Ажилтан сонгоогүй";
-    const salon = item.salon || customer.salon || activeAccount.salon;
+    const salon = item.performedSalon || item.salon || customer.salon || activeAccount.salon;
     const price = serviceTotalAmount(item);
     const paid = Math.max(0, price - Number(item.balance || 0));
     const editMode = profileServiceEditMode(item);
@@ -10101,11 +10106,11 @@ function renderCustomerServiceHistory(customer) {
           ` : `
             <div>
               <strong>${title}</strong>
-              <span><b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}</span>
+              <span>${prepaidPending ? `Урьдчилсан · Үйлчилгээ хүлээж байна • ${salon}` : `<b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}`}</span>
             </div>
           `}
           <div class="service-card-actions ${editAllowed || deleteAllowed ? "" : "actions-disabled"}">
-            ${diagnosisPending ? "" : `<button class="secondary-btn icon-action profile-service-edit" type="button" data-history-index="${index}" aria-label="Засах" ${editAllowed ? "" : "disabled"}>${editIcon()}</button>`}
+            ${diagnosisPending || prepaidPending ? "" : `<button class="secondary-btn icon-action profile-service-edit" type="button" data-history-index="${index}" aria-label="Засах" ${editAllowed ? "" : "disabled"}>${editIcon()}</button>`}
             <button class="danger-btn icon-danger profile-service-delete" type="button" data-history-index="${index}" aria-label="Устгах" ${deleteAllowed ? "" : "disabled"}>${trashIcon()}</button>
           </div>
         </div>
@@ -10115,6 +10120,7 @@ function renderCustomerServiceHistory(customer) {
             ${renderProfileServiceInlineForm(customer)}
           </div>
         ` : ""}
+        ${prepaidPending ? renderPrepaidCompletionForm(item, index) : ""}
         ${isKass ? renderKassProductsSummary(item) : ""}
         ${diagnosisPending && customer.profileServiceEditingIndex !== index ? `
           ${item.diagnosisWorkOpen ? renderPendingDiagnosisWorkForm(item, index) : ""}
@@ -10132,6 +10138,29 @@ function renderCustomerServiceHistory(customer) {
       </article>
     `;
   }).join("");
+}
+
+function isPrepaidServicePending(item = {}) {
+  return item.kind === "single" && item.prepaid === true && item.prepaidPending === true;
+}
+
+function completePrepaidService(item, details, now = new Date().toISOString()) {
+  if (!isPrepaidServicePending(item) || item.deleted) throw new Error("Үйлчилгээ аль хэдийн бүртгэгдсэн байна");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(details.date || "") || !details.staff || !details.salon) throw new Error("Огноо, салбар, ажилтан сонгоно уу");
+  // Keep the original contract and cash branch. Only fulfillment changes.
+  return { ...item, prepaidPending: false, date: details.date, staff: details.staff,
+    staffId: details.staffId || null, performedSalon: details.salon, performedAt: now,
+    activeUntil: new Date(new Date(now).getTime() + 2 * 60 * 60 * 1000).toISOString() };
+}
+
+function renderPrepaidCompletionForm(item, index) {
+  const salon = isSalonAccount() ? activeAccount.salon : item.salon;
+  return `<form class="prepaid-completion-form customer-service-grid" data-history-index="${index}">
+    <label>Огноо<input class="input prepaid-date" type="date" value="${todayText()}" required></label>
+    <label>Салбар<select class="input prepaid-salon" required ${isSalonAccount() ? "disabled" : ""}>${accountSalons().map(entry => `<option value="${htmlSafe(entry.name)}" ${entry.name === salon ? "selected" : ""}>${htmlSafe(entry.name)}</option>`).join("")}</select></label>
+    <label>Ажилтан<select class="input prepaid-staff" required><option value="">Ажилтан сонгох</option>${staffOptionHtmlForSalon(salon, "", todayText())}</select></label>
+    <button class="primary-btn" type="submit">Үйлчилгээ үзүүлэх</button>
+  </form>`;
 }
 
 function courseVisitExtras(item = {}) {
@@ -10547,11 +10576,11 @@ function calculatePerformanceTransactions({ policyOverride = null, sourceState =
   sourceState.customers.forEach(customer => {
     (customer.serviceHistory || []).forEach(item => {
       if (!item || item.deleted) return;
-      const salon = item.salon || customer.salon || activeAccount.salon;
+      const salon = item.performedSalon || item.salon || customer.salon || activeAccount.salon;
       const date = item.date || item.createdAt || customer.last || todayText();
       const title = item.title || item.service || "Үйлчилгээ";
       if (!item.analyticsSkipKassPayments) {
-        addKassPaymentsForService({ item, salon, date, title: item.kind === "kass" ? kassRevenueServiceName(item) : title, customer: customer.name });
+        addKassPaymentsForService({ item, salon: item.salon || customer.salon || activeAccount.salon, date, title: item.kind === "kass" ? kassRevenueServiceName(item) : title, customer: customer.name });
       }
       if (item.kind === "kass" || item.kind === "product") {
         return;
@@ -10614,7 +10643,7 @@ function calculatePerformanceTransactions({ policyOverride = null, sourceState =
         });
         return;
       }
-      if (item.kind === "single" && item.staff) {
+      if (item.kind === "single" && !isPrepaidServicePending(item) && item.staff) {
         const appliedPolicy = performancePolicyForDate(date, policyOverride);
         if (!appliedPolicy.service.serviceKinds.includes("single")) return;
         const originalBase = Number(item.basePrice || item.price || item.total || 0);
@@ -10909,7 +10938,7 @@ function performanceMonthPreflight(month, selectedSalon) {
       if (!item || item.deleted) return;
       const itemSalon = item.salon || customer.salon || "";
       const itemDate = String(item.date || item.createdAt || "").slice(0, 10);
-      if (item.kind === "single" && inRange(itemDate) && inSalon(itemSalon) && !item.staff) {
+      if (item.kind === "single" && !isPrepaidServicePending(item) && inRange(itemDate) && inSalon(item.performedSalon || itemSalon) && !item.staff) {
         issues.push(`${customer.name}: нэг удаагийн үйлчилгээнд ажилтан сонгоогүй`);
       }
       if (item.kind === "course") {
@@ -11603,7 +11632,7 @@ function visitStatusIcons(visit = {}) {
 
 function profileServiceStats(customer) {
   const history = Array.isArray(customer.serviceHistory) ? customer.serviceHistory : [];
-  const single = history.filter(item => item.kind === "single").length;
+  const single = history.filter(item => item.kind === "single" && !isPrepaidServicePending(item)).length;
   const course = history.filter(item => item.kind === "course" || String(item.title || "").includes("курс")).length;
   const kass = history.filter(item => item.kind === "product" || item.kind === "kass").length;
   const totalPaid = history.reduce((sum, item) => sum + servicePaidAmount(item), 0);
@@ -12494,20 +12523,20 @@ function renderProfileServiceInlineForm(customer) {
   const selectedRoom = editingItem?.vipRoom || editingItem?.room === "vip" ? "vip" : "standard";
   return `
     <form id="profileServiceForm" class="profile-inline-service-form" data-kind="${kind}" novalidate>
-      ${editingItem ? "" : profileServiceTabsHtml(kind)}
+      ${editingItem ? "" : `<div class="profile-service-tab-row">${profileServiceTabsHtml(kind)}${kind === "single" ? `<label class="check profile-prepaid-toggle"><input type="checkbox" id="profileServicePrepaid"> Урьдчилсан</label>` : ""}</div>`}
       <div class="customer-service-grid profile-service-row">
         <label class="service-select-field">Үйлчилгээ
           <select class="input" id="profileServiceSelect" ${editingItem?.transferClosed || editingItem?.kind === "course" ? "disabled" : ""}>${editingItem?.kind === "course" ? `<option value="${selectedOptionIndex}">${htmlSafe(editingItem.service || editingItem.title)} · ${money(editingItem.basePrice || editingItem.price)}</option>` : serviceOptionHtml(kind, selectedOptionIndex, customer, editingItem?.date || todayText())}</select>
         </label>
-        <label>Огноо
+        <label data-prepaid-hide>Огноо
           <input class="input" id="profileServiceDate" type="date" value="${editingItem?.date || todayText()}" required>
         </label>
         ${showSalon ? `<label>Салбар<select class="input" id="profileServiceSalon"><option value="">Салбар сонгох</option>${state.salons.map(s => `<option value="${s.name}" ${s.name === selectedSalon ? "selected" : ""}>${s.name}</option>`).join("")}</select></label>` : ""}
         ${kind === "course" ? "" : `
-          <label>Ажилтан
+          <label data-prepaid-hide>Ажилтан
             <select class="input" id="profileServiceStaff" required>${showSalon ? staffOptionHtmlForSalon(selectedSalon, selectedStaff, editingItem?.date || todayText()) : staffOptionHtmlForSalon(activeAccount.salon, selectedStaff, editingItem?.date || todayText())}</select>
           </label>
-          <label>Өрөө
+          <label data-prepaid-hide>Өрөө
             <select class="input" id="profileServiceRoom">
               <option value="standard" ${selectedRoom === "standard" ? "selected" : ""}>Энгийн</option>
               <option value="vip" ${selectedRoom === "vip" ? "selected" : ""}>Вип</option>
@@ -13104,6 +13133,7 @@ function isServiceEditable(item) {
 }
 
 function profileServiceEditMode(item = {}) {
+  if (item.prepaid) return "locked";
   if (!isServiceWithinEditDays(item)) return "locked";
   if (item.transferClosed) return "transfer-details";
   if (item.kind === "course" && Array.isArray(item.visits) && item.visits.length > 0) return "locked";
@@ -13452,10 +13482,50 @@ function renderProfile() {
     });
   });
   bindInlinePaymentForms(customer);
+  bindPrepaidCompletionForms(customer);
   document.querySelectorAll("#historyList .profile-service-delete").forEach(button => {
     button.addEventListener("click", () => deleteCustomerHistoryItem(customer.id, Number(button.dataset.historyIndex)));
   });
-}function bindProfileInfoForm(customer) {
+}
+
+function bindPrepaidCompletionForms(customer) {
+  document.querySelectorAll("#historyList .prepaid-completion-form").forEach(form => {
+    const dateInput = form.querySelector(".prepaid-date");
+    const salonInput = form.querySelector(".prepaid-salon");
+    const staffInput = form.querySelector(".prepaid-staff");
+    const refreshStaff = () => {
+      staffInput.innerHTML = `<option value="">Ажилтан сонгох</option>` + staffOptionHtmlForSalon(salonInput.value, "", dateInput.value);
+    };
+    dateInput.addEventListener("change", refreshStaff);
+    salonInput.addEventListener("change", refreshStaff);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const index = Number(form.dataset.historyIndex);
+      const item = customer.serviceHistory?.[index];
+      if (!isPrepaidServicePending(item) || item.deleted) return;
+      const date = dateInput.value;
+      const salon = salonInput.value;
+      const staff = staffInput.value;
+      if (!date || !salon || !staff) return showToast("Огноо, салбар, ажилтан сонгоно уу");
+      if (!canAccessSalon(salon)) return showToast("Энэ салбарт үйлдэл хийх эрхгүй");
+      if (date > todayText()) return showToast("Үйлчилгээ үзүүлсэн огноо ирээдүйд байж болохгүй");
+      if (!requireOperationalDateEditable(date, "үйлчилгээ бүртгэх")) return;
+      const selectedStaff = state.staff.find(entry => entry.name === staff && entry.status !== "inactive" && (entry.salon === salon || staffHasActiveAssignment(entry, salon, date)));
+      if (!selectedStaff) return showToast("Энэ өдөр тухайн салбарт ажиллах ажилтан сонгоно уу");
+      const completed = completePrepaidService(item, { date, salon, staff, staffId: selectedStaff.id });
+      customer.serviceHistory[index] = completed;
+      if (date === todayText()) assignDailyQueue(customer, date, salon);
+      customer.currentTreatment = currentTreatmentFromHistory(customer, completed, "Нэг удаа");
+      customer.last = date;
+      const auditEntry = { id: entityId("audit"), title: "prepaid_service_completed", createdAt: auditNowText(), meta: `${auditActorUsername()} • ${customer.name} • ${completed.service} • ${date} • ${staff} • ${salon}` };
+      state.audit.unshift(auditEntry);
+      form.querySelector("button[type=submit]").disabled = true;
+      saveAndRefreshCustomerProfile("Үйлчилгээ бүртгэгдлээ", { auditEntries: [auditEntry] });
+    });
+  });
+}
+
+function bindProfileInfoForm(customer) {
   const form = document.getElementById("profileInfoForm");
   if (!form) return;
   enhanceNativeSelects(["profileInfoGender", "profileInfoDistrict", "profileInfoType"]);
@@ -13585,9 +13655,10 @@ function profileServicePriceParts(customer) {
   const editingIndex = Number.isInteger(customer.profileServiceEditingIndex) ? customer.profileServiceEditingIndex : null;
   const editingItem = editingIndex !== null ? customer.serviceHistory?.[editingIndex] : null;
   const kind = editingItem ? (editingItem.kind === "course" ? "course" : "single") : (customer.profileServiceKind || "single");
+  const prepaid = !editingItem && document.getElementById("profileServicePrepaid")?.checked === true;
   const item = editingItem?.kind === "course"
     ? { name: editingItem.service || editingItem.title, ...editingItem }
-    : serviceOptionsForKind(kind, customer, formValue("profileServiceDate") || todayText())[Number(document.getElementById("profileServiceSelect")?.value || 0)];
+    : serviceOptionsForKind(kind, customer, prepaid ? todayText() : (formValue("profileServiceDate") || todayText()))[Number(document.getElementById("profileServiceSelect")?.value || 0)];
   if (editingItem?.transferClosed || editingItem?.kind === "course") {
     return {
       item,
@@ -13603,9 +13674,9 @@ function profileServicePriceParts(customer) {
   }
   const policy = pricePolicy();
   const basePrice = Number(item?.price || 0);
-  const vipRoom = formValue("profileServiceRoom") === "vip";
+  const vipRoom = !prepaid && formValue("profileServiceRoom") === "vip";
   const vipRoomFee = vipRoom ? Number(policy.vipRoomFee || 0) : 0;
-  const masterStaffFee = isMasterStaffName(formValue("profileServiceStaff")) ? Number(policy.masterStaffFee || 0) : 0;
+  const masterStaffFee = !prepaid && isMasterStaffName(formValue("profileServiceStaff")) ? Number(policy.masterStaffFee || 0) : 0;
   const grossTotal = basePrice + vipRoomFee + masterStaffFee;
   const employeeDiscount = employeeDiscountPriceParts(customer, grossTotal);
   return {
@@ -13822,6 +13893,13 @@ function bindProfileServiceInlineForm(customer) {
     });
   });
   enhanceNativeSelects(["profileServiceSelect", "profileServiceSalon", ...(formKind === "course" ? [] : ["profileServiceStaff", "profileServiceRoom"])]);
+  form.querySelector("#profileServicePrepaid")?.addEventListener("change", event => {
+    form.querySelectorAll("[data-prepaid-hide]").forEach(field => {
+      field.hidden = event.target.checked;
+      field.querySelectorAll("input, select").forEach(input => { input.disabled = event.target.checked; });
+    });
+    updateProfileServicePrice(customer);
+  });
   form.querySelector(".profile-service-cancel-edit")?.addEventListener("click", () => {
     releaseDiagnosisCameraSession();
     delete customer.profileServiceEditingIndex;
@@ -13963,15 +14041,16 @@ function bindProfileServiceInlineForm(customer) {
     const priceParts = profileServicePriceParts(customer);
     const item = priceParts.item;
     if (!item) return;
-    const date = formValue("profileServiceDate") || todayText();
-    if (!requireOperationalDateEditable(date, editingItem ? "засах" : "нөхөж бүртгэх")) return;
+    const prepaid = kind === "single" && !editingItem && form.querySelector("#profileServicePrepaid")?.checked === true;
+    const date = prepaid ? "" : (formValue("profileServiceDate") || todayText());
+    if (!prepaid && !requireOperationalDateEditable(date, editingItem ? "засах" : "нөхөж бүртгэх")) return;
     const salon = showSalon ? formValue("profileServiceSalon") : activeAccount.salon;
     if (showSalon && !formValue("profileServiceSalon")) {
       showToast("Салбар сонгоно уу");
       return;
     }
-    const staff = kind === "course" ? "" : formValue("profileServiceStaff");
-    if (kind !== "course" && !staff) {
+    const staff = kind === "course" || prepaid ? "" : formValue("profileServiceStaff");
+    if (kind !== "course" && !prepaid && !staff) {
       showToast("Ажилтан сонгоно уу");
       return;
     }
@@ -13998,6 +14077,9 @@ function bindProfileServiceInlineForm(customer) {
       masterStaffFee: Number(priceParts.masterStaffFee || 0),
       paymentMethod: ""
     };
+    if (prepaid) {
+      Object.assign(historyItem, { prepaid: true, prepaidPending: true, activeUntil: "", paymentFormOpen: true });
+    }
     if (kind === "course") {
       historyItem.visitsTotal = parseVisitCount(item.visits || item.name);
       historyItem.visits = [];
@@ -14063,8 +14145,8 @@ function bindProfileServiceInlineForm(customer) {
     } else {
       customer.serviceHistory.unshift(historyItem);
     }
-    if (date === todayText()) assignDailyQueue(customer, date, salon);
-    customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, kind === "course" ? `Курс ${(historyItem.visits || []).length}/${historyItem.visitsTotal}` : "Нэг удаа");
+    if (!prepaid && date === todayText()) assignDailyQueue(customer, date, salon);
+    if (!prepaid) customer.currentTreatment = currentTreatmentFromHistory(customer, historyItem, kind === "course" ? `Курс ${(historyItem.visits || []).length}/${historyItem.visitsTotal}` : "Нэг удаа");
     if (historyItem.transferClosed && customer.currentTreatment) {
       customer.currentTreatment.stage = historyItem.courseClosedWithoutTransfer ? "Курс хаасан" : "Үлдэгдэл шилжүүлж хаасан";
       customer.currentTreatment.paymentBalance = 0;
@@ -14073,7 +14155,7 @@ function bindProfileServiceInlineForm(customer) {
     customer.activeCourse = remainingCourse?.kind === "course";
     customer.course = customer.activeCourse ? `Курс ${remainingCourse.done}/${remainingCourse.total}` : "";
     customer.unpaid = customerBalance(customer) > 0;
-    customer.last = date;
+    if (!prepaid) customer.last = date;
     customer.profileServiceOpen = false;
     delete customer.profileServiceEditingIndex;
     delete customer.profileServiceEditMode;
@@ -15436,7 +15518,7 @@ function currentTreatmentFromHistory(customer, item, progress) {
     id: `tr-${customer.id}-${Date.now()}`,
     historyId: item.id || "",
     service: item.service,
-    salon: item.salon,
+    salon: item.performedSalon || item.salon,
     staff: item.staff,
     progress,
     stage: item.diagnosis ? "Оношилгоо хийгдсэн" : "Үйлчилгээ эхэлсэн",
