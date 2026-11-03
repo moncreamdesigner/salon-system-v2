@@ -75,7 +75,10 @@ test("fulfillment requires a date and staff and never revives a deleted service"
 test("existing one-time services are unchanged and the compact control does not add a new tab", () => {
   assert.equal(context.isPrepaidServicePending({ kind: "single" }), false);
   assert.equal(transactions({ ...prepaid(), prepaid: false, prepaidPending: false, date: details.date, staff: details.staff, staffId: 2 }).filter(row => row.type === "single").length, 1);
-  assert.match(app, /class="profile-service-tab-row"[\s\S]*?id="profileServicePrepaid"/);
+  const registrationForm = helper("renderProfileServiceInlineForm");
+  assert.ok(registrationForm.indexOf('id="profileServicePrepaid"') > registrationForm.indexOf('id="profileServiceRoom"'));
+  assert.match(registrationForm, /id="profileServicePrepaid"> Төлбөр урьдчилж төлсөн<\/label>/);
+  assert.doesNotMatch(registrationForm, /profile-service-tab-row/);
   assert.doesNotMatch(helper("profileServiceTabsHtml"), /Урьдчилсан/);
   assert.match(app, /const date = prepaid \? ""/);
   assert.match(app, /if \(!prepaid\) customer\.last = date/);

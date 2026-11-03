@@ -29,6 +29,7 @@
 @media (max-width: 600px) { .event-report-metrics { grid-template-columns: 1fr; } .event-report-branch { max-width: none; } }
 #eventDashboard { margin-top: 20px; }
 :root {
+  --input-text-size: 13px;
   --bg: #f6f7f6;
   --surface: #ffffff;
   --surface-soft: #fafafa;
@@ -4125,7 +4126,7 @@ body.camera-overlay-open {
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--input-text-size);
   line-height: 1;
   padding: 0 12px;
   outline: none;
@@ -7259,24 +7260,20 @@ td.empty-state {
 
 .profile-prepaid-toggle.check {
   justify-self: start;
-  min-height: 0;
+  align-self: end;
+  min-height: 40px;
   border: 0;
   padding: 0;
   margin: 0;
   font-weight: 400;
+  font-size: var(--input-text-size);
   white-space: nowrap;
 }
 
-.profile-service-tab-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.profile-service-tab-row > .service-modal-tabs {
-  flex: 1;
-  min-width: 280px;
+@media (min-width: 1281px) {
+  .profile-service-row:has(> .profile-prepaid-toggle) {
+    grid-template-columns: minmax(200px, 1.5fr) minmax(120px, .7fr) minmax(130px, .8fr) minmax(130px, .8fr) 100px auto;
+  }
 }
 
 .prepaid-completion-form {

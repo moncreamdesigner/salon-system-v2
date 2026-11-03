@@ -12523,7 +12523,7 @@ function renderProfileServiceInlineForm(customer) {
   const selectedRoom = editingItem?.vipRoom || editingItem?.room === "vip" ? "vip" : "standard";
   return `
     <form id="profileServiceForm" class="profile-inline-service-form" data-kind="${kind}" novalidate>
-      ${editingItem ? "" : `<div class="profile-service-tab-row">${profileServiceTabsHtml(kind)}${kind === "single" ? `<label class="check profile-prepaid-toggle"><input type="checkbox" id="profileServicePrepaid"> Урьдчилсан</label>` : ""}</div>`}
+      ${editingItem ? "" : profileServiceTabsHtml(kind)}
       <div class="customer-service-grid profile-service-row">
         <label class="service-select-field">Үйлчилгээ
           <select class="input" id="profileServiceSelect" ${editingItem?.transferClosed || editingItem?.kind === "course" ? "disabled" : ""}>${editingItem?.kind === "course" ? `<option value="${selectedOptionIndex}">${htmlSafe(editingItem.service || editingItem.title)} · ${money(editingItem.basePrice || editingItem.price)}</option>` : serviceOptionHtml(kind, selectedOptionIndex, customer, editingItem?.date || todayText())}</select>
@@ -12543,6 +12543,7 @@ function renderProfileServiceInlineForm(customer) {
             </select>
           </label>
         `}
+        ${kind === "single" && !editingItem ? `<label class="check profile-prepaid-toggle"><input type="checkbox" id="profileServicePrepaid"> Төлбөр урьдчилж төлсөн</label>` : ""}
       </div>
       <div class="profile-service-submit-row">
         <div id="profileServicePrice" class="profile-service-price-breakdown"></div>
