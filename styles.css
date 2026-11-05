@@ -412,6 +412,21 @@ body.sidebar-collapsed .sidebar-logout {
   gap: 10px;
 }
 
+.pwa-install-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  width: 100%;
+  margin-top: 10px;
+  padding: 0 8px;
+  color: var(--text);
+}
+.pwa-install-button[hidden] { display: none !important; }
+body.sidebar-collapsed .pwa-install-button span { display: none; }
+body.sidebar-collapsed .pwa-install-button { padding: 0; }
+
 .sidebar-user-avatar {
   width: 34px;
   height: 34px;
