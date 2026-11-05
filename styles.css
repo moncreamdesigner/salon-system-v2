@@ -109,11 +109,10 @@ button {
 
 .sidebar-collapse-btn {
   display: none;
-  position: fixed;
-  left: 0;
-  bottom: 0;
-  width: var(--sidebar);
-  height: 28px;
+  position: static;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 32px;
   border: 0;
   border-top: 0;
   border-radius: 0;
@@ -304,7 +303,7 @@ body.sidebar-collapsed .sidebar-collapse-btn::before {
 }
 
 body.sidebar-collapsed .sidebar-collapse-btn {
-  width: 100%;
+  width: 28px;
 }
 
 body.sidebar-collapsed .brand {
@@ -362,22 +361,19 @@ body.sidebar-collapsed .sidebar-user-info {
 }
 
 body.sidebar-collapsed .sidebar-footer {
-  display: none !important;
+  justify-content: center;
+  padding-inline: 0;
 }
 
-body.sidebar-collapsed .sidebar-logout {
-  margin-left: 0;
+body.sidebar-collapsed .sidebar-footer .sidebar-user-avatar,
+body.sidebar-collapsed .sidebar-footer .sidebar-logout {
+  display: none !important;
 }
 
 @media (min-width: 821px) {
   .sidebar-collapse-btn {
     display: flex;
-    position: sticky;
-    left: auto;
-    bottom: 0;
-    flex: 0 0 28px;
-    width: 100%;
-    margin-top: 8px;
+    margin: 0;
   }
 
   .sidebar {
@@ -2245,6 +2241,8 @@ body.signature-modal-open {
 }
 
 .sidebar-logout {
+  display: grid;
+  place-items: center;
   width: 32px;
   height: 32px;
   flex: 0 0 auto;
@@ -2254,6 +2252,7 @@ body.signature-modal-open {
   color: var(--muted);
   font-size: 18px;
   line-height: 1;
+  padding: 0;
 }
 
 .sidebar-logout:hover {
