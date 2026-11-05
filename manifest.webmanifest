@@ -7,11 +7,11 @@
   "start_url": "/login",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#68bd63",
+  "background_color": "#f6f7f6",
+  "theme_color": "#f6f7f6",
   "prefer_related_applications": false,
   "icons": [
-    { "src": "assets/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "assets/app-icon-rounded-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/app-icon-rounded-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }

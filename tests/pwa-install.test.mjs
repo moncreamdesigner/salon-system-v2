@@ -31,14 +31,28 @@ test("manifest installs the authenticated salon app, not the public booking page
   assert.doesNotMatch(read("booking.html"), /rel="manifest"|pwa\.js/);
 });
 
+test("installed title bar and launch background match the light gray application canvas", () => {
+  const manifest = JSON.parse(read("manifest.webmanifest"));
+  const canvasColor = read("styles.css").match(/--bg:\s*(#[0-9a-f]+);/i)?.[1];
+  assert.equal(manifest.theme_color, canvasColor);
+  assert.equal(manifest.background_color, canvasColor);
+  assert.equal(read("index.html").match(/name="theme-color" content="([^"]+)"/)?.[1], canvasColor);
+});
+
 test("both app icons are real PNGs of the declared dimensions", () => {
   const manifest = JSON.parse(read("manifest.webmanifest"));
   assert.deepEqual(manifest.icons.map(icon => icon.sizes), ["192x192", "512x512"]);
   for (const icon of manifest.icons) {
+    assert.match(icon.src, /app-icon-rounded-(192|512)\.png$/, "New icon URLs avoid reusing the old square icon cache");
     const bytes = fs.readFileSync(new URL(`../${icon.src}`, import.meta.url));
     assert.equal(bytes.subarray(1, 4).toString(), "PNG");
     assert.equal(`${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`, icon.sizes);
+    assert.equal(bytes[25], 6, "PNG must retain alpha for transparent outer corners");
   }
+  const builder = read("scripts/build-app-icons.ps1");
+  assert.match(builder, /Clear\(\[System\.Drawing\.Color\]::Transparent\)/);
+  assert.equal((builder.match(/backgroundPath\.AddArc\(/g) || []).length, 4);
+  assert.match(builder, /FillPath\(\[System\.Drawing\.Brushes\]::White/);
 });
 
 test("the install control is hidden in unsupported browsers and prompts only after a user click", async () => {
