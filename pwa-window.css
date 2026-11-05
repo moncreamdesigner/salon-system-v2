@@ -1,0 +1,32 @@
+/* Browser-owned titlebar geometry is in viewport coordinates. Compensate for
+   the admin UI's existing CSS zoom, without changing its business layout. */
+.pwa-window-drag { display: none; }
+
+@media (display-mode: window-controls-overlay) {
+  :root {
+    --pwa-titlebar-bottom: calc((env(titlebar-area-y, 0px) + env(titlebar-area-height, 0px)) / var(--app-render-scale, 1));
+  }
+
+  .pwa-window-drag {
+    display: block;
+    position: fixed;
+    top: calc(env(titlebar-area-y, 0px) / var(--app-render-scale, 1));
+    left: calc(env(titlebar-area-x, 0px) / var(--app-render-scale, 1));
+    width: calc(env(titlebar-area-width, 0px) / var(--app-render-scale, 1));
+    height: calc(env(titlebar-area-height, 0px) / var(--app-render-scale, 1));
+    z-index: 60;
+    background: transparent;
+    -webkit-app-region: drag;
+    app-region: drag;
+    user-select: none;
+  }
+
+  /* The sidebar background reaches the top; keep form controls below the
+     native buttons. Extra left-side protection also handles macOS controls. */
+  body .main {
+    padding-top: max(18px, calc(var(--pwa-titlebar-bottom) + 8px));
+  }
+  body .sidebar {
+    padding-top: max(18px, min(calc(env(titlebar-area-x, 0px) / var(--app-render-scale, 1)), calc(var(--pwa-titlebar-bottom) + 8px)));
+  }
+}

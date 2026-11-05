@@ -30,6 +30,7 @@
 #eventDashboard { margin-top: 20px; }
 :root {
   --input-text-size: 13px;
+  --app-render-scale: 1;
   --bg: #f6f7f6;
   --surface: #ffffff;
   --surface-soft: #fafafa;
@@ -65,8 +66,9 @@ body {
 }
 
 @supports (zoom: 1) {
+  :root { --app-render-scale: .9; }
   body {
-    zoom: .9;
+    zoom: var(--app-render-scale);
     min-height: 111.111vh;
   }
 

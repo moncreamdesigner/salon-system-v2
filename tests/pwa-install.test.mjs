@@ -5,15 +5,17 @@ import test from "node:test";
 
 const read = name => fs.readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
 const source = read("pwa.js");
-function setup({ standalone = false, iosStandalone = false, hasButton = true } = {}) {
+function setup({ standalone = false, overlay = false, iosStandalone = false, hasButton = true } = {}) {
   const events = new Map();
   const buttonEvents = new Map();
   const modeEvents = new Map();
   const button = { hidden: true, disabled: false, addEventListener: (name, fn) => buttonEvents.set(name, fn) };
   const mode = { matches: standalone, addEventListener: (name, fn) => modeEvents.set(name, fn) };
-  const window = { matchMedia: () => mode, navigator: { standalone: iosStandalone }, addEventListener: (name, fn) => events.set(name, fn) };
+  const overlayModeEvents = new Map();
+  const overlayMode = { matches: overlay, addEventListener: (name, fn) => overlayModeEvents.set(name, fn) };
+  const window = { matchMedia: query => query.includes("window-controls-overlay") ? overlayMode : mode, navigator: { standalone: iosStandalone }, addEventListener: (name, fn) => events.set(name, fn) };
   vm.runInNewContext(source, { window, document: { getElementById: () => hasButton ? button : null }, console: { warn() {} } });
-  return { button, mode, fire: (name, event = {}) => events.get(name)?.(event), click: () => buttonEvents.get("click")?.(), changeMode: () => modeEvents.get("change")?.() };
+  return { button, mode, overlayMode, fire: (name, event = {}) => events.get(name)?.(event), click: () => buttonEvents.get("click")?.(), changeMode: () => modeEvents.get("change")?.(), changeOverlayMode: () => overlayModeEvents.get("change")?.() };
 }
 function promptEvent(outcome = "dismissed") {
   return { prevented: false, prompts: 0, preventDefault() { this.prevented = true; }, async prompt() { this.prompts++; }, userChoice: Promise.resolve({ outcome }) };
@@ -85,7 +87,7 @@ test("accepted installation and appinstalled both remove the install button", as
 });
 
 test("installed and standalone windows never show another installation prompt", () => {
-  for (const options of [{ standalone: true }, { iosStandalone: true }]) {
+  for (const options of [{ standalone: true }, { iosStandalone: true }, { overlay: true }]) {
     const ui = setup(options);
     const event = promptEvent();
     ui.fire("beforeinstallprompt", event);
@@ -97,6 +99,28 @@ test("installed and standalone windows never show another installation prompt", 
   ui.mode.matches = true;
   ui.changeMode();
   assert.equal(ui.button.hidden, true);
+  const overlayUi = setup();
+  overlayUi.fire("beforeinstallprompt", promptEvent());
+  overlayUi.overlayMode.matches = true;
+  overlayUi.changeOverlayMode();
+  assert.equal(overlayUi.button.hidden, true);
+});
+
+test("desktop overlay hides the native title only where supported and keeps a standalone fallback", () => {
+  const manifest = JSON.parse(read("manifest.webmanifest"));
+  assert.deepEqual(manifest.display_override, ["window-controls-overlay"]);
+  assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.id, "/login", "The installed app identity must not change");
+  assert.match(read("index.html"), /class="pwa-window-drag" aria-hidden="true"><\/div>/);
+  const css = read("pwa-window.css");
+  assert.match(css, /\.pwa-window-drag \{ display: none; \}/);
+  assert.match(css, /@media \(display-mode: window-controls-overlay\)/);
+  for (const variable of ["x", "y", "width", "height"]) assert.ok(css.includes(`env(titlebar-area-${variable}, 0px)`));
+  assert.match(css, /app-region: drag/);
+  assert.match(css, /padding-top: max\(18px, calc\(var\(--pwa-titlebar-bottom\) \+ 8px\)\)/);
+  assert.match(css, /var\(--app-render-scale, 1\)/);
+  assert.match(read("styles.css"), /zoom: var\(--app-render-scale\)/);
+  assert.doesNotMatch(read("booking.html"), /pwa-window/);
 });
 
 test("parallel clicks, cancelled prompts and browser errors do not interfere with the application", async () => {

@@ -1,21 +1,23 @@
-/* Installation only. Deliberately no service worker, offline storage or fetch
+/* Desktop presentation only. Deliberately no service worker, offline storage or fetch
    interception: operational data and updates keep the existing network path. */
 (() => {
   const button = document.getElementById("installAppButton");
   if (!button) return;
   const displayMode = window.matchMedia("(display-mode: standalone)");
+  const overlayMode = window.matchMedia("(display-mode: window-controls-overlay)");
+  const inAppWindow = () => displayMode.matches || overlayMode.matches || window.navigator.standalone === true;
   let installPrompt = null;
   let prompting = false;
-  let installed = displayMode.matches || window.navigator.standalone === true;
+  let installed = inAppWindow();
 
   const refresh = () => {
-    button.hidden = installed || displayMode.matches || !installPrompt;
+    button.hidden = installed || inAppWindow() || !installPrompt;
     button.disabled = prompting;
   };
   refresh();
 
   window.addEventListener("beforeinstallprompt", event => {
-    if (installed || displayMode.matches) return;
+    if (installed || inAppWindow()) return;
     event.preventDefault();
     installPrompt = event;
     refresh();
@@ -26,9 +28,10 @@
     refresh();
   });
   displayMode.addEventListener?.("change", refresh);
+  overlayMode.addEventListener?.("change", refresh);
 
   button.addEventListener("click", async () => {
-    if (!installPrompt || prompting || installed || displayMode.matches) return;
+    if (!installPrompt || prompting || installed || inAppWindow()) return;
     const prompt = installPrompt;
     installPrompt = null;
     prompting = true;

@@ -7,6 +7,7 @@
   "start_url": "/login",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay"],
   "background_color": "#f6f7f6",
   "theme_color": "#f6f7f6",
   "prefer_related_applications": false,
