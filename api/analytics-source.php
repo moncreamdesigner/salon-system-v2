@@ -89,7 +89,8 @@ function analytics_compact_service(array $item): array
         'total', 'balance', 'employeeDiscountAmount', 'vipRoomFee', 'masterStaffFee',
         'paymentMethod', 'referenceLabel', 'singleVisitPrice', 'analyticsSkipKassPayments',
         'prepaid', 'prepaidPending', 'performedSalon',
-        'cashierCommissionBasisVersion', 'cashierCommissionBase'
+        'cashierCommissionBasisVersion', 'cashierCommissionBase',
+        'campaignDiscountAmount', 'serviceCommissionBasisVersion'
     ]);
     $copy['payments'] = array_values(array_map(
         static fn(array $payment): array => analytics_compact_payment($payment),

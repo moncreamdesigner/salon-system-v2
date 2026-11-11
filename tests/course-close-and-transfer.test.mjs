@@ -42,7 +42,7 @@ const context = {
   }
 };
 vm.createContext(context);
-vm.runInContext(`${functionSource("courseEligiblePaidAmount")}\n${functionSource("configuredCourseSingleVisitPrice")}\n${functionSource("courseTransferInfo")}\n${functionSource("courseClosurePerformanceAdjustments")}`, context);
+vm.runInContext(`${functionSource("courseEligiblePaidAmount")}\n${functionSource("configuredCourseSingleVisitPrice")}\n${functionSource("courseTransferInfo")}\n${functionSource("servicePerformancePaidBase")}\n${functionSource("courseClosurePerformanceAdjustments")}`, context);
 
 function course({ paid, visits = 4, price = 800000, totalVisits = 8, employeeDiscountAmount = 0, singleVisitPrice = price / totalVisits }) {
   return {

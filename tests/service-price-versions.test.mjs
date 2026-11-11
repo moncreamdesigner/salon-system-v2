@@ -9,6 +9,8 @@ function setup() {
   const fields = { profileServiceDate: "2026-10-20", profileServiceRoom: "standard" };
   const ctx = vm.createContext({
     todayText: () => "2026-10-25",
+    state: { discounts: [] },
+    activeAccount: { role: "admin" },
     standardServiceName: name => name,
     serviceAudienceForCustomer: () => "Том хүн",
     serviceSettingsData: { single: [], course: [] },
@@ -19,6 +21,7 @@ function setup() {
     employeeDiscountPriceParts: (_customer, total) => ({ total, amount: 0, percent: 0 })
   });
   for (const block of [source("servicePriceAtDate", "updateServiceFormMode"), source("configuredCourseSingleVisitPrice", "courseTransferInfo"), source("courseVisitExtras", "servicePaidAmount"), source("profileServicePriceParts", "profileServicePriceBreakdownHtml"), source("serviceOptionsForKind", "serviceOptionLabel"), source("parseVisitCount", "staffOptionHtml")]) vm.runInContext(block, ctx);
+  for (const [from, to] of [["serviceDiscountKey", "selectedDiscountServices"], ["activeCampaignDiscount", "productCampaignDiscount"]]) vm.runInContext(source(from, to), ctx);
   return ctx;
 }
 const original = { name: "Курс", customer: "Том хүн", price: 540000, singleVisitPrice: 75000, visits: "8 удаа" };

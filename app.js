@@ -10175,7 +10175,7 @@ function courseVisitExtras(item = {}) {
 function serviceTotalAmount(item = {}) {
   if (item.kind === "course") {
     const extras = courseVisitExtras(item);
-    return Math.max(0, Number(item.basePrice || item.price || item.total || 0) + extras.vipRoomFee + extras.masterStaffFee - Number(item.employeeDiscountAmount || 0));
+    return Math.max(0, Number(item.basePrice || item.price || item.total || 0) + extras.vipRoomFee + extras.masterStaffFee - Number(item.campaignDiscountAmount || 0) - Number(item.employeeDiscountAmount || 0));
   }
   return Number(item.price || item.total || 0);
 }
@@ -10278,7 +10278,7 @@ function courseTransferInfo(item = {}, requestedSingleVisitPrice = null) {
   if (item.kind !== "course") return { totalVisits: 0, usedVisits: 0, unusedVisits: 0, paid: 0, usedValue: 0, originalUsedValue: 0, repricingDifference: 0, singleVisitPrice: 0, requiresSingleVisitPrice: false, shortfall: 0, transferred: 0, available: 0 };
   const visits = (Array.isArray(item.visits) ? item.visits : []).filter(visit => !visit.deleted);
   const totalVisits = Math.max(1, Number(item.visitsTotal || visits.length || 1));
-  const netCoursePrice = Math.max(0, Number(item.basePrice || item.price || 0) - Number(item.employeeDiscountAmount || 0));
+  const netCoursePrice = Math.max(0, Number(item.basePrice || item.price || 0) - Number(item.campaignDiscountAmount || 0) - Number(item.employeeDiscountAmount || 0));
   const paid = Math.min(netCoursePrice, courseEligiblePaidAmount(item));
   const usedVisits = Math.min(totalVisits, visits.length);
   const unusedVisits = Math.max(0, totalVisits - usedVisits);
@@ -10320,7 +10320,7 @@ function courseClosurePerformanceAdjustments(item = {}, customer = {}, transfer 
     const policy = performancePolicyForDate(visitDate);
     if (!(policy.service.serviceKinds || []).includes("course")) return null;
     const originalBasis = policy.service.basis === "paid"
-      ? Math.min(grossCoursePrice, servicePaidAmount(item))
+      ? servicePerformancePaidBase(item)
       : grossCoursePrice;
     const originalPerVisit = originalBasis / totalVisits;
     const revenue = Math.max(0, Math.round(finalPerVisit - originalPerVisit));
@@ -10488,6 +10488,14 @@ function cashierCommissionRevenue(item, paidAmount) {
   return denominator > 0 ? base * Math.max(0, Number(paidAmount || 0)) / denominator : 0;
 }
 
+function servicePerformancePaidBase(item) {
+  const original = Math.max(0, Number(item.basePrice || item.price || item.total || 0));
+  const paid = servicePaidAmount(item);
+  if (item.serviceCommissionBasisVersion !== 1) return Math.min(original, paid);
+  const net = Math.max(0, original - Number(item.campaignDiscountAmount || 0) - Number(item.employeeDiscountAmount || 0));
+  return net > 0 ? original * Math.min(1, paid / net) : 0;
+}
+
 function calculatePerformanceTransactions({ policyOverride = null, sourceState = null } = {}) {
   sourceState ||= activeView === "performance" && performanceAnalyticsSource ? performanceAnalyticsSource : state;
   const scopedSource = sourceState !== state;
@@ -10609,7 +10617,7 @@ function calculatePerformanceTransactions({ policyOverride = null, sourceState =
         const visits = Array.isArray(item.visits) ? item.visits.filter(visit => !visit.deleted) : [];
         const visitTotal = Math.max(1, Number(item.visitsTotal || visits.length || 1));
         const originalBase = Number(item.basePrice || item.price || item.total || 0);
-        const paidBase = Math.min(originalBase, servicePaidAmount(item));
+        const paidBase = servicePerformancePaidBase(item);
         const basePerVisit = (appliedPolicy.service.basis === "paid" ? paidBase : originalBase) / visitTotal;
         visits.forEach((visit, index) => {
           const visitDate = visit.date || date;
@@ -10654,7 +10662,7 @@ function calculatePerformanceTransactions({ policyOverride = null, sourceState =
         const appliedPolicy = performancePolicyForDate(date, policyOverride);
         if (!appliedPolicy.service.serviceKinds.includes("single")) return;
         const originalBase = Number(item.basePrice || item.price || item.total || 0);
-        const paidBase = Math.min(originalBase, servicePaidAmount(item));
+        const paidBase = servicePerformancePaidBase(item);
         const baseAmount = appliedPolicy.service.basis === "paid" ? paidBase : originalBase;
         const singleTransaction = {
           id: `service:${item.id || `${customer.id}:${title}:${date}`}`,
@@ -11442,6 +11450,7 @@ function renderServicePaymentSummary(item, paid, historyIndex) {
   return `
     <div class="profile-payment-summary">
       <span>Үндсэн үнэ <strong>${money(basePrice)}</strong></span>
+      ${item.campaignDiscountAmount ? `<span class="payment-discount">${Number(item.campaignDiscount?.percent || 0)}% хямдрал <strong>−${money(item.campaignDiscountAmount)}</strong></span>` : ""}
       ${item.productDiscountAmount ? `<span class="payment-discount">Барааны хямдрал <strong>−${money(item.productDiscountAmount)}</strong></span>` : ""}
       ${extras.masterStaffFee ? `<span>Мастер массажист <strong>${money(extras.masterStaffFee)}</strong></span>` : ""}
       ${extras.vipRoomFee ? `<span>Вип өрөө <strong>${money(extras.vipRoomFee)}</strong></span>` : ""}
@@ -12327,11 +12336,11 @@ function kassCartTotal(cart = []) {
   return cart.reduce((sum, item) => sum + kassLineUnitPrice(item, item.qty) * Math.max(1, Number(item.qty || 1)), 0);
 }
 
-function productCampaignDiscount(item, { salon = "", date = "" } = {}, discounts = state.discounts) {
+function activeCampaignDiscount(kind, item, { salon = "", date = "" } = {}, discounts = state.discounts) {
   if (!salon || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const weekday = String(new Date(`${date}T00:00:00Z`).getUTCDay());
-  const key = serviceDiscountKey(`products:${item.group}`, item);
-  const codePrefix = item.code ? `products:${item.group}:${item.code}:` : "";
+  const key = serviceDiscountKey(kind, item);
+  const codePrefix = item.code ? `${kind}:${item.code}:` : "";
   return (discounts || []).filter(discount => {
     if (discount.deleted || discount.active === false || !(Number(discount.percent) > 0)) return false;
     if (!discount.startDate || date < discount.startDate || (discount.endDate && date > discount.endDate)) return false;
@@ -12339,6 +12348,10 @@ function productCampaignDiscount(item, { salon = "", date = "" } = {}, discounts
     if ((discount.days || []).length && !discount.days.map(String).includes(weekday)) return false;
     return (discount.services || []).some(value => value === key || (codePrefix && String(value).startsWith(codePrefix)));
   }).sort((a, b) => Number(b.percent) - Number(a.percent) || String(a.id).localeCompare(String(b.id)))[0] || null;
+}
+
+function productCampaignDiscount(item, context = {}, discounts = state.discounts) {
+  return activeCampaignDiscount(`products:${item.group}`, item, context, discounts);
 }
 
 function kassProductPriceParts(item, quantity = 1, context = {}) {
@@ -13702,7 +13715,7 @@ function profileServicePriceParts(customer) {
   const item = editingItem?.kind === "course"
     ? { name: editingItem.service || editingItem.title, ...editingItem }
     : serviceOptionsForKind(kind, customer, prepaid ? todayText() : (formValue("profileServiceDate") || todayText()))[Number(document.getElementById("profileServiceSelect")?.value || 0)];
-  if (editingItem?.transferClosed || editingItem?.kind === "course") {
+  if (editingItem?.transferClosed || editingItem?.kind === "course" || editingItem?.campaignDiscount) {
     return {
       item,
       basePrice: Number(editingItem.basePrice || editingItem.price || 0),
@@ -13712,6 +13725,9 @@ function profileServicePriceParts(customer) {
       grossTotal: serviceTotalAmount(editingItem) + Number(editingItem.employeeDiscountAmount || 0),
       employeeDiscountPercent: Number(editingItem.employeeDiscountPercent || 0),
       employeeDiscountAmount: Number(editingItem.employeeDiscountAmount || 0),
+      campaignDiscountAmount: Number(editingItem.campaignDiscountAmount || 0),
+      campaignDiscount: editingItem.campaignDiscount || null,
+      serviceCommissionBasisVersion: editingItem.serviceCommissionBasisVersion || 0,
       total: serviceTotalAmount(editingItem)
     };
   }
@@ -13721,7 +13737,11 @@ function profileServicePriceParts(customer) {
   const vipRoomFee = vipRoom ? Number(policy.vipRoomFee || 0) : 0;
   const masterStaffFee = !prepaid && isMasterStaffName(formValue("profileServiceStaff")) ? Number(policy.masterStaffFee || 0) : 0;
   const grossTotal = basePrice + vipRoomFee + masterStaffFee;
-  const employeeDiscount = employeeDiscountPriceParts(customer, grossTotal);
+  const salon = ["admin", "manager"].includes(activeAccount.role) ? formValue("profileServiceSalon") : activeAccount.salon;
+  const campaign = activeCampaignDiscount(kind, item || {}, { salon, date: prepaid ? todayText() : (formValue("profileServiceDate") || todayText()) });
+  const campaignPercent = campaign ? Math.min(100, Number(campaign.percent)) : 0;
+  const campaignDiscountAmount = Math.round(basePrice * campaignPercent / 100);
+  const employeeDiscount = employeeDiscountPriceParts(customer, grossTotal - campaignDiscountAmount, campaign ? basePrice - campaignDiscountAmount : 0);
   return {
     item,
     basePrice,
@@ -13729,6 +13749,9 @@ function profileServicePriceParts(customer) {
     vipRoomFee,
     masterStaffFee,
     grossTotal,
+    campaignDiscountAmount,
+    campaignDiscount: campaign ? { id: campaign.id, name: campaign.name, percent: campaignPercent, serviceKey: serviceDiscountKey(kind, item) } : null,
+    serviceCommissionBasisVersion: campaign ? 1 : 0,
     employeeDiscountPercent: employeeDiscount.percent,
     employeeDiscountAmount: employeeDiscount.amount,
     total: employeeDiscount.total
@@ -13745,6 +13768,7 @@ function profileServicePriceBreakdownHtml(price) {
     <div class="price-breakdown-lines">
       <div><span>Үндсэн үнэ</span><strong>${money(price.basePrice)}</strong></div>
       ${extraRows}
+      ${price.campaignDiscountAmount ? `<div class="price-breakdown-discount"><span>${price.campaignDiscount.percent}% хямдрал</span><strong>−${money(price.campaignDiscountAmount)}</strong></div>` : ""}
       ${price.employeeDiscountAmount ? `<div class="price-breakdown-discount"><span>Ажилтны ${formatNumber(price.employeeDiscountPercent)}% хөнгөлөлт</span><strong>−${money(price.employeeDiscountAmount)}</strong></div>` : ""}
       <div class="price-breakdown-total"><span>Нийт</span><strong>${money(price.total)}</strong></div>
     </div>
@@ -14047,7 +14071,10 @@ function bindProfileServiceInlineForm(customer) {
   document.getElementById("profileServiceStaff")?.addEventListener("change", () => updateProfileServicePrice(customer));
   document.getElementById("profileServiceSalon")?.addEventListener("change", event => {
     const staffSelect = document.getElementById("profileServiceStaff");
-    if (!staffSelect) return;
+    if (!staffSelect) {
+      updateProfileServicePrice(customer);
+      return;
+    }
     staffSelect.innerHTML = staffOptionHtmlForSalon(event.target.value, "", formValue("profileServiceDate") || todayText());
     enhanceNativeSelects(["profileServiceStaff"]);
     staffSelect.addEventListener("change", () => updateProfileServicePrice(customer));
@@ -14109,6 +14136,9 @@ function bindProfileServiceInlineForm(customer) {
       basePrice: Number(priceParts.basePrice || 0),
       employeeDiscountPercent: Number(priceParts.employeeDiscountPercent || 0),
       employeeDiscountAmount: Number(priceParts.employeeDiscountAmount || 0),
+      campaignDiscountAmount: Number(priceParts.campaignDiscountAmount || 0),
+      campaignDiscount: priceParts.campaignDiscount || null,
+      serviceCommissionBasisVersion: priceParts.serviceCommissionBasisVersion || 0,
       employeeDiscountAppliedAt: priceParts.employeeDiscountAmount ? new Date().toISOString() : "",
       vipRoom: priceParts.vipRoom,
       vipRoomFee: Number(priceParts.vipRoomFee || 0),
@@ -14123,7 +14153,7 @@ function bindProfileServiceInlineForm(customer) {
       historyItem.visits = [];
       historyItem.singleVisitPrice = Math.max(0, Number(item.singleVisitPrice || 0));
       historyItem.price = Number(priceParts.basePrice || 0);
-      historyItem.balance = Math.max(0, Number(priceParts.basePrice || 0) - Number(priceParts.employeeDiscountAmount || 0));
+      historyItem.balance = Number(priceParts.total || 0);
       historyItem.priceSnapshot = coursePriceSnapshot(historyItem);
       historyItem.vipRoom = false;
       historyItem.vipRoomFee = 0;

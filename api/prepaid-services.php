@@ -53,7 +53,7 @@ function assert_prepaid_services_preserved(array $current, array $incoming, arra
             }
             // Payments and balance can change independently, but fulfillment
             // must never reprice or move the original cash transaction.
-            foreach (['kind', 'prepaid', 'salon', 'title', 'service', 'price', 'basePrice', 'createdAt', 'registeredAt', 'employeeDiscountPercent', 'employeeDiscountAmount', 'vipRoom', 'vipRoomFee', 'masterStaffFee'] as $key) {
+            foreach (['kind', 'prepaid', 'salon', 'title', 'service', 'price', 'basePrice', 'createdAt', 'registeredAt', 'employeeDiscountPercent', 'employeeDiscountAmount', 'vipRoom', 'vipRoomFee', 'masterStaffFee', 'campaignDiscountAmount', 'campaignDiscount', 'serviceCommissionBasisVersion'] as $key) {
                 if (($item[$key] ?? null) != ($old[$key] ?? null)) throw new DomainException('Урьдчилсан үйлчилгээний анхны үнэ, төлбөрийн салбарыг өөрчлөх боломжгүй.');
             }
             if (!prepaid_service_pending($old)) {

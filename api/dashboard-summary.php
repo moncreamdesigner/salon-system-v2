@@ -92,7 +92,7 @@ function dashboard_service_total(array $item): float
         $master += dashboard_number($visit['masterStaffFee'] ?? 0);
     }
     return max(0, dashboard_number($item['basePrice'] ?? $item['price'] ?? $item['total'] ?? 0)
-        + $vip + $master - dashboard_number($item['employeeDiscountAmount'] ?? 0));
+        + $vip + $master - dashboard_number($item['campaignDiscountAmount'] ?? 0) - dashboard_number($item['employeeDiscountAmount'] ?? 0));
 }
 
 function dashboard_paid_amount(array $item): float

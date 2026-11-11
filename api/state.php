@@ -7,6 +7,7 @@ require_once __DIR__ . '/performance-integrity.php';
 require_once __DIR__ . '/course-price-protection.php';
 require_once __DIR__ . '/prepaid-services.php';
 require_once __DIR__ . '/product-commission.php';
+require_once __DIR__ . '/service-campaigns.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -809,7 +810,7 @@ try {
     // entity mutation only sends customers/audit. Always load the setting as a
     // read dependency so the server and browser enforce the same day limit.
     $loadKeys = $partial
-        ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings', '_serviceSettings'])))
+        ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings', '_serviceSettings', 'discounts'])))
         : [];
     $currentSections = load_all_sections($pdo, $loadKeys);
     if ($mutationKeys) {
@@ -849,6 +850,7 @@ try {
     assert_course_prices_preserved($currentSections, $sections);
     assert_prepaid_services_preserved($currentSections, $sections, $user);
     assert_product_commission_contracts($currentSections, $sections);
+    assert_service_campaign_contracts($currentSections, $sections);
     if (!$bulkCustomerImport) assert_new_course_price_current($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);

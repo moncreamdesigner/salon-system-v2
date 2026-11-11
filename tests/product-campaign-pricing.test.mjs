@@ -17,7 +17,7 @@ function setup(discounts = [campaign]) {
     defaultState: { pricePolicy: policy }, performanceCalculationSource: null, performancePolicyForDate: () => policy,
     performanceAssignment: () => false, performanceVoucherRoleIdForPayment: () => "", performancePaymentEligible: payment => payment.method === "qpay",
     kassRevenueServiceName: () => "Бараа", todayText: () => selected.date, isSalonAccount: () => true });
-  for (const name of ["serviceDiscountKey", "kassSaleThreshold", "kassHasSpecialPrice", "kassLineUnitPrice", "productCampaignDiscount", "kassProductPriceParts", "profileKassPricingContext", "employeeDiscountPriceParts", "kassCartPriceParts", "serviceTotalAmount", "servicePaidAmount", "cashierCommissionRevenue", "performanceTransactionIdentity", "dedupePerformanceTransactions", "calculatePerformanceTransactions", "kassRevenueSourceRows"]) vm.runInContext(helper(name), c);
+  for (const name of ["serviceDiscountKey", "kassSaleThreshold", "kassHasSpecialPrice", "kassLineUnitPrice", "activeCampaignDiscount", "productCampaignDiscount", "kassProductPriceParts", "profileKassPricingContext", "employeeDiscountPriceParts", "kassCartPriceParts", "serviceTotalAmount", "servicePaidAmount", "cashierCommissionRevenue", "performanceTransactionIdentity", "dedupePerformanceTransactions", "servicePerformancePaidBase", "calculatePerformanceTransactions", "kassRevenueSourceRows"]) vm.runInContext(helper(name), c);
   return { c, policy };
 }
 test("campaign reduces only selected products and always replaces the 3+ price", () => {

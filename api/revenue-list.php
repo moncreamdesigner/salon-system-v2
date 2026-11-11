@@ -52,7 +52,7 @@ function revenue_legacy_paid(array $item): float
             if (!is_array($visit)) continue;
             $total += (float)($visit['vipRoomFee'] ?? 0) + (float)($visit['masterStaffFee'] ?? 0);
         }
-        $total -= (float)($item['employeeDiscountAmount'] ?? 0);
+        $total -= (float)($item['campaignDiscountAmount'] ?? 0) + (float)($item['employeeDiscountAmount'] ?? 0);
     }
     return max(0, $total - (float)($item['balance'] ?? 0));
 }
