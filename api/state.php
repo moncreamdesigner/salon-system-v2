@@ -6,6 +6,7 @@ require_once __DIR__ . '/customer-entity-store.php';
 require_once __DIR__ . '/performance-integrity.php';
 require_once __DIR__ . '/course-price-protection.php';
 require_once __DIR__ . '/prepaid-services.php';
+require_once __DIR__ . '/product-commission.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -847,6 +848,7 @@ try {
     $sections = merge_append_only_audit($currentSections, $sections);
     assert_course_prices_preserved($currentSections, $sections);
     assert_prepaid_services_preserved($currentSections, $sections, $user);
+    assert_product_commission_contracts($currentSections, $sections);
     if (!$bulkCustomerImport) assert_new_course_price_current($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);

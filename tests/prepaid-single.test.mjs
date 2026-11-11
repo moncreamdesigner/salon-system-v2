@@ -16,7 +16,7 @@ const context = vm.createContext({
   state: {}, activeAccount: { salon: "Хан-Уул" },
   performanceVoucherRoleIdForPayment: () => "", performancePaymentEligible: payment => payment.method === "qpay"
 });
-for (const name of ["isPrepaidServicePending", "completePrepaidService", "serviceTotalAmount", "servicePaidAmount", "performanceTransactionIdentity", "dedupePerformanceTransactions", "calculatePerformanceTransactions", "profileServiceEditMode"]) vm.runInContext(helper(name), context);
+for (const name of ["isPrepaidServicePending", "completePrepaidService", "serviceTotalAmount", "servicePaidAmount", "performanceTransactionIdentity", "dedupePerformanceTransactions", "cashierCommissionRevenue", "calculatePerformanceTransactions", "profileServiceEditMode"]) vm.runInContext(helper(name), context);
 const prepaid = () => ({
   id: "svc-prepaid", kind: "single", title: "Тэжээлийн эмчилгээ", service: "Тэжээлийн эмчилгээ",
   prepaid: true, prepaidPending: true, date: "", staff: "", staffId: null, salon: "Хан-Уул",
