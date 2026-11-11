@@ -11395,8 +11395,12 @@ function performanceTransactionTypeLabel(item) {
 
 function openStaffPerformanceDetail(staffId) {
   const report = buildPerformanceReport();
-  const row = report.rows.find(item => Number(item.staff.id) === Number(staffId));
-  if (!row) return showToast("Ажилтны мэдээлэл олдсонгүй");
+  const sourceRow = report.rows.find(item => Number(item.staff.id) === Number(staffId));
+  if (!sourceRow) return showToast("Ажилтны мэдээлэл олдсонгүй");
+  // Sort a display-only copy; never reorder the source or locked payroll rows.
+  const row = { ...sourceRow, transactions: [...sourceRow.transactions].sort((a, b) =>
+    String(b.date || "").localeCompare(String(a.date || ""))
+  ) };
   const branchTotals = row.transactions.reduce((acc, item) => {
     acc[item.salon] = acc[item.salon] || { revenue: 0, commission: 0, count: 0 };
     acc[item.salon].revenue += item.revenue;
