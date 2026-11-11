@@ -2318,7 +2318,7 @@ const VIEW_SERVER_SECTIONS = {
   giftCards: ["generalSettings"],
   settingsServices: ["_serviceSettings", "generalSettings"],
   settingsPricing: ["pricePolicy", "voucherRoles", "customerTypes", "customerTypeRules"],
-  settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings"],
+  settingsDiscounts: ["discounts", "customerTypes", "customerTypeRules", "generalSettings", "_serviceSettings", "salons"],
   events: ["generalSettings"],
   settingsHumanResources: ["staff", "assignments", "salons", "generalSettings"],
   settingsSchedule: ["salons", "holidays", "assignments", "staff", "generalSettings"],
