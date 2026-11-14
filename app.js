@@ -6931,7 +6931,9 @@ function dashboardDonutMarkup(items, total, valueKey = "share") {
   }).join(",");
   const totalText = Number(total) >= 1000000 ? `${(Number(total) / 1000000).toFixed(1)}сая` : formatNumber(total);
   const chartGradient = gradient || "#e9f0e5 0% 100%";
-  return `<div class="dashboard-donut-layout"><div class="dashboard-donut" style="background:conic-gradient(${chartGradient})"><span><strong>${totalText}</strong><small>нийт</small></span></div><div class="dashboard-legend">${items.map(item => `<div><i style="background:${item.color}"></i><span>${htmlSafe(item.name)}</span><strong>${item.share}%</strong></div>`).join("") || `<div class="muted">Мэдээлэл алга</div>`}</div></div>`;
+  const share = item => item.share != null && Number.isFinite(Number(item.share)) ? Number(item.share)
+    : Math.round(Number(item[valueKey] || 0) / (Number(total) > 0 ? Number(total) : sum) * 1000) / 10;
+  return `<div class="dashboard-donut-layout"><div class="dashboard-donut" style="background:conic-gradient(${chartGradient})"><span><strong>${totalText}</strong><small>нийт</small></span></div><div class="dashboard-legend">${items.map(item => `<div><i style="background:${item.color}"></i><span>${htmlSafe(item.name)}</span><strong>${share(item)}%</strong></div>`).join("") || `<div class="muted">Мэдээлэл алга</div>`}</div></div>`;
 }
 
 function dashboardKhorooName(value) {
@@ -7091,7 +7093,7 @@ function dashboardReportCapabilities() {
   const permissions = {
     admin: ["overview", "time", "events", "operations", "cashflow", "system"],
     manager: ["overview", "time", "events", "operations"],
-    salon: ["time", "events", "operations"],
+    salon: ["sales", "time", "events", "operations"],
     finance: ["overview", "time", "events", "cashflow"],
     director: ["overview", "time", "events", "cashflow"]
   };
@@ -7125,6 +7127,24 @@ function renderDashboardViewTabs(activeMode = dashboardSelectedViewMode()) {
     </button>`).join("");
 }
 
+function dashboardServedToday(customers, today, salon) {
+  const served = new Set();
+  (customers || []).forEach((customer, index) => {
+    if (customer.deleted || customer.deletedAt) return;
+    for (const service of customer.serviceHistory || []) {
+      if (service.deleted || service.deletedAt) continue;
+      const events = service.kind === "course" ? service.visits || [] : service.kind === "single" && !service.prepaidPending ? [service] : [];
+      if (events.some(event => !event.deleted && !event.deletedAt && (event.staff || event.staffId)
+        && event.date === today && (event.performedSalon ?? event.salon ?? service.salon)
+        && (!salon || (event.performedSalon ?? event.salon ?? service.salon) === salon))) {
+        served.add(customer.id || customer.phone || index);
+        break;
+      }
+    }
+  });
+  return served.size;
+}
+
 function dashboardOperationsHtml(month, salon, snapshot) {
   const sourceState = dashboardDataCache?.source || state;
   const summary = dashboardDataCache?.summary?.operations || null;
@@ -7132,8 +7152,7 @@ function dashboardOperationsHtml(month, salon, snapshot) {
   const bookings = summary ? [] : sourceState.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
   const statusCount = status => summary ? Number(summary.statusCounts?.[status] || 0) : bookings.filter(item => item.status === status).length;
   const total = summary ? Number(summary.bookings || 0) : bookings.length;
-  const activeTreatments = summary ? Number(summary.activeTreatments || 0)
-    : sourceState.customers.filter(item => item.currentTreatment && (!salon || (item.currentTreatment.salon || item.salon) === salon)).length;
+  const servedToday = summary ? summary.servedToday : dashboardServedToday(sourceState.customers, today, salon);
   const workingStaff = summary ? Number(summary.workingStaff || 0)
     : sourceState.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
   const activeAssignments = summary ? Number(summary.activeAssignments || 0)
@@ -7146,15 +7165,15 @@ function dashboardOperationsHtml(month, salon, snapshot) {
     { name: "Татгалзсан", value: statusCount("rejected"), color: "#a0a6a0" }
   ];
   return `<section class="panel dashboard-card"><div class="dashboard-card-head"><div><h3>Өдрийн ажиллагаа</h3><p>${today} • ${htmlSafe(salon || "Нийт салбар")}</p></div></div>
-    <div class="dashboard-kpi-grid dashboard-purpose-kpis">
+    <div class="dashboard-operations-layout"><div class="dashboard-kpi-grid dashboard-operations-metrics">
       <article class="dashboard-kpi"><span>Өнөөдрийн захиалга</span><strong>${formatNumber(total)}</strong><small>${formatNumber(pending)} хүлээгдэж буй</small></article>
-      <article class="dashboard-kpi"><span>Одоо үйлчлүүлж байгаа</span><strong>${formatNumber(activeTreatments)}</strong><small>Үйлчилгээний бүртгэлээр</small></article>
-      <article class="dashboard-kpi"><span>Ажиллаж байгаа ажилтан</span><strong>${formatNumber(workingStaff)}</strong><small>Салбарын идэвхтэй ажилтан</small></article>
+      <article class="dashboard-kpi"><span>Өнөөдөр үйлчлүүлсэн</span><strong>${servedToday == null ? "—" : formatNumber(servedToday)}</strong><small>Давхардалгүй хэрэглэгч</small></article>
+      <article class="dashboard-kpi"><span>Идэвхтэй ажилтан</span><strong>${formatNumber(workingStaff)}</strong><small>Өдрийн ирцийн тоо биш</small></article>
       <article class="dashboard-kpi"><span>Түр томилгоо</span><strong>${formatNumber(activeAssignments)}</strong><small>Өнөөдөр хүчинтэй</small></article>
     </div>
-    <div class="dashboard-card-head"><h3>Өнөөдрийн захиалгын төлөв</h3></div>
+    <div class="dashboard-operations-status"><div class="dashboard-card-head"><h3>Өнөөдрийн захиалгын төлөв</h3></div>
     ${dashboardDonutMarkup(statusRows, total, "value")}
-  </section>`;
+    </div></div></section>`;
 }
 
 function dashboardCashflowHtml(month, salon, snapshot) {
@@ -7386,7 +7405,7 @@ function renderDashboard() {
       <article class="dashboard-kpi"><span>Барааны орлого</span><strong>${money(snapshot.products)}</strong><small>Нийт орлогын ${Math.round(snapshot.products / Math.max(snapshot.revenue, 1) * 100)}%</small></article>
       <article class="dashboard-kpi"><span>Үйлчилгээний оролт</span><strong>${formatNumber(snapshot.visits)}</strong><small>${snapshot.completion}% амжилттай дууссан</small></article>
       <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(snapshot.outstanding)}</strong><small>Нэхэмжлэх шаардлагатай</small></article>
-      <article class="dashboard-kpi customer-kpi"><span>Нийт хэрэглэгч</span><strong>${formatNumber(customerCount)}</strong><small>+${snapshot.newCustomers} шинэ • бүх салбар</small></article>
+      <article class="dashboard-kpi customer-kpi"><span>${isSalonAccount() ? "Шинэ хэрэглэгч" : "Нийт хэрэглэгч"}</span><strong>${formatNumber(isSalonAccount() ? snapshot.newCustomers : customerCount)}</strong><small>${isSalonAccount() ? "Сонгосон хугацаа • өөрийн салбар" : `+${snapshot.newCustomers} шинэ • бүх салбар`}</small></article>
     </div>
 
     <div class="dashboard-grid dashboard-grid-top">
@@ -7423,7 +7442,7 @@ function renderDashboard() {
     customers: () => `<div class="dashboard-report-stack">
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Хэрэглэгч ба бонус</h3><p>Нэгдсэн хэрэглэгчийн мэдээлэл</p></div></div>
-        <div class="dashboard-customer-list">
+        <div class="dashboard-customer-list dashboard-customer-metrics">
           <div><span>Нийт хэрэглэгч</span><strong>${formatNumber(customerCount)}</strong></div>
           <div><span>Идэвхтэй групп</span><strong>${formatNumber(activeGroupCount)}</strong></div>
           <div><span>Идэвхтэй курс</span><strong>${formatNumber(activeCourseCount)}</strong></div>

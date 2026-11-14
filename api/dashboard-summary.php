@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/booking-attendance-report.php';
+require_once __DIR__ . '/dashboard-operations.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -895,6 +896,7 @@ $summary = [
         'bookings' => count($todayBookings), 'statusCounts' => $statusCounts,
         'slotCounts' => $slotCounts, 'activeTreatments' => $activeTreatments,
         'workingStaff' => $workingStaff, 'activeAssignments' => $activeAssignments,
+        'servedToday' => dashboard_served_customers_today((array)$source['customers'], $todayText, $salon),
         'unpaidCustomers' => $unpaidCustomers,
     ],
     'system' => [

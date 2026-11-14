@@ -15,7 +15,7 @@ function pages(overrides = {}) {
     serviceVisual: 'service-chart', paymentVisual: 'payment-chart', activeGroupCount: 3, activeCourseCount: 4,
     bonusBalance: 5, staffVisual: 'staff-chart', topServices: [{ name: 'Product', count: 2, revenue: 100 }],
     demographics: { genders: [], ages: [], districts: [] },
-    formatNumber: String, money: value => `${value}₮`, htmlSafe: String, dashboardCompactMoney: String,
+    formatNumber: String, money: value => `${value}₮`, htmlSafe: String, dashboardCompactMoney: String, isSalonAccount: () => false,
     dashboardChartControls: () => '', dashboardDonutMarkup: () => '', dashboardVerticalBars: () => '', dashboardDistrictMarkup: () => '',
     dashboardCashflowHtml: () => '<section>cashflow-data</section>', dashboardOperationsHtml: () => '<section><h3>Өдрийн ажиллагаа</h3></section>', showStaffDetails: true, showOperations: true, salon: '', ...overrides
   });
@@ -49,7 +49,7 @@ test('merged money flow and operations display recorded values instead of legacy
   const helper = name => { const start = app.indexOf(`function ${name}(`); return app.slice(start, app.indexOf('\nfunction ', start + 1)); };
   const c = vm.createContext({ dashboardDataCache: { summary: {
     sourceTotals: { '2026-11|A': { single: 300, course: 500, product: 200 } },
-    operations: { bookings: 7, statusCounts: { confirmed: 3, pending: 1, cancelled: 2, rejected: 1 }, activeTreatments: 2, workingStaff: 4, activeAssignments: 1 }
+    operations: { bookings: 7, statusCounts: { confirmed: 3, pending: 1, cancelled: 2, rejected: 1 }, servedToday: 2, workingStaff: 4, activeAssignments: 1 }
   } }, state: {}, formatNumber: String, htmlSafe: String, todayText: () => '2026-11-14', dashboardDonutMarkup: rows => JSON.stringify(rows) });
   vm.runInContext(helper('dashboardCashflowHtml') + '\n' + helper('dashboardOperationsHtml'), c);
   const cash = c.dashboardCashflowHtml({ key: '2026-11', label: 'November' }, 'A', { revenue: 1000 });
@@ -84,7 +84,8 @@ test('group permissions preserve existing report access and do not expose overvi
   for (const role of ['admin', 'manager', 'finance', 'director', 'salon']) {
     c.activeAccount.role = role;
     const values = Array.from(c.dashboardAllowedViewModes(), item => item.value);
-    for (const key of ['sales', 'customers']) assert.equal(values.includes(key), role !== 'salon', `${role}: ${key}`);
+    assert.ok(values.includes('sales'));
+    assert.equal(values.includes('customers'), role !== 'salon');
     assert.ok(values.includes('staff'));
     assert.equal(Array.from(c.dashboardReportCapabilities()).includes('overview'), role !== 'salon');
     for (const removed of ['overview', 'cashflow', 'operations']) assert.ok(!values.includes(removed));
