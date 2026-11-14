@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/booking-attendance-report.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -869,6 +870,11 @@ $demographics = [
 ];
 
 $timeReport = dashboard_build_time_report((array)$source['bookings'], $allSalons, (array)$source['holidays'], $requestedMonth, $isTotal, $salon, $today, $customStart, $customEnd);
+$attendanceFrom = $customStart?->format('Y-m-d') ?? ($isTotal ? '1000-01-01' : $monthStart->format('Y-m-d'));
+$attendanceTo = $customEnd?->format('Y-m-d') ?? ($isTotal ? '9999-12-31' : $monthStart->modify('last day of this month')->format('Y-m-d'));
+$attendanceArchive = $attendanceFrom < $today->modify('-2 years')->format('Y-m-d')
+    ? dashboard_archive_booking_rows($attendanceFrom, $attendanceTo, $salon) : [];
+$attendanceReport = booking_attendance_report(array_merge((array)$source['bookings'], $attendanceArchive), (array)$source['customers'], $attendanceFrom, $attendanceTo, $salon, $today->format('Y-m-d'));
 
 $months = array_keys($monthsFound);
 rsort($months);
@@ -880,6 +886,7 @@ $summary = [
     'topServices' => $topRows,
     'demographics' => $demographics,
     'timeReport' => $timeReport,
+    'attendanceReport' => $attendanceReport,
     'customerStats' => [
         'count' => $activeCustomers, 'activeGroups' => $activeGroups,
         'activeCourses' => $activeCourses, 'bonusBalance' => $bonusBalance,

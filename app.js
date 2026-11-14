@@ -7048,9 +7048,31 @@ function dashboardStaffRows(month, salon) {
   return [...grouped.values()].sort((a, b) => b.revenue - a.revenue);
 }
 
+function dashboardAttendanceHtml(report) {
+  if (!report?.totals) return '<section class="panel dashboard-card"><div class="empty-state">Ирцийн тайлан ачаалагдаагүй байна. Шинэчлэх товч дарна уу.</div></section>';
+  const totals = report.totals;
+  const percent = value => value == null ? "—" : `${formatNumber(value)}%`;
+  const countPercent = (row, key) => `${formatNumber(row[key])} <span class="muted">(${percent(row[`${key}Percent`])})</span>`;
+  const table = rows => dashboardSimpleTable(
+    ["Нэр", "Нийт захиалга", "Ирсэн", "Ирээгүй", "Хүлээгдэж буй", "Цуцалсан / татгалзсан"],
+    rows.map(row => [htmlSafe(row.name), formatNumber(row.total), countPercent(row, "arrived"), countPercent(row, "missed"), formatNumber(row.waiting), formatNumber(row.excluded)])
+  );
+  return `<div class="dashboard-kpi-grid dashboard-attendance-kpis">
+    <article class="dashboard-kpi"><span>Нийт цаг авсан</span><strong>${formatNumber(totals.total)}</strong><small>${formatNumber(totals.uniqueCustomers)} давхардалгүй хэрэглэгч</small></article>
+    <article class="dashboard-kpi"><span>Ирсэн</span><strong>${formatNumber(totals.arrived)}</strong><small>${percent(totals.arrivedPercent)}</small></article>
+    <article class="dashboard-kpi"><span>Ирээгүй</span><strong>${formatNumber(totals.missed)}</strong><small>${percent(totals.missedPercent)}</small></article>
+    <article class="dashboard-kpi"><span>Хүлээгдэж буй</span><strong>${formatNumber(totals.waiting)}</strong><small>Өнөөдөр болон ирээдүйн захиалга</small></article>
+    <article class="dashboard-kpi"><span>Цуцалсан / татгалзсан</span><strong>${formatNumber(totals.excluded)}</strong><small>Ирцийн хувьд тооцохгүй</small></article>
+    </div>
+    <section class="panel dashboard-card"><div class="dashboard-card-head"><div><h3>Захиалгын ирц</h3><p>Хувийг ирсэн + ирээгүй ${formatNumber(totals.resolved)} захиалгад харьцуулж бодсон. Нэг хүний захиалга бүр тусдаа тоологдоно.</p>${totals.unknown ? `<p>${formatNumber(totals.unknown)} захиалгын ирц тодорхойгүй.</p>` : ""}</div></div>
+    <h3>Салбараар</h3>${table(report.byBranch || [])}</section>
+    <section class="panel dashboard-card"><div class="dashboard-card-head"><h3>Сараар</h3></div>${table(report.byMonth || [])}</section>`;
+}
+
 const dashboardViewModes = [
   { value: "overview", label: "Ерөнхий тойм" },
   { value: "time", label: "Цагийн тайлан" },
+  { value: "attendance", label: "Захиалгын ирц" },
   { value: "operations", label: "Өдрийн ажиллагаа" },
   { value: "cashflow", label: "Мөнгөн урсгал" },
   { value: "events", label: "Арга хэмжээ" },
@@ -7066,7 +7088,7 @@ function dashboardAllowedViewModes() {
     director: ["overview", "time", "events", "cashflow"]
   };
   const allowed = permissions[activeAccount.role] || ["overview"];
-  return dashboardViewModes.filter(item => allowed.includes(item.value));
+  return dashboardViewModes.filter(item => allowed.includes(item.value) || (item.value === "attendance" && allowed.includes("time")));
 }
 
 function dashboardSelectedViewMode() {
@@ -7374,6 +7396,10 @@ function renderDashboard() {
     content.innerHTML = dashboardTimeReportPageHtml(dashboardDataCache?.summary?.timeReport || null);
     return;
   }
+  if (viewMode === "attendance") {
+    content.innerHTML = dashboardAttendanceHtml(dashboardDataCache?.summary?.attendanceReport || null);
+    return;
+  }
 
   const branchRows = dashboardRowsForBranches(month);
   const serviceRows = dashboardServiceRows(month, salon)
@@ -7548,6 +7574,10 @@ function exportDashboardExcel() {
         ...demographics.districts.flatMap(item => (item.khoroos || []).map(khoroo => ["Хороо", `${item.name} · ${khoroo.name}`, khoroo.value, khoroo.share]))
       ])}
       ${dashboardWorksheet("Ажилтны гүйцэтгэл", [["Ажилтан", "Үндсэн салбар", "Ажилласан салбар", "Оролт", "Орлого", "Үйлчилгээний урамшуулал", "Кассын урамшуулал", "Нийт урамшуулал"], ...staffRows.map(item => [item.name, item.homeSalon, item.workedSalon, item.visits, item.revenue, item.serviceReward, item.kassReward, item.totalReward])])}
+      ${dashboardWorksheet("Захиалгын ирц", [
+        ["Хэсэг", "Нэр", "Нийт захиалга", "Ирсэн", "Ирсэн %", "Ирээгүй", "Ирээгүй %", "Хүлээгдэж буй", "Цуцалсан / татгалзсан"],
+        ...[{ group: "Салбар", rows: dashboardDataCache?.summary?.attendanceReport?.byBranch || [] }, { group: "Сар", rows: dashboardDataCache?.summary?.attendanceReport?.byMonth || [] }].flatMap(section => section.rows.map(row => [section.group, row.name, row.total, row.arrived, row.arrivedPercent ?? "", row.missed, row.missedPercent ?? "", row.waiting, row.excluded]))
+      ])}
       ${dashboardWorksheet("Цагийн тайлан", [
         ["Хэсэг", "Нэр", "Захиалсан slot", "Боломжит slot", "Ашиглалт %"],
         ["Ерөнхий", "Нийт", Number(timeReport?.totalBookings || 0), Number(timeReport?.totalCapacity || 0), Number(timeReport?.utilization || 0)],
@@ -16498,6 +16528,9 @@ function renderBookings() {
         time: firstRow?.querySelector(".booking-time")?.value || "",
         phone: createForm.querySelector("#bookingPhone")?.value || ""
       });
+    } else if (createForm) {
+      // The directory/occupancy changed, but preserve the cashier's draft.
+      createForm.querySelectorAll(".booking-slot-row").forEach(row => renderBookingTimeOptions(null, row));
     }
   }
 
@@ -18753,6 +18786,8 @@ async function updateBookingStatus(id, status) {
   if (!booking || !canAccessSalon(booking.salon)) return showToast("Өөр салбарын цагийг өөрчлөх эрхгүй");
   try {
     await submitBookingOperation("status", { id: booking.id, status, expected: structuredClone(booking) });
+    // Do not reuse a list request that began before the cancellation committed.
+    if (bookingDirectoryLoading) await bookingDirectoryLoading.catch(() => {});
     bookingDirectoryLoaded = IS_LOCAL_RUNTIME;
     renderBookings();
     renderAudit();

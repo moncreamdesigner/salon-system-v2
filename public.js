@@ -784,15 +784,19 @@ function bindPublicEvents() {
       return setPublicView(nav.dataset.publicTarget);
     }
     const salon = event.target.closest("[data-salon-open]");
-    if (salon) return renderSalonDetail(salon.dataset.salonOpen);
+    if (salon) {
+      renderSalonDetail(salon.dataset.salonOpen);
+      void refreshActivePublicView("booking");
+      return;
+    }
     if (event.target.closest("#salonBack")) {
       resetPublicBookingSelection();
       return renderSalonDirectory();
     }
     const week = event.target.closest("[data-week]");
-    if (week) { if (week.disabled) return; weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (week) { if (week.disabled) return; weekOffset += week.dataset.week === "next" ? 1 : -1; selectedDate = ""; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); void refreshActivePublicView("booking"); return; }
     const date = event.target.closest("[data-booking-date]");
-    if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
+    if (date) { selectedDate = date.dataset.bookingDate; selectedTime = ""; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); void refreshActivePublicView("booking"); return; }
     const time = event.target.closest("[data-booking-time]");
     if (time) { selectedTime = time.dataset.bookingTime; bookingSubmissionSucceeded = false; lastSuccessfulBooking = null; bookingInlineMessage = ""; savePublicUiState(); return renderBookingComposer(activeSalons().find(item => Number(item.id) === Number(selectedSalonId))); }
     if (event.target.closest("#publicBookingSubmit")) return submitPublicBooking();
@@ -865,6 +869,13 @@ function bindPublicEvents() {
     const routeView = publicViewFromLocation();
     if (routeView) setPublicView(routeView, { historyMode: "none", scroll: false });
   });
+  const refreshBookingOnReturn = () => {
+    if (activePublicView === "booking" && !bookingSubmissionSucceeded && document.visibilityState !== "hidden") {
+      void refreshActivePublicView("booking");
+    }
+  };
+  window.addEventListener("focus", refreshBookingOnReturn);
+  document.addEventListener("visibilitychange", refreshBookingOnReturn);
 }
 
 async function initializePublicApp() {
