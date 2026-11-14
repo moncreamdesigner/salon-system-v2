@@ -70,7 +70,7 @@ test("dashboard time report is aggregated server-side and rendered as a separate
   assert.doesNotMatch(api, /function dashboard_time_month_range[\s\S]*if \(\$end > \$today\) \$end = \$today;/, "Time report capacity must cover the full selected month so every weekday remains visible.");
   assert.match(app, /function dashboardTimeReportMarkup/);
   assert.match(app, /<h3>Цагийн тайлан<\/h3>/);
-  assert.match(app, /\{ value: "time", label: "Цагийн тайлан" \}/, "Time report must be available as a separate dashboard view.");
+  assert.match(app, /\{ value: "time", label: "Цаг ба ирц" \}/, "Time and attendance share one dashboard view.");
   assert.match(app, /if \(viewMode === "time"\)/);
   assert.match(app, /function renderDashboardViewTabs/);
   assert.match(app, /data-dashboard-view-mode/);

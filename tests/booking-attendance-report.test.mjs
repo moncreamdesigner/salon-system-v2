@@ -18,9 +18,9 @@ test("attendance report shows counts and resolved-only shares without presenting
   assert.doesNotMatch(empty, /null%|undefined%|NaN/);
 });
 test("attendance reuses dashboard period/salon permissions, server sources and Excel export", () => {
-  assert.match(app, /value: "attendance", label: "Захиалгын ирц"/);
-  assert.match(app, /item.value === "attendance" && allowed.includes\("time"\)/);
-  assert.match(app, /viewMode === "attendance"[\s\S]*?dashboardAttendanceHtml/);
+  assert.match(app, /value: "time", label: "Цаг ба ирц"/);
+  assert.doesNotMatch(app, /value: "attendance", label:/);
+  assert.match(app, /viewMode === "time"[\s\S]*?dashboardBookingReportHtml/);
   assert.match(app, /dashboardWorksheet\("Захиалгын ирц"/);
   assert.match(api, /\$customStart\?->format\('Y-m-d'\)/);
   assert.match(api, /booking_attendance_report\([\s\S]*?\$salon, \$today->format\('Y-m-d'\)\)/);

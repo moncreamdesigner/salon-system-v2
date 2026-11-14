@@ -54,7 +54,7 @@ test('group permissions preserve existing report access and do not expose overvi
     c.activeAccount.role = role;
     const values = Array.from(c.dashboardAllowedViewModes(), item => item.value);
     for (const key of ['sales', 'customers', 'staff']) assert.equal(values.includes(key), role !== 'salon', `${role}: ${key}`);
-    assert.ok(values.includes('time')); assert.ok(values.includes('attendance')); assert.ok(values.includes('events'));
+    assert.ok(values.includes('time')); assert.ok(!values.includes('attendance')); assert.ok(values.includes('events'));
     assert.equal(values.includes('system'), role === 'admin');
   }
 });

@@ -6916,6 +6916,10 @@ function dashboardTimeReportPageHtml(report) {
     : `<section class="panel dashboard-card"><div class="empty-state">Цагийн тайлан ачаалж байна…</div></section>`;
 }
 
+function dashboardBookingReportHtml(timeReport, attendanceReport) {
+  return `<div class="dashboard-report-stack">${dashboardTimeReportPageHtml(timeReport)}${dashboardAttendanceHtml(attendanceReport)}</div>`;
+}
+
 function dashboardDonutMarkup(items, total, valueKey = "share") {
   const sum = items.reduce((result, item) => result + Number(item[valueKey] || 0), 0) || 1;
   let offset = 0;
@@ -7080,8 +7084,7 @@ const dashboardViewModes = [
   { value: "cashflow", label: "Мөнгөн урсгал" },
   { value: "customers", label: "Хэрэглэгчид" },
   { value: "staff", label: "Ажилтны гүйцэтгэл" },
-  { value: "time", label: "Цагийн тайлан" },
-  { value: "attendance", label: "Захиалгын ирц" },
+  { value: "time", label: "Цаг ба ирц" },
   { value: "operations", label: "Өдрийн ажиллагаа" },
   { value: "events", label: "Арга хэмжээ" },
   { value: "system", label: "Системийн хяналт" }
@@ -7097,12 +7100,12 @@ function dashboardAllowedViewModes() {
   };
   const allowed = permissions[activeAccount.role] || ["overview"];
   return dashboardViewModes.filter(item => allowed.includes(item.value)
-    || (item.value === "attendance" && allowed.includes("time"))
     || (["sales", "customers", "staff"].includes(item.value) && allowed.includes("overview")));
 }
 
 function dashboardSelectedViewMode() {
-  const value = document.getElementById("dashboardViewMode")?.value;
+  const selected = document.getElementById("dashboardViewMode")?.value;
+  const value = selected === "attendance" ? "time" : selected;
   const allowed = dashboardAllowedViewModes();
   return allowed.some(item => item.value === value) ? value : allowed[0]?.value || "overview";
 }
@@ -7360,7 +7363,7 @@ function renderDashboard() {
   const toInput = document.getElementById("dashboardToDate");
   if (!content || !modeSelect || !monthSelect || !salonSelect || !fromInput || !toInput) return;
 
-  const previousMode = modeSelect.value;
+  const previousMode = modeSelect.value === "attendance" ? "time" : modeSelect.value;
   const allowedModes = dashboardAllowedViewModes();
   modeSelect.innerHTML = allowedModes.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
   modeSelect.value = allowedModes.some(item => item.value === previousMode) ? previousMode : allowedModes[0]?.value || "overview";
@@ -7403,11 +7406,7 @@ function renderDashboard() {
     return;
   }
   if (viewMode === "time") {
-    content.innerHTML = dashboardTimeReportPageHtml(dashboardDataCache?.summary?.timeReport || null);
-    return;
-  }
-  if (viewMode === "attendance") {
-    content.innerHTML = dashboardAttendanceHtml(dashboardDataCache?.summary?.attendanceReport || null);
+    content.innerHTML = dashboardBookingReportHtml(dashboardDataCache?.summary?.timeReport || null, dashboardDataCache?.summary?.attendanceReport || null);
     return;
   }
 
