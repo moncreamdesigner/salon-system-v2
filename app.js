@@ -6222,7 +6222,7 @@ function infoForView(name) {
       const mode = dashboardSelectedViewMode();
       const todayBookings = state.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
       const todayActions = state.audit.filter(item => String(item.createdAt || "").startsWith(today)).length;
-      const modeTitles = { overview: "ЕРӨНХИЙ ТОЙМ", operations: "ӨДРИЙН АЖИЛЛАГАА", cashflow: "МӨНГӨН УРСГАЛ", system: "СИСТЕМИЙН ХЯНАЛТ" };
+      const modeTitles = { overview: "ЕРӨНХИЙ ТОЙМ", attendance: "ЗАХИАЛГЫН ИРЦ", operations: "ӨДРИЙН АЖИЛЛАГАА", cashflow: "МӨНГӨН УРСГАЛ", system: "СИСТЕМИЙН ХЯНАЛТ" };
       const modeStats = {
         overview: [["Хугацаа", month.label], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Орлого", money(snapshot.revenue)], ["Үйлчилгээ", formatNumber(snapshot.visits)]],
         operations: [["Өдөр", today], ["Хамрах хүрээ", salon || "Нийт салбар"], ["Захиалга", todayBookings.length], ["Дүүргэлт", `${snapshot.occupancy}%`]],
@@ -7057,7 +7057,7 @@ function dashboardAttendanceHtml(report) {
     ["Нэр", "Нийт захиалга", "Ирсэн", "Ирээгүй", "Хүлээгдэж буй", "Цуцалсан / татгалзсан"],
     rows.map(row => [htmlSafe(row.name), formatNumber(row.total), countPercent(row, "arrived"), countPercent(row, "missed"), formatNumber(row.waiting), formatNumber(row.excluded)])
   );
-  return `<div class="dashboard-kpi-grid dashboard-attendance-kpis">
+  return `<div class="dashboard-attendance-report"><div class="dashboard-kpi-grid dashboard-attendance-kpis">
     <article class="dashboard-kpi"><span>Нийт цаг авсан</span><strong>${formatNumber(totals.total)}</strong><small>${formatNumber(totals.uniqueCustomers)} давхардалгүй хэрэглэгч</small></article>
     <article class="dashboard-kpi"><span>Ирсэн</span><strong>${formatNumber(totals.arrived)}</strong><small>${percent(totals.arrivedPercent)}</small></article>
     <article class="dashboard-kpi"><span>Ирээгүй</span><strong>${formatNumber(totals.missed)}</strong><small>${percent(totals.missedPercent)}</small></article>
@@ -7066,7 +7066,7 @@ function dashboardAttendanceHtml(report) {
     </div>
     <section class="panel dashboard-card"><div class="dashboard-card-head"><div><h3>Захиалгын ирц</h3><p>Хувийг ирсэн + ирээгүй ${formatNumber(totals.resolved)} захиалгад харьцуулж бодсон. Нэг хүний захиалга бүр тусдаа тоологдоно.</p>${totals.unknown ? `<p>${formatNumber(totals.unknown)} захиалгын ирц тодорхойгүй.</p>` : ""}</div></div>
     <h3>Салбараар</h3>${table(report.byBranch || [])}</section>
-    <section class="panel dashboard-card"><div class="dashboard-card-head"><h3>Сараар</h3></div>${table(report.byMonth || [])}</section>`;
+    <section class="panel dashboard-card"><div class="dashboard-card-head"><h3>Сараар</h3></div>${table(report.byMonth || [])}</section></div>`;
 }
 
 const dashboardViewModes = [
