@@ -542,6 +542,8 @@ let bookingDirectoryLoadingKey = "";
 let bookingDirectoryPageCount = 1;
 let bookingDirectoryTotal = 0;
 let bookingDirectoryRevision = 0;
+let bookingAttendanceRevision = 0;
+let bookingAttendanceDay = "";
 let bookingDirectorySummary = { total: 0, confirmed: 0, pending: 0, today: 0 };
 let bookingDirectoryAvailability = {};
 let bookingInlineEditingId = null;
@@ -2465,9 +2467,11 @@ async function refreshServerStateForView(viewName = activeView) {
       const sections = requestedSections;
       let changed = false;
       if (viewName === "bookings" && bookingDirectoryLoaded) {
-        const bookingRevisionResult = await serverApi("revision.php?sections=bookings");
+        const bookingRevisionResult = await serverApi("revision.php?sections=bookings,customers");
         const remoteBookingRevision = Number(bookingRevisionResult.sectionRevisions?.bookings || 0);
-        if (remoteBookingRevision !== Number(bookingDirectoryRevision || 0)) {
+        const remoteAttendanceRevision = Number(bookingRevisionResult.sectionRevisions?.customers || 0);
+        if (remoteBookingRevision !== Number(bookingDirectoryRevision || 0)
+          || remoteAttendanceRevision !== bookingAttendanceRevision || bookingAttendanceDay !== todayText()) {
           bookingDirectoryLoaded = false;
           await loadBookingDirectory({ silent: true });
           changed = true;
@@ -5909,6 +5913,31 @@ function bookingStatusTone(status) {
 
 function bookingStatusLabel(status) {
   return `<span class="status-text ${bookingStatusTone(status)}${status === "pending" ? " pending" : ""}">${bookingStatusText(status)}</span>`;
+}
+
+function localBookingAttendance(booking, customers = state.customers, today = todayText()) {
+  if (["cancelled", "rejected"].includes(booking.status)) return "excluded";
+  const date = booking.date || "";
+  const phone = String(booking.phone || "").replace(/\D/g, "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{8}$/.test(phone)) return "unknown";
+  if (date > today) return "waiting";
+  const arrived = customers.some(customer => !customer.deleted && !customer.deletedAt
+    && String(customer.phone || "").replace(/\D/g, "") === phone
+    && (customer.serviceHistory || []).some(service => {
+      if (service.deleted || service.deletedAt) return false;
+      const events = service.kind === "course" ? (service.visits || [])
+        : service.kind === "single" && !service.prepaidPending ? [service] : [];
+      return events.some(event => !event.deleted && !event.deletedAt && (event.staff || event.staffId)
+        && event.date === date && (event.performedSalon || event.salon || service.salon || "").trim() === (booking.salon || "").trim());
+    }));
+  return arrived ? "arrived" : date < today ? "missed" : "waiting";
+}
+
+function bookingAttendanceLabel(booking) {
+  const status = IS_LOCAL_RUNTIME ? localBookingAttendance(booking) : booking.attendance;
+  const labels = { arrived: "Ирсэн", missed: "Ирээгүй", waiting: "Хүлээгдэж буй", excluded: "—", unknown: "Шалгагдаагүй" };
+  const tone = status === "arrived" ? "green" : status === "missed" ? "red" : "gray";
+  return `<span class="status-text ${tone}">${labels[status] || labels.unknown}</span>`;
 }
 
 function bookingSourceText(source, status) {
@@ -16288,6 +16317,8 @@ async function loadBookingDirectory({ silent = false } = {}) {
       bookingDirectoryPageCount = Math.max(1, Number(result.pageCount) || 1);
       bookingDirectoryTotal = Math.max(0, Number(result.total) || 0);
       bookingDirectoryRevision = Math.max(0, Number(result.revision) || 0);
+      bookingAttendanceRevision = Math.max(0, Number(result.attendanceRevision) || 0);
+      bookingAttendanceDay = result.attendanceDay || "";
       bookingDirectorySummary = result.summary && typeof result.summary === "object" ? result.summary : bookingDirectorySummary;
       bookingDirectoryAvailability = result.availability && typeof result.availability === "object" ? result.availability : {};
       bookingPage = Math.min(Math.max(1, Number(result.page) || bookingPage), bookingDirectoryPageCount);
@@ -16321,7 +16352,7 @@ function renderBookings() {
     const rows = document.getElementById("bookingRows");
     const pagination = document.getElementById("bookingPagination");
     const entry = document.getElementById("bookingInlineSlot");
-    if (rows) rows.innerHTML = '<tr><td colspan="8" class="empty-state">Уншиж байна…</td></tr>';
+    if (rows) rows.innerHTML = '<tr><td colspan="9" class="empty-state">Уншиж байна…</td></tr>';
     if (pagination) pagination.innerHTML = "";
     if (entry) entry.innerHTML = '<div class="empty-state">Цаг захиалгын мэдээлэл уншиж байна…</div>';
     if (!bookingDirectoryLoading) void loadBookingDirectory();
@@ -16367,6 +16398,7 @@ function renderBookings() {
       <td>${booking.phone}</td>
       <td>${bookingSourceText(booking.source, booking.status)}</td>
       <td>${bookingStatusLabel(booking.status)}</td>
+      <td>${bookingAttendanceLabel(booking)}</td>
       <td>
         <div class="table-actions">
           ${booking.status === "pending" ? `<button class="primary-btn booking-confirm" data-id="${booking.id}">Батлах</button>` : ""}
@@ -16380,9 +16412,9 @@ function renderBookings() {
         </div>
       </td>
     </tr>
-    ${editingThisBooking ? `<tr class="booking-inline-edit-row"><td colspan="8"><div class="booking-row-edit-shell" id="bookingRowEditSlot"></div></td></tr>` : ""}
+    ${editingThisBooking ? `<tr class="booking-inline-edit-row"><td colspan="9"><div class="booking-row-edit-shell" id="bookingRowEditSlot"></div></td></tr>` : ""}
   `;
-  }).join("") || `<tr><td colspan="8" class="empty-state">${q || date ? "Хайлтад тохирох цаг олдсонгүй" : "Өнөөдөр болон ирээдүйд бүртгэлтэй цаг алга"}</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty-state">${q || date ? "Хайлтад тохирох цаг олдсонгүй" : "Өнөөдөр болон ирээдүйд бүртгэлтэй цаг алга"}</td></tr>`;
 
   document.querySelectorAll(".booking-confirm").forEach(button => {
     button.addEventListener("click", () => updateBookingStatus(button.dataset.id, "confirmed"));

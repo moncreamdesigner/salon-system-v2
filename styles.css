@@ -5387,6 +5387,12 @@ td {
   white-space: nowrap;
 }
 
+.booking-list-table th:nth-child(8),
+.booking-list-table td:nth-child(8) {
+  width: 128px;
+  white-space: nowrap;
+}
+
 .booking-list-table th:last-child,
 .booking-list-table td:last-child {
   width: 224px;

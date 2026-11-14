@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/booking-attendance.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -93,6 +94,8 @@ $summary = [
 $pageCount = max(1, (int)ceil($total / $pageSize));
 $page = min($page, $pageCount);
 $items = array_slice($filtered, ($page - 1) * $pageSize, $pageSize);
+$attendanceRevision = (int)$pdo->query("SELECT revision FROM app_sections WHERE section_key = 'customers' LIMIT 1")->fetchColumn();
+$items = booking_list_with_attendance($pdo, $items, $today);
 
 json_response([
     'ok' => true,
@@ -105,4 +108,6 @@ json_response([
     'summary' => $summary,
     'availability' => $availability,
     'revision' => (int)($stored['revision'] ?? 0),
+    'attendanceRevision' => $attendanceRevision,
+    'attendanceDay' => $today,
 ]);
