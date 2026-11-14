@@ -21,7 +21,7 @@
 .event-report-metric > strong { font-size: 22px; font-weight: var(--font-weight-strong); }
 .event-report-breakdown { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
 .event-report-branch { flex: 1 1 210px; max-width: 420px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); }
-.event-report-branch-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 10px; }
+.event-report-branch-head { display: flex; justify-content: space-between; gap: 12px; font-size: var(--input-text-size); margin-bottom: 10px; }
 .event-report-bar { height: 6px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .event-report-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .event-report-count { display: inline-flex; align-items: center; gap: 12px; }
@@ -6003,7 +6003,7 @@ tr:last-child td {
   background: transparent;
   color: var(--muted-strong);
   box-shadow: none;
-  font-size: 13px;
+  font-size: var(--input-text-size);
   font-weight: var(--font-weight-strong);
   white-space: nowrap;
 }
@@ -6047,7 +6047,7 @@ tr:last-child td {
   max-width: 360px;
   padding: 0 6px 11px 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--input-text-size);
   line-height: 1.4;
   text-align: right;
 }
@@ -6070,7 +6070,7 @@ tr:last-child td {
 .dashboard-kpi > span {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--input-text-size);
   font-weight: var(--font-weight-strong);
 }
 
@@ -6093,7 +6093,7 @@ tr:last-child td {
   display: block;
   margin-top: 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--input-text-size);
   line-height: 1.4;
 }
 
@@ -6148,7 +6148,7 @@ tr:last-child td {
 .dashboard-card-head p {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6228,7 +6228,7 @@ tr:last-child td {
 .dashboard-chart-axis {
   fill: var(--muted);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-chart-area {
@@ -6270,7 +6270,7 @@ tr:last-child td {
 .dashboard-vertical-bar-value {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--input-text-size);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6295,7 +6295,7 @@ tr:last-child td {
 .dashboard-vertical-bar small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--input-text-size);
   line-height: 1.4;
   text-overflow: ellipsis;
 }
@@ -6316,7 +6316,7 @@ tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6358,7 +6358,7 @@ tr:last-child td {
   border-radius: 8px;
   background: var(--surface-soft);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6391,7 +6391,7 @@ tr:last-child td {
 .dashboard-time-summary small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6406,7 +6406,7 @@ tr:last-child td {
 .dashboard-time-note {
   margin: -6px 0 16px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--input-text-size);
   line-height: 1.55;
 }
 
@@ -6433,7 +6433,7 @@ tr:last-child td {
   min-height: 36px;
   margin: 0 0 14px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--input-text-size);
   line-height: 1.5;
 }
 
@@ -6452,7 +6452,7 @@ tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6507,7 +6507,7 @@ tr:last-child td {
 .dashboard-donut > span small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-legend,
@@ -6526,7 +6526,7 @@ tr:last-child td {
   justify-content: space-between;
   gap: 8px;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6568,13 +6568,13 @@ tr:last-child td {
 
 .dashboard-payment-list strong,
 .dashboard-customer-list strong {
-  font-size: 12px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-payment-list strong small {
   margin-left: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--input-text-size);
   font-weight: 500;
 }
 
@@ -6598,7 +6598,7 @@ tr:last-child td {
   padding: 12px;
   background: var(--surface-soft);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--input-text-size);
 }
 .dashboard-customer-list.dashboard-customer-metrics strong { font-size: 22px; }
 .dashboard-operations-layout {
@@ -6615,7 +6615,7 @@ tr:last-child td {
   min-height: 140px;
   gap: 12px;
 }
-.dashboard-operations-status .dashboard-legend > div { font-size: 12px; }
+.dashboard-operations-status .dashboard-legend > div { font-size: var(--input-text-size); }
 @media (max-width: 1200px) {
   .dashboard-kpi-grid.dashboard-operations-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -6644,7 +6644,7 @@ tr:last-child td {
 .dashboard-mini-table td {
   height: 44px;
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: var(--input-text-size);
   line-height: 1.45;
 }
 
@@ -6690,7 +6690,7 @@ tr:last-child td {
 .dashboard-demographic-block h4 {
   margin: 0 0 12px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-demographic-block .dashboard-donut-layout {
@@ -6719,7 +6719,7 @@ tr:last-child td {
 .dashboard-demographic-hint {
   margin: -5px 0 14px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-district-grid {
@@ -6741,7 +6741,7 @@ tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-district-head strong {
@@ -6754,7 +6754,7 @@ tr:last-child td {
 .dashboard-district-head span {
   flex: 0 0 auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-district-track {
@@ -6786,7 +6786,7 @@ tr:last-child td {
   padding: 3px 6px 3px 3px;
   border-radius: 7px;
   background: var(--surface);
-  font-size: 10px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-khoroo-row i {
@@ -6809,7 +6809,7 @@ tr:last-child td {
 }
 
 .dashboard-khoroo-row strong {
-  font-size: 10px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-khoroo-row small {
@@ -6820,7 +6820,7 @@ tr:last-child td {
 .dashboard-khoroo-list > p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-other-districts {
@@ -6836,7 +6836,7 @@ tr:last-child td {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
-  font-size: 11px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-other-districts-head span {
@@ -6846,7 +6846,7 @@ tr:last-child td {
   background: var(--accent-soft);
   color: var(--accent-strong);
   text-align: center;
-  font-size: 10px;
+  font-size: var(--input-text-size);
   font-weight: var(--font-weight-strong);
 }
 
@@ -6872,7 +6872,7 @@ tr:last-child td {
   align-items: center;
   gap: 9px;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--input-text-size);
 }
 
 .dashboard-action-list > div:last-child {
@@ -6928,7 +6928,7 @@ tr:last-child td {
 }
 
 .dashboard-table td strong {
-  font-size: 12px;
+  font-size: var(--input-text-size);
 }
 
 @media (max-width: 1250px) {
