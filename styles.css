@@ -5989,7 +5989,8 @@ tr:last-child td {
   width: 100%;
   display: flex;
   align-items: flex-end;
-  gap: 26px;
+  flex-wrap: wrap;
+  gap: 4px 18px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -6004,6 +6005,17 @@ tr:last-child td {
   box-shadow: none;
   font-size: 13px;
   font-weight: var(--font-weight-strong);
+  white-space: nowrap;
+}
+
+.dashboard-report-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-report-stack > .dashboard-grid,
+.dashboard-report-stack > .dashboard-kpi-grid {
+  margin: 0;
 }
 
 .dashboard-view-tab:hover,
