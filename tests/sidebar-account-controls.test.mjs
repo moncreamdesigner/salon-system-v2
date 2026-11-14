@@ -13,17 +13,19 @@ test("footer places logout before the avatar and collapse after the user name", 
   assert.ok(footer.indexOf('id="serverLogoutBtn"') < footer.indexOf('id="sidebarUserAvatar"'));
   assert.ok(footer.indexOf('id="sidebarUserName"') < footer.indexOf('id="sidebarCollapseBtn"'));
   for (const id of ["serverLogoutBtn", "sidebarCollapseBtn"]) assert.equal(html.split(`id="${id}"`).length - 1, 1);
-  assert.match(footer, /class="sidebar-logout hidden"[^>]*data-admin-only/);
+  assert.match(footer, /class="sidebar-logout hidden"/);
   const logout = footer.match(/<button[^>]+id="serverLogoutBtn"[\s\S]*?<\/button>/)?.[0];
+  assert.doesNotMatch(logout, /data-admin-only/);
   assert.match(logout, /<svg[^>]+stroke="currentColor"[^>]+aria-hidden="true"/);
   assert.doesNotMatch(logout, /↪/);
 });
 
-test("account switching exposes logout only to admins without retaining the previous account's visibility", () => {
+test("account switching exposes logout to admins and salons without exposing admin controls", () => {
   const button = { hiddenClass: true, classList: { toggle(name, hidden) { button.hiddenClass = hidden; } } };
+  const logout = { hiddenClass: true, classList: { toggle(name, hidden) { logout.hiddenClass = hidden; } } };
   const context = vm.createContext({
     activeAccount: {}, activeView: "bookings", state: { salons: [{ name: "Хан-Уул" }] },
-    document: { getElementById: () => null, querySelectorAll: () => [button] }
+    document: { getElementById: id => id === "serverLogoutBtn" ? logout : null, querySelectorAll: () => [button] }
   });
   vm.runInContext(`function isAdminAccount() { return activeAccount.role === "admin"; }`, context);
   const start = app.indexOf("function applyActiveAccount(");
@@ -31,6 +33,7 @@ test("account switching exposes logout only to admins without retaining the prev
   for (const role of ["admin", "salon", "manager", "admin", "unknown"]) {
     context.applyActiveAccount({ id: 1, role, salon: "Хан-Уул" });
     assert.equal(button.hiddenClass, role !== "admin", role);
+    assert.equal(logout.hiddenClass, !["admin", "salon"].includes(context.activeAccount.role), role);
   }
 });
 

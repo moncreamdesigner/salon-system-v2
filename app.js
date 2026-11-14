@@ -8146,6 +8146,7 @@ function applyActiveAccount(account = {}) {
   if (name) name.textContent = activeAccount.displayName || accountRoleLabel(activeAccount.role);
   if (scope) scope.textContent = activeAccount.role === "salon" ? activeAccount.salon : `${accountRoleLabel(activeAccount.role)} • Бүх салбар`;
   document.querySelectorAll("[data-admin-only]").forEach(item => item.classList.toggle("hidden", !isAdminAccount()));
+  document.getElementById("serverLogoutBtn")?.classList.toggle("hidden", !["admin", "salon"].includes(activeAccount.role));
   ["kassRevenueSalon", "performanceSalon", "scheduleSalon"].forEach(id => {
     const field = document.getElementById(id);
     if (field) delete field.dataset.ready;
