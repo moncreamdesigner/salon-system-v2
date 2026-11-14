@@ -7717,7 +7717,7 @@ function setView(name) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === name));
   document.querySelectorAll(".nav-subitem").forEach(item => item.classList.toggle("active", item.dataset.view === name));
-  const isSettingsView = adminViews.includes(name) && name !== "smsCampaigns";
+  const isSettingsView = adminViews.includes(name);
   document.getElementById("settingsToggle")?.classList.toggle("active", isSettingsView);
   document.getElementById("settingsSubmenu")?.classList.toggle("open", isSettingsView);
   document.getElementById("settingsToggle")?.setAttribute("aria-expanded", String(isSettingsView));
