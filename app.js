@@ -7079,18 +7079,15 @@ function dashboardAttendanceHtml(report) {
 }
 
 const dashboardViewModes = [
-  { value: "overview", label: "Ерөнхий тойм" },
   { value: "sales", label: "Борлуулалт" },
-  { value: "cashflow", label: "Мөнгөн урсгал" },
   { value: "customers", label: "Хэрэглэгчид" },
-  { value: "staff", label: "Ажилтны гүйцэтгэл" },
+  { value: "staff", label: "Ажилтан ба ажиллагаа" },
   { value: "time", label: "Цаг ба ирц" },
-  { value: "operations", label: "Өдрийн ажиллагаа" },
   { value: "events", label: "Арга хэмжээ" },
   { value: "system", label: "Системийн хяналт" }
 ];
 
-function dashboardAllowedViewModes() {
+function dashboardReportCapabilities() {
   const permissions = {
     admin: ["overview", "time", "events", "operations", "cashflow", "system"],
     manager: ["overview", "time", "events", "operations"],
@@ -7098,16 +7095,25 @@ function dashboardAllowedViewModes() {
     finance: ["overview", "time", "events", "cashflow"],
     director: ["overview", "time", "events", "cashflow"]
   };
-  const allowed = permissions[activeAccount.role] || ["overview"];
+  return permissions[activeAccount.role] || ["overview"];
+}
+
+function dashboardAllowedViewModes() {
+  const allowed = dashboardReportCapabilities();
   return dashboardViewModes.filter(item => allowed.includes(item.value)
+    || (item.value === "staff" && allowed.includes("operations"))
     || (["sales", "customers", "staff"].includes(item.value) && allowed.includes("overview")));
+}
+
+function dashboardNormalizedViewMode(value) {
+  return ({ overview: "sales", cashflow: "sales", operations: "staff", attendance: "time" })[value] || value;
 }
 
 function dashboardSelectedViewMode() {
   const selected = document.getElementById("dashboardViewMode")?.value;
-  const value = selected === "attendance" ? "time" : selected;
+  const value = dashboardNormalizedViewMode(selected);
   const allowed = dashboardAllowedViewModes();
-  return allowed.some(item => item.value === value) ? value : allowed[0]?.value || "overview";
+  return allowed.some(item => item.value === value) ? value : allowed[0]?.value || "sales";
 }
 
 function renderDashboardViewTabs(activeMode = dashboardSelectedViewMode()) {
@@ -7122,127 +7128,51 @@ function renderDashboardViewTabs(activeMode = dashboardSelectedViewMode()) {
 function dashboardOperationsHtml(month, salon, snapshot) {
   const sourceState = dashboardDataCache?.source || state;
   const summary = dashboardDataCache?.summary?.operations || null;
-  const scope = salon || "Нийт салбар";
   const today = todayText();
-  const todayBookings = summary ? [] : sourceState.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
-  const bookings = summary ? Number(summary.bookings || 0) : todayBookings.length;
-  const statusCount = status => summary ? Number(summary.statusCounts?.[status] || 0) : todayBookings.filter(item => item.status === status).length;
-  const bookingStatus = [
-    { name: "Баталгаажсан", value: statusCount("confirmed"), share: bookings ? Math.round(statusCount("confirmed") / bookings * 100) : 0, color: "#60bf63" },
-    { name: "Хүлээгдэж буй", value: statusCount("pending"), share: bookings ? Math.round(statusCount("pending") / bookings * 100) : 0, color: "#9bcf91" },
-    { name: "Ирсэнгүй", value: statusCount("missed"), share: bookings ? Math.round(statusCount("missed") / bookings * 100) : 0, color: "#e5b65d" },
-    { name: "Цуцалсан", value: statusCount("cancelled"), share: bookings ? Math.round(statusCount("cancelled") / bookings * 100) : 0, color: "#e38a8a" }
+  const bookings = summary ? [] : sourceState.bookings.filter(item => item.date === today && (!salon || item.salon === salon));
+  const statusCount = status => summary ? Number(summary.statusCounts?.[status] || 0) : bookings.filter(item => item.status === status).length;
+  const total = summary ? Number(summary.bookings || 0) : bookings.length;
+  const activeTreatments = summary ? Number(summary.activeTreatments || 0)
+    : sourceState.customers.filter(item => item.currentTreatment && (!salon || (item.currentTreatment.salon || item.salon) === salon)).length;
+  const workingStaff = summary ? Number(summary.workingStaff || 0)
+    : sourceState.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
+  const activeAssignments = summary ? Number(summary.activeAssignments || 0)
+    : sourceState.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
+  const pending = statusCount("pending");
+  const statusRows = [
+    { name: "Баталгаажсан", value: statusCount("confirmed"), color: "#60bf63" },
+    { name: "Хүлээгдэж буй", value: pending, color: "#9bcf91" },
+    { name: "Цуцалсан", value: statusCount("cancelled"), color: "#e38a8a" },
+    { name: "Татгалзсан", value: statusCount("rejected"), color: "#a0a6a0" }
   ];
-  const slots = ["09:00", "11:00", "13:00", "15:00", "17:00", "19:00"].map(name => ({ name, value: summary ? Number(summary.slotCounts?.[name] || 0) : todayBookings.filter(item => item.time?.startsWith(name.slice(0, 2))).length }));
-  const activeTreatments = summary ? Number(summary.activeTreatments || 0) : sourceState.customers.filter(customer => customer.currentTreatment && (!salon || (customer.currentTreatment.salon || customer.salon) === salon)).length;
-  const workingStaff = summary ? Number(summary.workingStaff || 0) : sourceState.staff.filter(item => item.status !== "inactive" && (!salon || item.salon === salon)).length;
-  const activeAssignments = summary ? Number(summary.activeAssignments || 0) : sourceState.assignments.filter(item => item.status !== "cancelled" && today >= item.startDate && today <= item.endDate && (!salon || item.to === salon)).length;
-  const staff = dashboardStaffRows(month, salon).slice(0, 6).map(item => ({ ...item, load: Math.min(98, Math.round(item.visits / Math.max(snapshot.visits, 1) * 720)) }));
-  return `
+  return `<section class="panel dashboard-card"><div class="dashboard-card-head"><div><h3>Өдрийн ажиллагаа</h3><p>${today} • ${htmlSafe(salon || "Нийт салбар")}</p></div></div>
     <div class="dashboard-kpi-grid dashboard-purpose-kpis">
-      <article class="dashboard-kpi"><span>Өнөөдрийн захиалга</span><strong>${bookings}</strong><small>${bookingStatus[1].value} хүлээгдэж буй</small></article>
-      <article class="dashboard-kpi"><span>Одоо үйлчлүүлж байгаа</span><strong>${activeTreatments}</strong><small>Нийт салон, өрөөнд</small></article>
-      <article class="dashboard-kpi"><span>Ажиллаж байгаа ажилтан</span><strong>${workingStaff}</strong><small>${activeAssignments} түр томилгоотой</small></article>
-      <article class="dashboard-kpi"><span>Өнөөдрийн орлого</span><strong>${money(Math.round(snapshot.revenue / 26))}</strong><small>${scope}</small></article>
-      <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(Math.round(snapshot.outstanding / 5))}</strong><small>Өнөөдөр үүссэн</small></article>
-      <article class="dashboard-kpi"><span>Цагийн дүүргэлт</span><strong>${snapshot.occupancy}%</strong><small>Оргил цаг 15:00–18:00</small></article>
+      <article class="dashboard-kpi"><span>Өнөөдрийн захиалга</span><strong>${formatNumber(total)}</strong><small>${formatNumber(pending)} хүлээгдэж буй</small></article>
+      <article class="dashboard-kpi"><span>Одоо үйлчлүүлж байгаа</span><strong>${formatNumber(activeTreatments)}</strong><small>Үйлчилгээний бүртгэлээр</small></article>
+      <article class="dashboard-kpi"><span>Ажиллаж байгаа ажилтан</span><strong>${formatNumber(workingStaff)}</strong><small>Салбарын идэвхтэй ажилтан</small></article>
+      <article class="dashboard-kpi"><span>Түр томилгоо</span><strong>${formatNumber(activeAssignments)}</strong><small>Өнөөдөр хүчинтэй</small></article>
     </div>
-    <div class="dashboard-grid dashboard-purpose-grid">
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Захиалгын төлөв</h3><p>Өнөөдөр • ${scope}</p></div><strong>${bookings} захиалга</strong></div>
-        ${dashboardDonutMarkup(bookingStatus, bookings, "value")}
-      </section>
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Цагийн ачаалал</h3><p>Суудал, өрөөний дүүргэлт</p></div></div>
-        ${dashboardVerticalBars(slots, "value", value => `${value}%`)}
-      </section>
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Анхаарах ажил</h3><p>Өнөөдөр шийдвэрлэх зүйлс</p></div></div>
-        <div class="dashboard-action-list">
-          <div><i class="warning"></i><span>Баталгаажаагүй үйлчилгээ</span><strong>0</strong></div>
-          <div><i class="danger"></i><span>Дутуу төлбөртэй хэрэглэгч</span><strong>${summary ? Number(summary.unpaidCustomers || 0) : sourceState.customers.filter(item => item.unpaid).length}</strong></div>
-          <div><i></i><span>Дуусах дөхсөн курс</span><strong>0</strong></div>
-          <div><i class="warning"></i><span>Барааны үлдэгдэл бага</span><strong>0</strong></div>
-          <div><i></i><span>Кассын хаалт хүлээгдэж буй</span><strong>0</strong></div>
-        </div>
-      </section>
-    </div>
-    <section class="panel dashboard-card dashboard-table-card">
-      <div class="dashboard-card-head"><div><h3>Ажилтны өнөөдрийн ачаалал</h3><p>Үйлчилгээ хийсэн салбараар тооцсон</p></div></div>
-      <div class="dashboard-progress-list dashboard-staff-load-list">${dashboardProgressRows(staff.map(item => ({ name: `${item.name} • ${item.visits} оролт`, value: item.load })), "value", value => `${value}%`)}</div>
-    </section>`;
+    <div class="dashboard-card-head"><h3>Өнөөдрийн захиалгын төлөв</h3></div>
+    ${dashboardDonutMarkup(statusRows, total, "value")}
+  </section>`;
 }
 
 function dashboardCashflowHtml(month, salon, snapshot) {
-  const scope = salon || "Нийт салбар";
-  const payments = dashboardPaymentRows(month, salon);
   const summarySources = dashboardDataCache?.summary?.sourceTotals?.[`${month.key}|${salon || "all"}`] || null;
   const rawPayments = summarySources ? [] : dashboardRowsForMonth(month, salon);
-  const sourceAmount = kind => summarySources
-    ? Number(summarySources[kind] || 0)
-    : rawPayments
-      .filter(item => kind === "product"
-        ? item.kind === "kass" || item.kind === "product"
-        : item.kind === kind)
+  const sourceAmount = kind => summarySources ? Number(summarySources[kind] || 0)
+    : rawPayments.filter(item => kind === "product" ? ["kass", "product"].includes(item.kind)
+      : kind === "course" ? item.kind === "course" : !["kass", "product", "course"].includes(item.kind))
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const sourceValues = [
-    ["Үйлчилгээ", sourceAmount("single"), "#60bf63"],
-    ["Курс", sourceAmount("course"), "#91cf86"],
-    ["Бараа", sourceAmount("product"), "#c9dfbd"]
-  ];
   const sources = [
-    ...sourceValues.map(([name, amount, color]) => ({
-      name,
-      amount,
-      share: snapshot.revenue ? Math.round(amount / snapshot.revenue * 100) : 0,
-      color
-    }))
+    { name: "Нэг удаа / бусад үйлчилгээ", amount: sourceAmount("single"), color: "#60bf63" },
+    { name: "Курс", amount: sourceAmount("course"), color: "#91cf86" },
+    { name: "Бараа", amount: sourceAmount("product"), color: "#c9dfbd" }
   ];
-  const receivables = [
-    { name: "0–7 хоног", amount: Math.round(snapshot.outstanding * .54) },
-    { name: "8–30 хоног", amount: Math.round(snapshot.outstanding * .29) },
-    { name: "31–60 хоног", amount: Math.round(snapshot.outstanding * .12) },
-    { name: "60+ хоног", amount: Math.round(snapshot.outstanding * .05) }
-  ];
-  return `
-    <div class="dashboard-kpi-grid dashboard-purpose-kpis">
-      <article class="dashboard-kpi"><span>Нийт орлого</span><strong>${money(snapshot.revenue)}</strong><small>${month.label}</small></article>
-      <article class="dashboard-kpi"><span>Үйлчилгээний орлого</span><strong>${money(sources[0].amount + sources[1].amount)}</strong><small>Нэг удаа болон курс</small></article>
-      <article class="dashboard-kpi"><span>Барааны борлуулалт</span><strong>${money(snapshot.products)}</strong><small>${sources[2].share}% нийт орлогод</small></article>
-      <article class="dashboard-kpi"><span>Дутуу төлбөр</span><strong class="dashboard-kpi-alert">${money(snapshot.outstanding)}</strong><small>${receivables[3].amount ? money(receivables[3].amount) : "0₮"} хугацаа хэтэрсэн</small></article>
-      <article class="dashboard-kpi"><span>Бонус ашиглалт</span><strong>${money(Math.round(snapshot.revenue * .064))}</strong><small>Бонус бодогдохгүй төлбөр</small></article>
-      <article class="dashboard-kpi"><span>Ваучер / бэлгийн карт</span><strong>${money(Math.round(snapshot.revenue * .08))}</strong><small>${formatNumber(Math.round(snapshot.payments * .08))} гүйлгээ</small></article>
-    </div>
-    <div class="dashboard-grid dashboard-purpose-grid">
-      <section class="panel dashboard-card dashboard-card-wide">
-        <div class="dashboard-card-head"><div><h3>Орлогын өөрчлөлт</h3><p>${scope} • сүүлийн 6 сар</p></div><strong>${dashboardCompactMoney(snapshot.revenue)}</strong></div>
-        ${dashboardTrendSvg(month.key, salon)}
-      </section>
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Орлогын эх үүсвэр</h3><p>${month.label}</p></div></div>
-        ${dashboardDonutMarkup(sources, snapshot.revenue, "amount")}
-      </section>
-    </div>
-    <div class="dashboard-grid">
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Төлбөрийн хэлбэр</h3><p>${formatNumber(snapshot.payments)} гүйлгээ</p></div></div>
-        <div class="dashboard-payment-bar">${payments.map(item => `<span style="width:${item.share}%;background:${item.color}"></span>`).join("")}</div>
-        <div class="dashboard-payment-list">${payments.map(item => `<div><span><i style="background:${item.color}"></i>${item.name}</span><strong>${money(item.amount)} <small>${item.share}%</small></strong></div>`).join("") || `<div class="empty-state">Төлбөрийн мэдээлэл алга</div>`}</div>
-      </section>
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Авлагын насжилт</h3><p>${money(snapshot.outstanding)} нийт</p></div></div>
-        <div class="dashboard-progress-list">${dashboardProgressRows(receivables.map(item => ({ name: item.name, value: item.amount })), "value", dashboardCompactMoney)}</div>
-      </section>
-      <section class="panel dashboard-card">
-        <div class="dashboard-card-head"><div><h3>Сарын тулгалт</h3><p>Орлого ба кассын хаалт</p></div></div>
-        <div class="dashboard-action-list">
-          <div><i></i><span>Хаалт хийгдсэн өдөр</span><strong>16/18</strong></div>
-          <div><i class="warning"></i><span>Тулгалтын зөрүүтэй</span><strong>2 өдөр</strong></div>
-          <div><i></i><span>Буцаалт, цуцлалт</span><strong>${money(Math.round(snapshot.revenue * .009))}</strong></div>
-          <div><i></i><span>Ажилтны урамшуулал</span><strong>${money(Math.round(snapshot.revenue * .087))}</strong></div>
-        </div>
-      </section>
-    </div>`;
+  return `<section class="panel dashboard-card">
+    <div class="dashboard-card-head"><div><h3>Мөнгөн урсгал · орлогын эх үүсвэр</h3><p>${htmlSafe(month.label)} • ${htmlSafe(salon || "Нийт салбар")} • бүртгэгдсэн төлбөрөөр</p></div></div>
+    ${dashboardDonutMarkup(sources, snapshot.revenue, "amount")}
+  </section>`;
 }
 
 function dashboardSystemHtml(month, salon) {
@@ -7363,10 +7293,10 @@ function renderDashboard() {
   const toInput = document.getElementById("dashboardToDate");
   if (!content || !modeSelect || !monthSelect || !salonSelect || !fromInput || !toInput) return;
 
-  const previousMode = modeSelect.value === "attendance" ? "time" : modeSelect.value;
+  const previousMode = dashboardNormalizedViewMode(modeSelect.value);
   const allowedModes = dashboardAllowedViewModes();
   modeSelect.innerHTML = allowedModes.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
-  modeSelect.value = allowedModes.some(item => item.value === previousMode) ? previousMode : allowedModes[0]?.value || "overview";
+  modeSelect.value = allowedModes.some(item => item.value === previousMode) ? previousMode : allowedModes[0]?.value || "sales";
   renderDashboardViewTabs(modeSelect.value);
 
   const currentMonthKey = monthText(todayText());
@@ -7393,14 +7323,6 @@ function renderDashboard() {
   document.getElementById("dashboardScopeNote").textContent = isSalonAccount() ? `${activeAccount.salon} • зөвхөн таны салбарын мэдээлэл` : `${scopeText} • бүртгэлийн өгөгдөл`;
 
   const viewMode = dashboardSelectedViewMode();
-  if (viewMode === "operations") {
-    content.innerHTML = dashboardOperationsHtml(month, salon, snapshot);
-    return;
-  }
-  if (viewMode === "cashflow") {
-    content.innerHTML = dashboardCashflowHtml(month, salon, snapshot);
-    return;
-  }
   if (viewMode === "system") {
     content.innerHTML = dashboardSystemHtml(month, salon);
     return;
@@ -7425,15 +7347,17 @@ function renderDashboard() {
   const activeGroupCount = customerStats ? Number(customerStats.activeGroups || 0) : sourceState.customerGroups.filter(group => (group.members || []).length > 0).length;
   const activeCourseCount = customerStats ? Number(customerStats.activeCourses || 0) : activeCustomers.filter(customer => customer.activeCourse || (customer.serviceHistory || []).some(item => item.kind === "course" && item.completed !== true)).length;
   const bonusBalance = customerStats ? Number(customerStats.bonusBalance || 0) : activeCustomers.reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
-  const staffRows = viewMode === "staff" ? dashboardStaffRows(month, salon) : [];
+  const showStaffDetails = dashboardReportCapabilities().includes("overview");
+  const showOperations = dashboardReportCapabilities().includes("operations");
+  const staffRows = viewMode === "staff" && showStaffDetails ? dashboardStaffRows(month, salon) : [];
   const topServices = viewMode === "sales" ? dashboardTopServices(month, salon) : [];
 
-  const revenueVisual = viewMode !== "overview" ? "" : dashboardChartModes.revenue === "bar"
+  const revenueVisual = viewMode !== "sales" ? "" : dashboardChartModes.revenue === "bar"
     ? dashboardVerticalBars(trendMonths, "value", dashboardCompactMoney)
     : dashboardChartModes.revenue === "table"
       ? dashboardSimpleTable(["Сар", "Орлого"], trendMonths.map(item => [item.label, `<strong>${money(item.value)}</strong>`]))
       : dashboardTrendSvg(trendAnchor, salon);
-  const branchVisual = viewMode !== "overview" ? "" : dashboardChartModes.branch === "table"
+  const branchVisual = viewMode !== "sales" ? "" : dashboardChartModes.branch === "table"
     ? dashboardSimpleTable(["Салбар", "Орлого", "Дүүргэлт"], branchRows.map(item => [htmlSafe(item.name), `<strong>${money(item.revenue)}</strong>`, `${item.occupancy}%`]))
     : `<div class="dashboard-progress-list">${dashboardProgressRows(branchRows, "revenue", dashboardCompactMoney)}</div><div class="dashboard-mini-stats"><span>Цагийн дүүргэлт <strong>${snapshot.occupancy}%</strong></span><span>Дуусгалт <strong>${snapshot.completion}%</strong></span></div>`;
   const serviceVisual = viewMode !== "sales" ? "" : dashboardChartModes.services === "bar"
@@ -7455,7 +7379,7 @@ function renderDashboard() {
     : dashboardVerticalBars(staffRows, "revenue", dashboardCompactMoney);
 
   const pages = {
-    overview: () => `<div class="dashboard-report-stack">
+    sales: () => `<div class="dashboard-report-stack">
     <div class="dashboard-kpi-grid">
       <article class="dashboard-kpi"><span>Нийт орлого</span><strong>${money(snapshot.revenue)}</strong><small class="${month.key === "all" ? "" : growth >= 0 ? "positive" : "negative"}">${revenueNote}</small></article>
       <article class="dashboard-kpi"><span>Үйлчилгээний орлого</span><strong>${money(snapshot.serviceRevenue)}</strong><small>Барааны орлого ороогүй</small></article>
@@ -7475,8 +7399,6 @@ function renderDashboard() {
         ${branchVisual}
       </section>
     </div>
-    </div>`,
-    sales: () => `<div class="dashboard-report-stack">
     <div class="dashboard-grid dashboard-sales-grid">
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Үйлчилгээний бүтэц</h3><p>${formatNumber(snapshot.visits)} нийт оролт</p></div>${dashboardChartControls("services", ["donut", "bar", "table"])}</div>
@@ -7496,6 +7418,7 @@ function renderDashboard() {
         </table>
       </div>
     </section>
+    ${dashboardCashflowHtml(month, salon, snapshot)}
     </div>`,
     customers: () => `<div class="dashboard-report-stack">
       <section class="panel dashboard-card">
@@ -7528,13 +7451,15 @@ function renderDashboard() {
     </section>
     </div>`,
     staff: () => `<div class="dashboard-report-stack">
+    ${showStaffDetails ? `
     <section class="panel dashboard-card dashboard-staff-card">
       <div class="dashboard-card-head"><div><h3>Ажилтны гүйцэтгэл</h3><p>${month.label} • ${htmlSafe(scopeText)} • түр томилгооны ажил үйлчилгээ хийсэн салбарт тооцогдоно</p></div>${dashboardChartControls("staff", ["bar", "table"])}</div>
       ${staffVisual}
-    </section>
+    </section>` : ""}
+    ${showOperations ? dashboardOperationsHtml(month, salon, snapshot) : ""}
     </div>`,
   };
-  content.innerHTML = (pages[viewMode] || pages.overview)();
+  content.innerHTML = (pages[viewMode] || pages.sales)();
 }
 
 function dashboardXmlSafe(value = "") {

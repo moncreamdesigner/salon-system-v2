@@ -793,7 +793,7 @@ foreach ((array)$source['bookings'] as $booking) {
         'salon' => $bookingSalon,
     ];
 }
-$statusCounts = ['confirmed' => 0, 'pending' => 0, 'missed' => 0, 'cancelled' => 0];
+$statusCounts = ['confirmed' => 0, 'pending' => 0, 'missed' => 0, 'cancelled' => 0, 'rejected' => 0];
 foreach ($todayBookings as $booking) {
     $status = $booking['status'];
     if (array_key_exists($status, $statusCounts)) $statusCounts[$status]++;

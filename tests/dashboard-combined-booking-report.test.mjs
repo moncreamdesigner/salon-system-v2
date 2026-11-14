@@ -18,7 +18,8 @@ test("one combined page renders attendance below time without subtabs or separat
 
 test("previous attendance selection redirects to the combined time view", () => {
   const c = vm.createContext({ document: { getElementById: () => ({ value: 'attendance' }) }, dashboardAllowedViewModes: () => [{ value: 'overview' }, { value: 'time' }] });
-  vm.runInContext(helper('dashboardSelectedViewMode'), c);
+  vm.runInContext(helper('dashboardNormalizedViewMode') + '\n' + helper('dashboardSelectedViewMode'), c);
   assert.equal(c.dashboardSelectedViewMode(), 'time');
-  assert.match(app, /const previousMode = modeSelect.value === "attendance" \? "time" : modeSelect.value/);
+  assert.match(app, /const previousMode = dashboardNormalizedViewMode\(modeSelect.value\)/);
+  for (const [previous, current] of Object.entries({ overview: 'sales', cashflow: 'sales', operations: 'staff', attendance: 'time' })) assert.equal(c.dashboardNormalizedViewMode(previous), current);
 });

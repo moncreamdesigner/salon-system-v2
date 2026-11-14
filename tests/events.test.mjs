@@ -271,5 +271,5 @@ test("event dashboard loads once and sends all, monthly and single filters with 
 
 test("event report tab appears immediately before system monitoring", () => {
   const modes = app.slice(app.indexOf("const dashboardViewModes ="), app.indexOf("function dashboardAllowedViewModes("));
-  assert.match(modes, /value: "cashflow"[\s\S]*value: "events"[\s\S]*value: "system"/);
+  assert.match(modes, /value: "events",[^\n]+\n\s*\{ value: "system"/);
 });

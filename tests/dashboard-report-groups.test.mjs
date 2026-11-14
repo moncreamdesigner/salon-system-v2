@@ -7,7 +7,7 @@ const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const start = app.indexOf('  const pages = {', app.indexOf('function renderDashboard('));
 const end = app.indexOf('\n  content.innerHTML = (pages[viewMode]', start);
-function pages() {
+function pages(overrides = {}) {
   const context = vm.createContext({
     snapshot: Object.freeze({ revenue: 1000, serviceRevenue: 800, products: 200, visits: 8, completion: 90, outstanding: 50, newCustomers: 2 }),
     month: { key: '2026-11', label: 'November' }, growth: 10, revenueNote: 'growth', customerCount: 7,
@@ -16,18 +16,49 @@ function pages() {
     bonusBalance: 5, staffVisual: 'staff-chart', topServices: [{ name: 'Product', count: 2, revenue: 100 }],
     demographics: { genders: [], ages: [], districts: [] },
     formatNumber: String, money: value => `${value}₮`, htmlSafe: String, dashboardCompactMoney: String,
-    dashboardChartControls: () => '', dashboardDonutMarkup: () => '', dashboardVerticalBars: () => '', dashboardDistrictMarkup: () => ''
+    dashboardChartControls: () => '', dashboardDonutMarkup: () => '', dashboardVerticalBars: () => '', dashboardDistrictMarkup: () => '',
+    dashboardCashflowHtml: () => '<section>cashflow-data</section>', dashboardOperationsHtml: () => '<section><h3>Өдрийн ажиллагаа</h3></section>', showStaffDetails: true, showOperations: true, salon: '', ...overrides
   });
   vm.runInContext(app.slice(start, end) + '\nthis.reportPages = pages;', context);
   return context.reportPages;
 }
 
-test('overview retains only headline KPIs, income trend and branch income', () => {
-  const page = pages().overview();
+test('sales begins with headline KPIs and preserves income graphs and cashflow without an overview tab', () => {
+  assert.equal(pages().overview, undefined);
+  const page = pages().sales();
   assert.match(page, /Нийт орлого[\s\S]*1000₮/);
   assert.match(page, /Орлогын өөрчлөлт/);
   assert.match(page, /Салбарын үзүүлэлт/);
-  assert.doesNotMatch(page, /<h3>Хэрэглэгч ба бонус|Хэрэглэгчийн бүтэц|Ажилтны гүйцэтгэл|Үйлчилгээний бүтэц|Төлбөрийн төрөл|Эрэлттэй үйлчилгээ/);
+  assert.doesNotMatch(page, /<h3>Хэрэглэгч ба бонус|Хэрэглэгчийн бүтэц|Ажилтны гүйцэтгэл/);
+  assert.ok(page.indexOf('Нийт орлого') < page.indexOf('Үйлчилгээний бүтэц'));
+  assert.ok(page.indexOf('cashflow-data') > page.indexOf('Эрэлттэй үйлчилгээ'));
+});
+
+test('staff and operations share a page while preserving financial detail permissions', () => {
+  const admin = pages().staff();
+  assert.ok(admin.indexOf('Ажилтны гүйцэтгэл') < admin.indexOf('Өдрийн ажиллагаа'));
+  const branch = pages({ showStaffDetails: false }).staff();
+  assert.match(branch, /Өдрийн ажиллагаа/);
+  assert.doesNotMatch(branch, /Ажилтны гүйцэтгэл|staff-chart/);
+  const finance = pages({ showOperations: false }).staff();
+  assert.match(finance, /Ажилтны гүйцэтгэл/);
+  assert.doesNotMatch(finance, /Өдрийн ажиллагаа/);
+});
+
+test('merged money flow and operations display recorded values instead of legacy synthetic estimates', () => {
+  const helper = name => { const start = app.indexOf(`function ${name}(`); return app.slice(start, app.indexOf('\nfunction ', start + 1)); };
+  const c = vm.createContext({ dashboardDataCache: { summary: {
+    sourceTotals: { '2026-11|A': { single: 300, course: 500, product: 200 } },
+    operations: { bookings: 7, statusCounts: { confirmed: 3, pending: 1, cancelled: 2, rejected: 1 }, activeTreatments: 2, workingStaff: 4, activeAssignments: 1 }
+  } }, state: {}, formatNumber: String, htmlSafe: String, todayText: () => '2026-11-14', dashboardDonutMarkup: rows => JSON.stringify(rows) });
+  vm.runInContext(helper('dashboardCashflowHtml') + '\n' + helper('dashboardOperationsHtml'), c);
+  const cash = c.dashboardCashflowHtml({ key: '2026-11', label: 'November' }, 'A', { revenue: 1000 });
+  assert.match(cash, /"amount":300/); assert.match(cash, /"amount":500/); assert.match(cash, /"amount":200/);
+  assert.doesNotMatch(cash, /Авлагын насжилт|Сарын тулгалт|16\/18/);
+  const operations = c.dashboardOperationsHtml({}, 'A', {});
+  assert.match(operations, /<strong>7<\/strong>/);
+  assert.match(operations, /<strong>2<\/strong>/);
+  assert.doesNotMatch(operations, /Өнөөдрийн орлого|Цагийн дүүргэлт|Ажилтны өнөөдрийн ачаалал/);
 });
 
 test('each detail card moves intact into one matching group', () => {
@@ -53,7 +84,10 @@ test('group permissions preserve existing report access and do not expose overvi
   for (const role of ['admin', 'manager', 'finance', 'director', 'salon']) {
     c.activeAccount.role = role;
     const values = Array.from(c.dashboardAllowedViewModes(), item => item.value);
-    for (const key of ['sales', 'customers', 'staff']) assert.equal(values.includes(key), role !== 'salon', `${role}: ${key}`);
+    for (const key of ['sales', 'customers']) assert.equal(values.includes(key), role !== 'salon', `${role}: ${key}`);
+    assert.ok(values.includes('staff'));
+    assert.equal(Array.from(c.dashboardReportCapabilities()).includes('overview'), role !== 'salon');
+    for (const removed of ['overview', 'cashflow', 'operations']) assert.ok(!values.includes(removed));
     assert.ok(values.includes('time')); assert.ok(!values.includes('attendance')); assert.ok(values.includes('events'));
     assert.equal(values.includes('system'), role === 'admin');
   }
