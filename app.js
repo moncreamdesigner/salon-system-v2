@@ -5940,6 +5940,11 @@ function bookingAttendanceLabel(booking) {
   return `<span class="status-text ${tone}">${labels[status] || labels.unknown}</span>`;
 }
 
+function bookingDateCell(dateText) {
+  const [date, weekday] = dateWithWeekday(dateText).split(" · ");
+  return `<span class="booking-date-value">${htmlSafe(date)}</span>${weekday ? `<span class="booking-date-weekday">${htmlSafe(weekday)}</span>` : ""}`;
+}
+
 function bookingSourceText(source, status) {
   const normalizedSource = source || (status === "confirmed" ? "admin" : "site");
   return normalizedSource === "admin" ? "Админ" : "Хэрэглэгч";
@@ -16344,6 +16349,10 @@ async function loadBookingDirectory({ silent = false } = {}) {
 
 function renderBookings() {
   if (!document.getElementById("bookingsView")?.isConnected) return;
+  const hideSalon = isSalonAccount();
+  const columnCount = hideSalon ? 8 : 9;
+  const salonColumn = document.getElementById("bookingSalonColumn");
+  if (salonColumn) salonColumn.hidden = hideSalon;
   // The booking view is mounted before the server state finishes loading.
   // Rebuild its branch filter from the current branch records, otherwise the
   // initial prototype branches remain visible after real data is applied.
@@ -16352,7 +16361,7 @@ function renderBookings() {
     const rows = document.getElementById("bookingRows");
     const pagination = document.getElementById("bookingPagination");
     const entry = document.getElementById("bookingInlineSlot");
-    if (rows) rows.innerHTML = '<tr><td colspan="9" class="empty-state">Уншиж байна…</td></tr>';
+    if (rows) rows.innerHTML = `<tr><td colspan="${columnCount}" class="empty-state">Уншиж байна…</td></tr>`;
     if (pagination) pagination.innerHTML = "";
     if (entry) entry.innerHTML = '<div class="empty-state">Цаг захиалгын мэдээлэл уншиж байна…</div>';
     if (!bookingDirectoryLoading) void loadBookingDirectory();
@@ -16392,8 +16401,8 @@ function renderBookings() {
     return `
     <tr class="${editingThisBooking ? "booking-row-editing" : ""}">
       <td>${index + 1}</td>
-      <td>${booking.salon}</td>
-      <td>${dateWithWeekday(booking.date)}</td>
+      <td${hideSalon ? " hidden" : ""}>${booking.salon}</td>
+      <td class="booking-date-cell">${bookingDateCell(booking.date)}</td>
       <td>${booking.time}</td>
       <td>${booking.phone}</td>
       <td>${bookingSourceText(booking.source, booking.status)}</td>
@@ -16412,9 +16421,9 @@ function renderBookings() {
         </div>
       </td>
     </tr>
-    ${editingThisBooking ? `<tr class="booking-inline-edit-row"><td colspan="9"><div class="booking-row-edit-shell" id="bookingRowEditSlot"></div></td></tr>` : ""}
+    ${editingThisBooking ? `<tr class="booking-inline-edit-row"><td colspan="${columnCount}"><div class="booking-row-edit-shell" id="bookingRowEditSlot"></div></td></tr>` : ""}
   `;
-  }).join("") || `<tr><td colspan="9" class="empty-state">${q || date ? "Хайлтад тохирох цаг олдсонгүй" : "Өнөөдөр болон ирээдүйд бүртгэлтэй цаг алга"}</td></tr>`;
+  }).join("") || `<tr><td colspan="${columnCount}" class="empty-state">${q || date ? "Хайлтад тохирох цаг олдсонгүй" : "Өнөөдөр болон ирээдүйд бүртгэлтэй цаг алга"}</td></tr>`;
 
   document.querySelectorAll(".booking-confirm").forEach(button => {
     button.addEventListener("click", () => updateBookingStatus(button.dataset.id, "confirmed"));

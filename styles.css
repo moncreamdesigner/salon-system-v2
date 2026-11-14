@@ -5387,6 +5387,43 @@ td {
   white-space: nowrap;
 }
 
+.booking-list-table {
+  min-width: 0;
+}
+
+.booking-list-table th,
+.booking-list-table td {
+  padding: 10px 8px;
+}
+
+.booking-list-table [hidden] {
+  display: none !important;
+}
+
+.booking-list-table th:first-child,
+.booking-list-table td:first-child { width: 32px; }
+.booking-list-table th:nth-child(2),
+.booking-list-table td:nth-child(2) { width: 140px; }
+.booking-list-table th:nth-child(3),
+.booking-list-table td:nth-child(3) { width: 110px; }
+.booking-list-table th:nth-child(4),
+.booking-list-table td:nth-child(4) { width: 58px; white-space: nowrap; }
+.booking-list-table th:nth-child(5),
+.booking-list-table td:nth-child(5) { width: 94px; white-space: nowrap; }
+.booking-list-table th:nth-child(6),
+.booking-list-table td:nth-child(6) { width: 100px; white-space: nowrap; }
+
+.booking-date-value,
+.booking-date-weekday {
+  display: block;
+  white-space: nowrap;
+}
+
+.booking-date-weekday {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
 .booking-list-table th:nth-child(8),
 .booking-list-table td:nth-child(8) {
   width: 128px;
@@ -5395,7 +5432,7 @@ td {
 
 .booking-list-table th:last-child,
 .booking-list-table td:last-child {
-  width: 224px;
+  width: 198px;
   padding-left: 6px;
 }
 
@@ -5405,7 +5442,22 @@ td {
 
 .booking-list-table .table-actions {
   flex-wrap: nowrap;
-  min-width: 214px;
+  min-width: 0;
+  gap: 4px;
+}
+
+.booking-list-table .table-actions button {
+  height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.booking-list-table .table-actions .icon-action,
+.booking-list-table .table-actions .icon-danger {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
 }
 
 th {

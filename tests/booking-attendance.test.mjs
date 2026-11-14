@@ -41,7 +41,7 @@ test("cash, prepaid payments, deleted records and unperformed services are not a
 test("production attendance is scoped, bounded, read-only and separate from booking status", () => {
   assert.match(html, /<th>Төлөв<\/th><th>Ирц<\/th><th>Үйлдэл<\/th>/);
   assert.match(app, /bookingStatusLabel\(booking.status\)[\s\S]*?bookingAttendanceLabel\(booking\)/);
-  assert.match(app, /booking-inline-edit-row.*colspan="9"/);
+  assert.match(app, /booking-inline-edit-row.*colspan="\$\{columnCount\}"/);
   assert.ok(list.indexOf("array_slice($filtered") < list.indexOf("booking_list_with_attendance($pdo"));
   assert.match(api, /c\.phone IN \(\$phoneParams\)/);
   assert.match(api, /v\.visit_date IN \(\$dateParams\)/);
