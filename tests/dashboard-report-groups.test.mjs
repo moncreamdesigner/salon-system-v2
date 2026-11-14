@@ -68,6 +68,7 @@ test('tabs keep shared filters, chart controls, export and responsive navigation
   for (const id of ['dashboardMonth', 'dashboardSalon', 'dashboardFromDate', 'dashboardToDate']) assert.ok(html.includes(`id="${id}"`));
   assert.match(css, /\.dashboard-view-tabs\s*\{[^}]*flex-wrap: wrap/s);
   assert.match(css, /\.dashboard-view-tab\s*\{[^}]*white-space: nowrap/s);
+  assert.match(css, /\.dashboard-grid\.dashboard-sales-grid\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
   assert.match(app, /viewMode !== "sales" \? "" : dashboardChartModes.services/);
   assert.match(app, /viewMode !== "staff" \? "" : month.key === "all"/);
   assert.match(app, /dashboardWorksheet\("Хэрэглэгчийн бүтэц"/);

@@ -6018,6 +6018,14 @@ tr:last-child td {
   margin: 0;
 }
 
+.dashboard-grid.dashboard-sales-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid.dashboard-sales-grid { grid-template-columns: 1fr; }
+}
+
 .dashboard-view-tab:hover,
 .dashboard-view-tab.active {
   color: var(--accent-dark);

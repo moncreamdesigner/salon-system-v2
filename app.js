@@ -7478,7 +7478,7 @@ function renderDashboard() {
     </div>
     </div>`,
     sales: () => `<div class="dashboard-report-stack">
-    <div class="dashboard-grid">
+    <div class="dashboard-grid dashboard-sales-grid">
       <section class="panel dashboard-card">
         <div class="dashboard-card-head"><div><h3>Үйлчилгээний бүтэц</h3><p>${formatNumber(snapshot.visits)} нийт оролт</p></div>${dashboardChartControls("services", ["donut", "bar", "table"])}</div>
         ${serviceVisual}
