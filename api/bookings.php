@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/bootstrap.php';
 require __DIR__ . '/sms-service.php';
+require_once __DIR__ . '/booking-conflict.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -284,7 +285,7 @@ try {
         $current = $bookings[$index];
         if (!booking_can_access($user, (string)($current['salon'] ?? ''))) throw new LogicException('Өөр салбарын цагийг өөрчлөх эрхгүй.');
         $expected = is_array($payload['expected'] ?? null) ? $payload['expected'] : null;
-        if ($expected !== null && $current != $expected) throw new UnexpectedValueException('Захиалгыг өөр төхөөрөмж дээр шинэчилсэн байна.');
+        if ($expected !== null && !booking_snapshot_matches($current, $expected)) throw new UnexpectedValueException('Захиалгыг өөр төхөөрөмж дээр шинэчилсэн байна.');
         $before = $current;
         $affectedSalons[] = (string)($current['salon'] ?? '');
 
