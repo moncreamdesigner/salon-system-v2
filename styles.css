@@ -7661,6 +7661,22 @@ td.empty-state {
   font-size: 13px;
 }
 
+.payment-reverse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+}
+.payment-reverse:hover { color: var(--danger); background: var(--surface-soft); }
+
 .profile-payment-details div {
   display: flex;
   justify-content: flex-start;

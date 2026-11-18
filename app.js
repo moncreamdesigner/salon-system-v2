@@ -3779,13 +3779,13 @@ function reverseVoucherPayment(payment, customer = null, historyItem = null) {
   if (logIndex >= 0) state.voucherLogs.splice(logIndex, 1);
 }
 
-function reverseCustomerCreditPayment(payment, customer = null, historyItem = null) {
+function reverseCustomerCreditPayment(payment, customer = null, historyItem = null, exactPaymentOnly = false) {
   if (payment?.method !== "customer_credit" || !customer) return;
   const paymentId = String(payment.id || "");
   const historyId = String(historyItem?.id || "");
   customer.creditLedger = customerCreditLedger(customer).filter(entry =>
     !(paymentId && String(entry.paymentId || "") === paymentId) &&
-    !(historyId && String(entry.targetServiceId || "") === historyId)
+    !(!exactPaymentOnly && historyId && String(entry.targetServiceId || "") === historyId)
   );
 }
 
@@ -11473,7 +11473,7 @@ function renderServicePaymentSummary(item, paid, historyIndex) {
     masterStaffFee: Number(item.masterStaffFee || 0)
   };
   const basePrice = Number(item.basePrice || item.price || item.total || 0);
-  const paymentChips = renderPaymentHistoryChips(item);
+  const paymentChips = renderPaymentHistoryChips(item, historyIndex);
   return `
     <div class="profile-payment-summary">
       <span>Үндсэн үнэ <strong>${money(basePrice)}</strong></span>
@@ -11495,12 +11495,12 @@ function renderServicePaymentSummary(item, paid, historyIndex) {
   `;
 }
 
-function renderPaymentHistoryChips(item = {}) {
+function renderPaymentHistoryChips(item = {}, historyIndex = null) {
   const payments = Array.isArray(item.payments) ? item.payments : [];
   if (!payments.length) return "";
   return `
     <div class="payment-history-chips">
-      ${payments.map(payment => {
+      ${payments.map((payment, paymentIndex) => {
         const time = payment.createdAt || payment.date || "";
         const paidAmount = Number(payment.paidAmount ?? payment.amount ?? 0);
         const label = paidAmount <= 0 && Number(payment.bonusAmount || 0) > 0
@@ -11509,7 +11509,8 @@ function renderPaymentHistoryChips(item = {}) {
         const displayAmount = paidAmount || Number(payment.amount || payment.bonusAmount || 0);
         const bonusText = payment.bonusAmount && paidAmount > 0 ? ` + Бонус ${money(payment.bonusAmount)}` : "";
         const reference = payment.referenceLabel ? ` · ${payment.referenceLabel}` : "";
-        return `<span class="payment-history-chip">${money(displayAmount)} ${label}${reference}${bonusText}${time ? ` · ${time}` : ""}</span>`;
+        const canReverse = historyIndex !== null && !item.transferClosed && isOperationalDateEditable(String(payment.date || payment.createdAt || "").slice(0, 10));
+        return `<span class="payment-history-chip">${money(displayAmount)} ${label}${reference}${bonusText}${time ? ` · ${time}` : ""}${canReverse ? `<button class="payment-reverse" type="button" data-history-index="${historyIndex}" data-payment-index="${paymentIndex}" aria-label="${htmlSafe(`${money(displayAmount)} ${label} төлбөр буцаах`)}" title="Төлбөр буцаах">↶</button>` : ""}</span>`;
       }).join("")}
     </div>
   `;
@@ -13510,6 +13511,9 @@ function renderProfile() {
       renderProfile();
     });
   });
+  document.querySelectorAll("#historyList .payment-reverse").forEach(button => {
+    button.addEventListener("click", () => reverseCustomerHistoryPayment(customer.id, Number(button.dataset.historyIndex), Number(button.dataset.paymentIndex)));
+  });
   const toggleDiagnosisSummary = historyIndex => {
     const item = customer.serviceHistory?.[historyIndex];
     if (!item) return;
@@ -14774,6 +14778,65 @@ function bindProfileGroupInlineSearch(customer) {
       return;
     }
     addCustomerToCurrentGroup(customer.id, member.id);
+  });
+}
+
+async function reverseCustomerHistoryPayment(customerId, historyIndex, paymentIndex) {
+  const customer = state.customers.find(item => Number(item.id) === Number(customerId));
+  const service = customer?.serviceHistory?.[historyIndex];
+  const payment = service?.payments?.[paymentIndex];
+  if (!customer || !service || !payment) return;
+  if (!canAccessSalon(service.salon || service.branch || activeAccount.salon || "")) return;
+  if (service.transferClosed) {
+    showToast("Хаасан курсын төлбөрийг буцаахаас өмнө хаалтын тооцоог шалгуулна уу", "error");
+    return;
+  }
+  if (!requireOperationalDateEditable(String(payment.date || payment.createdAt || "").slice(0, 10), "төлбөрийг буцаах")) return;
+  const before = JSON.stringify(service);
+  if (!await requireDeleteCode()) return;
+  // The code dialog can stay open while another device or refresh changes data.
+  // Never apply an old payment index to a changed service or another profile.
+  if (Number(state.selectedCustomerId) !== Number(customerId)
+    || state.customers.find(item => Number(item.id) === Number(customerId)) !== customer
+    || JSON.stringify(customer.serviceHistory?.[historyIndex]) !== before) {
+    showToast("Мэдээлэл шинэчлэгдсэн байна. Төлбөрөө дахин шалгаад буцаана уу", "error");
+    return;
+  }
+  const group = state.customerGroups.find(item => Number(item.id) === Number(payment.groupId || 0)) || customerGroup(customer);
+  const giftCard = payment.method === "gift_card" ? findGiftCard(payment.referenceLabel || payment.giftCardNumber || "") : null;
+  const giftCardBefore = giftCard ? structuredClone(giftCard) : null;
+  if (payment.id) pendingPaymentMutations.delete(String(payment.id));
+  reverseGroupPayment(payment, group);
+  reverseGiftCardPayment(payment, customer, service);
+  if (giftCard) registerPendingGiftCardMutation({ type: "update", item: giftCard, before: giftCardBefore });
+  reverseVoucherPayment(payment, customer, service);
+  if (payment.method === "voucher") {
+    registerPendingPaymentMutation({ id: `reversal-${payment.id || entityId("payment")}`, kind: "reversal", mutationVersion: localStateMutationVersion + 1, paymentId: payment.id || "", voucherLogId: payment.voucherLogId || "" });
+  }
+  reverseCustomerCreditPayment(payment, customer, service, true);
+  service.payments.splice(paymentIndex, 1);
+  // Use the remaining ledger directly, not servicePaidAmount's legacy fallback
+  // (which derives a paid amount from the OLD balance when the last row is removed).
+  const remainingPaid = service.payments.reduce((sum, row) => sum + Number(row.amount || row.paidAmount || 0), 0);
+  service.balance = Math.max(0, serviceTotalAmount(service) - remainingPaid);
+  service.paymentFormOpen = false;
+  if (customer.currentTreatment && (String(customer.currentTreatment.historyId || "") === String(service.id || "")
+    || (!customer.currentTreatment.historyId && customer.currentTreatment.service === (service.service || service.title)))) {
+    customer.currentTreatment.paymentBalance = service.balance;
+    if (service.balance > 0 && customer.currentTreatment.stage === "Төлбөр хаагдсан") customer.currentTreatment.stage = "Төлбөр дутуу";
+  }
+  customer.unpaid = customerBalance(customer) > 0;
+  const auditEntry = {
+    id: entityId("audit"), title: "payment_reversed", paymentId: payment.id || "",
+    customerId: customer.id, serviceId: service.id || "", paymentSnapshot: structuredClone(payment),
+    createdAt: auditNowText(),
+    meta: `${auditActorUsername()} • ${customer.name} • ${service.service || service.title || "Үйлчилгээ"} • ${money(payment.paidAmount ?? payment.amount ?? 0)} ${paymentMethodOptionsLabel(payment.method)} • зөвхөн төлбөр буцаасан`
+  };
+  state.audit.unshift(auditEntry);
+  persistPendingPaymentMutations();
+  saveAndRefreshCustomerProfile("Төлбөр буцаагдлаа", {
+    groupIds: group?.id ? [group.id] : [], auditEntries: [auditEntry],
+    relatedSections: [...(payment.method === "voucher" ? ["voucherLogs"] : []), ...(payment.method === "gift_card" ? ["giftCards"] : [])]
   });
 }
 
