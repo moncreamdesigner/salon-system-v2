@@ -76,12 +76,32 @@ test("a course cannot close while consumed visits have an unpaid shortfall", () 
   assert.equal(info.shortfall, 100000);
 });
 
-test("transfer and close is offered for paid courses with no shortfall", () => {
+test("transfer and close remains visible with a shortfall but cannot close before settlement", () => {
   assert.match(appSource, /\["credit_transfer", "Шилжүүлэх \/ хаах"\]/);
-  assert.match(appSource, /allowCreditTransfer = item\.kind === "course" && transferInfo\.unusedVisits > 0 && transferInfo\.paid > 0 && transferInfo\.shortfall <= 0/);
+  assert.match(appSource, /allowCreditTransfer = item\.kind === "course" && transferInfo\.unusedVisits > 0 && transferInfo\.paid > 0 && !item\.transferClosed;/);
+  assert.match(appSource, /submitButton\.disabled = transferInfo\.requiresSingleVisitPrice \|\| transferInfo\.unusedVisits <= 0 \|\| transferInfo\.paid <= 0 \|\| transferInfo\.shortfall > 0/);
+  assert.match(appSource, /if \(transfer\.shortfall > 0\) \{\s*showToast\([\s\S]*?return;/);
+  assert.match(appSource, /paymentHint\.hidden = transferInfo\.shortfall <= 0/);
   assert.match(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0/);
   assert.doesNotMatch(appSource, /transfer\.unusedVisits <= 0 \|\| transfer\.paid <= 0 \|\| transfer\.available <= 0/);
   assert.match(appSource, /if \(transfer\.available > 0\) \{[\s\S]*customer\.creditLedger\.unshift\(closureEntry\)/);
+});
+
+test("paying only the closure shortfall via ordinary payments permits closing without transferring unpaid course value", () => {
+  for (const method of ['card', 'qpay', 'transfer', 'cash']) {
+    const item = course({ paid: 300000, singleVisitPrice: 150000 });
+    const before = context.courseTransferInfo(item);
+    assert.equal(before.shortfall, 300000);
+    item.payments.push({ method, amount: 100000 });
+    assert.equal(context.courseTransferInfo(item).shortfall, 200000);
+    item.payments.push({ method, amount: 200000 });
+    const after = context.courseTransferInfo(item);
+    assert.equal(after.shortfall, 0);
+    assert.equal(after.available, 0);
+    assert.equal(after.unusedVisits, 4);
+    // Normal course balance need not be paid: the unused visits are cancelled on closure.
+    assert.equal(after.paid, 600000);
+  }
 });
 
 test("closing a course reprices consumed visits at the stored single-visit price", () => {

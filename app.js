@@ -11615,6 +11615,7 @@ function renderPaymentMethodExtra(method = "card", item = {}, customer = {}) {
                 : `<span class="credit-transfer-available credit-transfer-result">Мөнгө шилжихгүй · Үлдсэн ${transfer.unusedVisits} оролт хаагдана</span>`}
           </div>
           <textarea class="input inline-credit-transfer-reason" rows="2" maxlength="300" aria-label="Шалтгаан" placeholder="Шалтгаан: Курсыг дундаас нь дуусгах"></textarea>
+          <small class="muted inline-credit-transfer-payment-hint" ${transfer.shortfall > 0 ? "" : "hidden"}>Төлбөрийн аргаас карт, QPay, данс эсвэл бэлэн сонгож, «Дүн» хэсэгт дээрх зөрүүг оруулж хадгална. Дараа нь «Шилжүүлэх / хаах»-ыг дахин сонгоно.</small>
         </div>`;
       })() : ""}
     </div>
@@ -11630,7 +11631,7 @@ function renderInlinePaymentForm(item, historyIndex, balance) {
   const selectedMethod = "card";
   const creditBalance = amount > 0 ? customerCreditBalance(customer) : 0;
   const transferInfo = courseTransferInfo(item);
-  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && transferInfo.paid > 0 && transferInfo.shortfall <= 0 && !item.transferClosed;
+  const allowCreditTransfer = item.kind === "course" && transferInfo.unusedVisits > 0 && transferInfo.paid > 0 && !item.transferClosed;
   const allowSalary = customer?.type === "Ажилтан";
   return `
     <form class="inline-payment-form" data-history-index="${historyIndex}">
@@ -14345,6 +14346,8 @@ function bindInlinePaymentForms(customer) {
       const usedValue = form.querySelector(".credit-transfer-used-value");
       const difference = form.querySelector(".credit-transfer-difference");
       const result = form.querySelector(".credit-transfer-result");
+      const paymentHint = form.querySelector(".inline-credit-transfer-payment-hint");
+      if (paymentHint) paymentHint.hidden = transferInfo.shortfall <= 0;
       if (usedValue) usedValue.textContent = money(transferInfo.usedValue);
       if (difference) difference.textContent = money(transferInfo.repricingDifference);
       if (result) {
