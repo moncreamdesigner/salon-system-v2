@@ -9831,6 +9831,8 @@ async function loadIncompleteServicePage(panel, page) {
     const result = await request;
     if (!stillActive()) return;
     const items = Array.isArray(result.items) ? result.items : [];
+    if (!items.length && page > 1) return loadIncompleteServicePage(panel, 1);
+    const totalPages = Number(result.totalPages);
     panel.innerHTML = `
       ${items.length ? `<div class="table-wrap"><table><thead><tr><th>Нээсэн огноо</th><th>Хэрэглэгч</th><th>Үйлчилгээ</th><th>Салбар</th><th>Явц</th><th></th></tr></thead><tbody>
       ${items.map(item => `<tr>
@@ -9839,9 +9841,9 @@ async function loadIncompleteServicePage(panel, page) {
         <td>${Number(item.pending) === 1 ? "Урьдчилж төлсөн · үйлчилгээ хүлээж байна" : `${Number(item.done)}/${Number(item.target)} оролт`}</td>
         <td><button class="secondary-btn compact-action incomplete-service-detail" type="button" data-id="${htmlSafe(String(item.customer_id))}">Дэлгэрэнгүй</button></td>
       </tr>`).join("")}</tbody></table></div>` : '<div class="active-treatment-empty">Дутуу үйлчилгээ олдсонгүй.</div>'}
-      ${page > 1 || result.hasMore ? `<div class="pagination">
+      ${items.length ? `<div class="pagination">
         <button class="secondary-btn" type="button" data-service-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Өмнөх</button>
-        <span>${page}-р хуудас</span>
+        <span>${page}${Number.isSafeInteger(totalPages) && totalPages >= page ? ` / ${totalPages}` : ""}</span>
         <button class="secondary-btn" type="button" data-service-page="${page + 1}" ${result.hasMore ? "" : "disabled"}>Дараах</button>
       </div>` : ""}`;
     panel.querySelectorAll("[data-service-page]").forEach(button => button.addEventListener("click", () => void loadIncompleteServicePage(panel, Number(button.dataset.servicePage))));

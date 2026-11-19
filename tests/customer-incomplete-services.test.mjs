@@ -48,6 +48,27 @@ test('server uses signed-in branch, valid visits, real prepaid records and bound
   assert.match(api, /COUNT\(DISTINCT[\s\S]*?v\.payload, '\$\.deletedAt'/);
   assert.match(api, /\$\.prepaidPending[\s\S]*?p\.amount > 0/);
   assert.match(api, /\$pageSize = 30/);
+  assert.match(api, /COUNT\(\*\) OVER \(\) AS matched_count/);
+  assert.match(api, /'totalPages' => \$totalPages/);
   assert.match(api, /ORDER BY x\.opened IS NULL, x\.opened, x\.customer_id, x\.service_id/);
   assert.doesNotMatch(api, /app_sections|INSERT INTO|UPDATE app_|DELETE FROM/);
+});
+
+test('incomplete service pagination shows only current and total page numbers', async () => {
+  const panel = { isConnected: true, classList: { contains: () => false }, querySelectorAll: () => [] };
+  const requests = [];
+  const context = vm.createContext({
+    activeView: 'customers', activeAccount: { id: 1 }, htmlSafe: String,
+    serverApi: async path => {
+      requests.push(path);
+      return path.endsWith('=4') ? { items: [], totalPages: 0, hasMore: false }
+        : { items: [{ customer_id: 10 }], totalPages: 3, hasMore: true };
+    },
+  });
+  vm.runInContext(app.slice(app.indexOf('let incompleteServiceGeneration'), app.indexOf('function renderCustomers()')), context);
+  await context.loadIncompleteServicePage(panel, 2);
+  assert.match(panel.innerHTML, /<span>2 \/ 3<\/span>/);
+  await context.loadIncompleteServicePage(panel, 4);
+  assert.match(requests.at(-1), /page=1$/);
+  assert.match(panel.innerHTML, /<span>1 \/ 3<\/span>/);
 });

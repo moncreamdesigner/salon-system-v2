@@ -17,13 +17,14 @@ if (!entity_projection_ready($pdo)) {
 $pageSize = 30;
 $page = max(1, min(100000, (int)($_GET['page'] ?? 1)));
 $offset = ($page - 1) * $pageSize;
-$limit = $pageSize + 1;
-// Only the selected page and a look-ahead row cross the wire. The service
+$limit = $pageSize;
+// Only the selected page and its total page count cross the wire. The service
 // projection has the founding branch and a keyed lookup for visits/payments.
 $scope = $branch ? ' AND s.salon = ?' : '';
 $falseValues = "('','null','0','false')";
 $courseKind = "(s.kind = 'course' OR (s.kind = '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(s.payload, '$.title'))) LIKE '%курс%'))";
-$sql = "SELECT x.customer_id, x.display_name, x.phone, x.salon, x.opened, x.title, x.pending, x.target, x.done
+$sql = "SELECT x.customer_id, x.display_name, x.phone, x.salon, x.opened, x.title, x.pending, x.target, x.done,
+       COUNT(*) OVER () AS matched_count
 FROM (
     SELECT s.customer_id, s.service_id, c.display_name, c.phone, s.salon,
         COALESCE(
@@ -72,4 +73,6 @@ LIMIT $limit OFFSET $offset";
 $query = $pdo->prepare($sql);
 $query->execute($branch ? [$salon] : []);
 $items = $query->fetchAll(PDO::FETCH_ASSOC);
-json_response(['ok' => true, 'page' => $page, 'items' => array_slice($items, 0, $pageSize), 'hasMore' => count($items) > $pageSize]);
+$totalPages = intdiv((int)($items[0]['matched_count'] ?? 0) + $pageSize - 1, $pageSize);
+foreach ($items as $index => $item) unset($items[$index]['matched_count']);
+json_response(['ok' => true, 'page' => $page, 'items' => $items, 'totalPages' => $totalPages, 'hasMore' => $page < $totalPages]);
