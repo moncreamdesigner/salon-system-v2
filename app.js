@@ -9774,6 +9774,9 @@ function resetIncompleteServiceTab() {
     panel.replaceChildren();
   }
   document.getElementById("activeTreatmentStrip")?.classList.remove("hidden");
+  for (const id of ["customerInlineForm", "customerDirectoryPanel"]) {
+    document.getElementById(id)?.classList.remove("hidden");
+  }
   for (const [id, isSelected] of [["currentServiceTab", true], ["incompleteServiceTab", false]]) {
     const tab = document.getElementById(id);
     tab?.classList.toggle("active", isSelected);
@@ -9799,6 +9802,9 @@ function bindCustomerServiceTabs() {
     incomplete.setAttribute("aria-selected", "true");
     incomplete.tabIndex = 0;
     document.getElementById("activeTreatmentStrip").classList.add("hidden");
+    for (const id of ["customerInlineForm", "customerDirectoryPanel"]) {
+      document.getElementById(id)?.classList.add("hidden");
+    }
     panel.classList.remove("hidden");
     void loadIncompleteServicePage(panel, 1);
   });

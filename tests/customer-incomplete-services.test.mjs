@@ -16,7 +16,8 @@ test('opening only the incomplete tab loads page one, closing discards late resp
     addEventListener(name, fn) { this.listeners[name] = fn; } };
   };
   const current = node(), incomplete = node(), strip = node(), panel = node(true), tabs = node();
-  const ids = { currentServiceTab: current, incompleteServiceTab: incomplete, activeTreatmentStrip: strip, incompleteServicePanel: panel, customerServiceTabs: tabs };
+  const form = node(), directory = node();
+  const ids = { currentServiceTab: current, incompleteServiceTab: incomplete, activeTreatmentStrip: strip, incompleteServicePanel: panel, customerServiceTabs: tabs, customerInlineForm: form, customerDirectoryPanel: directory };
   tabs.querySelector = x => ids[x.slice(1)];
   const requests = [];
   const context = vm.createContext({ document: { getElementById: id => ids[id] }, loadIncompleteServicePage: (p, n) => requests.push([p,n]) });
@@ -26,9 +27,14 @@ test('opening only the incomplete tab loads page one, closing discards late resp
   incomplete.listeners.click();
   incomplete.listeners.click();
   assert.deepEqual(requests, [[panel,1]]);
+  assert.equal(form.classList.contains('hidden'), true);
+  assert.equal(directory.classList.contains('hidden'), true);
   current.listeners.click();
   assert.equal(panel.classList.contains('hidden'), true);
   assert.equal(strip.classList.contains('hidden'), false);
+  assert.equal(form.classList.contains('hidden'), false);
+  assert.equal(directory.classList.contains('hidden'), false);
+  assert.match(html, /id="customerDirectoryPanel"/);
   assert.match(app, /generation === incompleteServiceGeneration && activeView === "customers" && panel.isConnected/);
   assert.match(html, /id="incompleteServicePanel"\s+role="tabpanel"/);
 });
