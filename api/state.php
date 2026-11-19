@@ -8,6 +8,7 @@ require_once __DIR__ . '/course-price-protection.php';
 require_once __DIR__ . '/prepaid-services.php';
 require_once __DIR__ . '/product-commission.php';
 require_once __DIR__ . '/service-campaigns.php';
+require_once __DIR__ . '/service-campaign-reprice.php';
 
 verify_same_origin();
 $user = require_auth();
@@ -668,6 +669,26 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     ]);
 }
 
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+    if (($user['role'] ?? '') !== 'admin') json_response(['ok' => false, 'message' => 'Зөвхөн админ дахин тооцно.'], 403);
+    $previewRequest = request_payload();
+    if (($previewRequest['action'] ?? '') === 'temporaryRepairBackup') {
+        try {
+            $profiles = temporary_repair_backup(load_all_sections($pdo, ['customers']));
+            json_response(['ok' => true, 'backup' => ['capturedAt' => gmdate(DATE_ATOM), 'customers' => $profiles]]);
+        } catch (DomainException $error) {
+            json_response(['ok' => false, 'message' => $error->getMessage()], 422);
+        }
+    }
+    if (($previewRequest['action'] ?? '') !== 'temporaryRepairPreview') json_response(['ok' => false, 'message' => 'Үйлдэл буруу байна.'], 422);
+    $previewSections = load_all_sections($pdo, ['customers', 'discounts', '_serviceSettings', 'generalSettings']);
+    try {
+        [, , , $preview] = temporary_repair_plan($previewSections, $previewRequest, operational_cutoff($previewSections, []));
+        json_response(['ok' => true, 'preview' => $preview]);
+    } catch (DomainException $error) {
+        json_response(['ok' => false, 'message' => $error->getMessage()], 422);
+    }
+}
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'PUT') {
     json_response(['ok' => false, 'message' => 'Method зөвшөөрөгдөөгүй.'], 405);
 }
@@ -685,8 +706,16 @@ $partial = ($payload['partial'] ?? false) === true;
 $clientScopeRevision = filter_var($payload['scopeRevision'] ?? null, FILTER_VALIDATE_INT);
 $clientSectionRevisions = is_array($payload['sectionRevisions'] ?? null) ? $payload['sectionRevisions'] : null;
 $operationId = trim((string)($payload['operationId'] ?? ''));
+$repriceRequest = $payload['temporaryRepair'] ?? null;
 $hasEntityMutations = count(is_array($customerMutations['profiles'] ?? null) ? $customerMutations['profiles'] : []) > 0
     || count(is_array($customerMutations['groups'] ?? null) ? $customerMutations['groups'] : []) > 0;
+if ($repriceRequest !== null) {
+    if (($user['role'] ?? '') !== 'admin') json_response(['ok' => false, 'message' => 'Зөвхөн админ дахин тооцно.'], 403);
+    if (!is_array($repriceRequest) || $sections !== [] || $hasEntityMutations || !$partial || $clientSectionRevisions !== []
+        || $operationId === '' || !empty($payload['allowBulkRemoval']) || !empty($payload['bulkCustomerImport'])) {
+        json_response(['ok' => false, 'message' => 'Дахин тооцох үйлдлийг тусад нь илгээнэ үү.'], 422);
+    }
+}
 if ($operationId !== '' && preg_match('/^[A-Za-z0-9._:-]{12,190}$/', $operationId) !== 1) {
     json_response(['ok' => false, 'message' => 'Үйлдлийн дугаар буруу байна.'], 422);
 }
@@ -697,7 +726,7 @@ if ($operationId !== '' && preg_match('/^[A-Za-z0-9._:-]{12,190}$/', $operationI
 if (
     !is_array($sections)
     || (count($sections) > 0 && array_is_list($sections))
-    || (count($sections) === 0 && !$hasEntityMutations)
+    || (count($sections) === 0 && !$hasEntityMutations && $repriceRequest === null)
 ) {
     json_response(['ok' => false, 'message' => 'Өгөгдлийн бүтэц буруу байна.'], 422);
 }
@@ -812,7 +841,36 @@ try {
     $loadKeys = $partial
         ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings', '_serviceSettings', 'discounts'])))
         : [];
+    if ($repriceRequest !== null) $loadKeys = array_values(array_unique(array_merge($loadKeys, ['customers', 'audit'])));
     $currentSections = load_all_sections($pdo, $loadKeys);
+    $verifiedCampaignTarget = null;
+    if ($repriceRequest !== null) {
+        $code = (string)($repriceRequest['code'] ?? '');
+        $expectedCode = (string)($currentSections['generalSettings']['deleteCode'] ?? '1989');
+        if (!preg_match('/^\d{4}$/', $code) || !hash_equals($expectedCode, $code)) throw new DomainException('Засах код буруу байна.');
+        [$ci, $si, $changes, $preview] = temporary_repair_plan($currentSections, $repriceRequest, operational_cutoff($currentSections, []));
+        if (!hash_equals($preview['token'], (string)($repriceRequest['token'] ?? ''))) throw new DomainException('Үйлчилгээ эсвэл хямдрал шинэчлэгдсэн байна. Дүнг дахин шалгана уу.');
+        $sections['customers'] = $currentSections['customers'];
+        $customer =& $sections['customers'][$ci];
+        $service =& $customer['serviceHistory'][$si];
+        $service = array_replace($service, $changes);
+        $target = [(string)$customer['id'], (string)$service['id']];
+        if (isset($changes['campaignDiscount'])) {
+            $verifiedCampaignTarget = $target;
+            if ((string)($customer['currentTreatment']['historyId'] ?? '') === (string)$service['id']) {
+                $customer['currentTreatment']['paymentBalance'] = $preview['balance'];
+            }
+            $customer['unpaid'] = array_sum(array_map(static fn($row) => max(0, (float)($row['balance'] ?? 0)), $customer['serviceHistory'])) > 0;
+        }
+        unset($customer, $service);
+        $customerMutations = ['profiles' => [['id' => $target[0]]]];
+        $sections['audit'] = [[
+            'id' => 'temporary-repair-' . bin2hex(random_bytes(12)), 'title' => isset($changes['payments']) ? 'payment_method_corrected' : 'service_campaign_repriced',
+            'createdAt' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d H:i:s'),
+            'meta' => ($user['username'] ?? 'admin') . ' • ' . implode(' / ', $target) . ' • ' . ($preview['summary'] ??
+                ($preview['oldDate'] . ' → ' . $preview['date'] . ' • ' . $preview['campaign'] . ' • ' . $preview['oldTotal'] . ' → ' . $preview['total'])),
+        ]];
+    }
     if ($mutationKeys) {
         [$mutatedCustomerSections, $customerMutationConflicts] = apply_customer_entity_mutations(
             $currentSections,
@@ -850,7 +908,7 @@ try {
     assert_course_prices_preserved($currentSections, $sections);
     assert_prepaid_services_preserved($currentSections, $sections, $user);
     assert_product_commission_contracts($currentSections, $sections);
-    assert_service_campaign_contracts($currentSections, $sections);
+    assert_service_campaign_contracts($currentSections, $sections, $verifiedCampaignTarget);
     if (!$bulkCustomerImport) assert_new_course_price_current($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);
@@ -865,7 +923,7 @@ try {
         && ($payload['allowBulkRemoval'] ?? false) === true
         && trim((string)($payload['removalReason'] ?? '')) !== '';
     if (!$allowProtectedOverride) assert_operational_lock($currentSections, $sections);
-    if (array_key_exists('customers', $sections) && is_array($sections['customers'])) {
+    if ($repriceRequest === null && array_key_exists('customers', $sections) && is_array($sections['customers'])) {
         $queueNormalization = daily_queue_normalize_customers($sections['customers']);
         $sections['customers'] = $queueNormalization['customers'];
     }

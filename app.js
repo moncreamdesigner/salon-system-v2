@@ -2330,6 +2330,7 @@ const VIEW_SERVER_SECTIONS = {
   settingsUsers: ["salons"],
   settingsDatabase: ["generalSettings"],
   smsCampaigns: ["generalSettings"],
+  temporaryRepair: ["generalSettings"],
   settingsSms: ["generalSettings"],
   settingsGeneral: ["generalSettings", "diagnosisTypes", "customerTypes", "customerTypeRules"],
   groups: ["customerTypes", "customerTypeRules", "pricePolicy"],
@@ -7633,6 +7634,111 @@ function mountOnlyView(name) {
   });
 }
 
+function renderTemporaryRepair() {
+  const view = document.getElementById("temporaryRepairView");
+  if (!view || !isAdminAccount()) return;
+  const labels = [
+    "1. Хуурай үсний курс",
+    "2. Тэжээлийн эмчилгээ",
+    "3. Уургийн эмчилгээ",
+    "4. 83,930₮ төлбөрийн арга"
+  ];
+  view.innerHTML = `<section class="panel">
+    <h3>Түр засвар</h3>
+    <p class="muted">Зөвхөн энэ дөрвөн бүртгэлд зориулсан. Хадгалахаас өмнө дүнг тулгана уу.</p>
+    <button type="button" class="secondary-btn repair-backup">Дөрвөн бүртгэлийн хуулбар татах</button>
+    <p class="repair-backup-status" role="status"></p>
+    ${labels.map((label, index) => `<form class="panel" data-repair-case="${index + 1}">
+      <strong>${label}</strong>
+      ${index < 3 ? '<p><label><input type="checkbox" class="repair-date"> Үйлчилгээ авсан өдөр 2026-11-17 мөн</label></p>' : ''}
+      <p class="repair-result" role="status"></p>
+      <button type="button" class="secondary-btn repair-preview">Тооцоог харах</button>
+      <button type="submit" class="primary-btn repair-save" disabled>Залруулж хадгалах</button>
+    </form>`).join("")}
+  </section>`;
+  let backupDownloaded = false;
+  const backupButton = view.querySelector(".repair-backup");
+  backupButton.addEventListener("click", async () => {
+    if (!isAdminAccount()) return;
+    backupButton.disabled = true;
+    const status = view.querySelector(".repair-backup-status");
+    try {
+      const { backup } = await serverApi("state.php", { method: "POST", body: JSON.stringify({ action: "temporaryRepairBackup" }) });
+      if (!backupButton.isConnected || activeView !== "temporaryRepair" || !isAdminAccount()) return;
+      if (backup?.customers?.length !== 4) throw new Error("Дөрвөн бүртгэлийн хуулбар бүрэн биш байна.");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `salon-temporary-repair-backup-${todayText()}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      backupDownloaded = true;
+      status.textContent = "Хуулбар татах хүсэлт илгээлээ. Татсан файлаа шалгана уу.";
+    } catch (error) { status.textContent = error.message || "Хуулбар татаж чадсангүй."; }
+    finally { backupButton.disabled = false; }
+  });
+  view.querySelectorAll("form[data-repair-case]").forEach(form => {
+    const date = form.querySelector(".repair-date");
+    const output = form.querySelector(".repair-result");
+    const previewButton = form.querySelector(".repair-preview");
+    const save = form.querySelector(".repair-save");
+    let draft = null;
+    let busy = false;
+    const lock = value => {
+      busy = value;
+      previewButton.disabled = value;
+      save.disabled = value || !draft;
+      if (date) date.disabled = value;
+    };
+    date?.addEventListener("change", () => { draft = null; save.disabled = true; output.textContent = ""; });
+    previewButton.addEventListener("click", async () => {
+      if (busy || !isAdminAccount()) return;
+      draft = null;
+      if (date && !date.checked) {
+        save.disabled = true;
+        output.textContent = "Үйлчилгээ авсан өдрийг эхлээд тулгана уу.";
+        return;
+      }
+      const request = { case: form.dataset.repairCase, date: date?.checked ? "2026-11-17" : "" };
+      lock(true);
+      output.textContent = "Шалгаж байна…";
+      try {
+        const result = await serverApi("state.php", { method: "POST", body: JSON.stringify({ action: "temporaryRepairPreview", ...request }) });
+        if (!form.isConnected || activeView !== "temporaryRepair") return;
+        const p = result.preview;
+        output.textContent = p.summary || `${p.service} · ${p.salon} · ${p.oldDate} → ${p.date} · ${p.campaign} ${p.percent}%: ${money(p.oldTotal)} → ${money(p.total)}. Төлсөн: ${money(p.paid)}. Үлдэгдэл: ${money(p.balance)}. Илүү төлөлт: ${money(p.overpaid)}. Гүйцэтгэл бодох суурийн өөрчлөлт: ${money(Math.round(p.basisDelta))}. Төлбөр, оролт хэвээр.`;
+        draft = { ...request, token: p.token };
+      } catch (error) { output.textContent = error.message || "Тооцоог ачаалсангүй."; }
+      finally { lock(false); }
+    });
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (busy || !draft || !isAdminAccount()) return;
+      if (!backupDownloaded) { output.textContent = "Эхлээд дөрвөн бүртгэлийн хуулбарыг татна уу. Дараа нь тооцоог дахин шалгана уу."; return; }
+      lock(true);
+      try {
+        const code = await requireEditCodeValue();
+        if (!code || !form.isConnected || activeView !== "temporaryRepair" || !isAdminAccount()) return;
+        if (!await waitForServerWritesToSettle()) throw new Error("Бусад хадгалалт дуусаагүй байна.");
+        if (!form.isConnected || activeView !== "temporaryRepair" || !isAdminAccount()) return;
+        const result = await serverApi("state.php", { method: "PUT", body: JSON.stringify({
+          data: {}, partial: true, sectionRevisions: {}, operationId: bookingOperationId(),
+          temporaryRepair: { ...draft, code }
+        }) });
+        invalidatePerformanceData();
+        dashboardDataCache = null;
+        profileDirectoryLoadedCustomerId = 0;
+        applyServerSectionRevisions(result.sectionRevisions || {});
+        output.textContent = "Залруулгыг сервер хадгаллаа.";
+        draft = null;
+      } catch (error) {
+        output.textContent = error.message || "Хадгалсан эсэх тодорхойгүй. Дахин тооцоог шалгана уу.";
+        draft = null;
+      } finally { lock(false); }
+    });
+  });
+}
+
 function renderActiveView(name = activeView, { force = false } = {}) {
   const startedAt = performance.now();
   if (name === "bookings") renderBookings();
@@ -7661,6 +7767,7 @@ function renderActiveView(name = activeView, { force = false } = {}) {
   else if (name === "groups") renderGroupDirectory();
   else if (name === "settingsUsers") loadSystemUsers();
   else if (name === "settingsDatabase") renderDatabaseSettings();
+  else if (name === "temporaryRepair") renderTemporaryRepair();
   else if (name === "smsCampaigns") void loadSmsCampaigns();
   else if (name === "settingsSms") void loadSmsSettings();
   else if (name === "settingsGeneral") renderGeneralSettings();
@@ -7694,7 +7801,7 @@ function releaseRenderedView(name) {
 
 function setView(name) {
   releaseDiagnosisCameraSession();
-  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "smsCampaigns", "settingsSms", "settingsGeneral", "audit"];
+  const adminViews = ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "temporaryRepair", "smsCampaigns", "settingsSms", "settingsGeneral", "audit"];
   const requestedScheduleSection = name === "settingsHolidays" ? "holidays" : null;
   if (name === "settingsHolidays") name = "settingsSchedule";
   if (retiredViews.has(name)) name = "bookings";
@@ -8109,7 +8216,7 @@ function applyActiveAccount(account = {}) {
     const field = document.getElementById(id);
     if (field) delete field.dataset.ready;
   });
-  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "smsCampaigns", "settingsSms", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
+  if (!isAdminAccount() && ["settingsCatalog", "branches", "settingsResults", "settingsServices", "settingsPricing", "groups", "settingsUsers", "settingsDatabase", "temporaryRepair", "smsCampaigns", "settingsSms", "settingsGeneral", "audit"].includes(activeView)) activeView = "bookings";
 }
 
 function systemUserRoleLabel(role) {

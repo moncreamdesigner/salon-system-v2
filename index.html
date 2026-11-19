@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-<meta name="app-build" content="202611181426">
+<meta name="app-build" content="202611191645">
   <script>
     (() => {
       const currentBuild = document.querySelector('meta[name="app-build"]')?.content || "";
@@ -39,9 +39,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&subset=cyrillic,cyrillic-ext&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=202611181426">
-  <link rel="stylesheet" href="form-fields.css?v=202611181426">
-  <link rel="stylesheet" href="pwa-window.css?v=202611181426">
+  <link rel="stylesheet" href="styles.css?v=202611191645">
+  <link rel="stylesheet" href="form-fields.css?v=202611191645">
+  <link rel="stylesheet" href="pwa-window.css?v=202611191645">
 </head>
 <body>
   <div class="pwa-window-drag" aria-hidden="true"></div>
@@ -74,6 +74,7 @@
             <button class="nav-subitem" data-view="groups">Групп</button>
             <button class="nav-subitem" data-view="settingsUsers" data-admin-only>Хэрэглэгчийн эрх</button>
             <button class="nav-subitem" data-view="settingsDatabase">Өгөгдлийн сан</button>
+            <button class="nav-subitem hidden" data-view="temporaryRepair" data-admin-only>Түр засвар</button>
             <button class="nav-subitem" data-view="smsCampaigns" data-admin-only>SMS</button>
             <button class="nav-subitem" data-view="settingsSms">SMS тохиргоо</button>
             <button class="nav-subitem" data-view="settingsGeneral">Ерөнхий</button>
@@ -924,6 +925,7 @@
           <div class="service-category-list diagnosis-list" id="diagnosisTypeList"></div>
         </section>
       </section>
+      <section class="view" id="temporaryRepairView"></section>
       <section class="view" id="smsCampaignsView">
         <section class="panel sms-campaign-compose">
           <div class="sms-section-head">
@@ -1694,12 +1696,12 @@
       <p class="action-code-error" id="actionCodeError" role="alert"></p>
     </form>
   </div>
-  <script src="fliphtml5.js?v=202611181426"></script>
-  <script src="diagnostics.js?v=202611181426"></script>
-  <script src="sms-campaigns.js?v=202611181426"></script>
-  <script src="events.js?v=202611181426"></script>
-  <script src="app.js?v=202611181426"></script>
-  <script src="pwa.js?v=202611181426"></script>
+  <script src="fliphtml5.js?v=202611191645"></script>
+  <script src="diagnostics.js?v=202611191645"></script>
+  <script src="sms-campaigns.js?v=202611191645"></script>
+  <script src="events.js?v=202611191645"></script>
+  <script src="app.js?v=202611191645"></script>
+  <script src="pwa.js?v=202611191645"></script>
 </body>
 </html>
 
