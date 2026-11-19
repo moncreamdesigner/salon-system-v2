@@ -7783,6 +7783,7 @@ function renderActiveView(name = activeView, { force = false } = {}) {
 function releaseRenderedView(name) {
   const view = document.getElementById(`${name}View`);
   if (!view) return;
+  if (name === "customers") resetIncompleteServiceTab();
   view.querySelectorAll("tbody, .pagination").forEach(container => {
     container.innerHTML = "";
   });
@@ -8196,6 +8197,7 @@ function auditActorUsername() {
 }
 
 function applyActiveAccount(account = {}) {
+  const previousScope = JSON.stringify([activeAccount.id, activeAccount.role, activeAccount.salon]);
   activeAccount = {
     id: Number(account.id || 0),
     username: String(account.username || ""),
@@ -8204,6 +8206,8 @@ function applyActiveAccount(account = {}) {
     salon: String(account.salon || account.salon_name || "")
   };
   if (activeAccount.role === "salon" && !activeAccount.salon) activeAccount.salon = state.salons[0]?.name || "";
+  if (document.getElementById("incompleteServiceTab")?.getAttribute?.("aria-selected") === "true"
+    && previousScope !== JSON.stringify([activeAccount.id, activeAccount.role, activeAccount.salon])) resetIncompleteServiceTab();
   const avatar = document.getElementById("sidebarUserAvatar");
   const name = document.getElementById("sidebarUserName");
   const scope = document.getElementById("sidebarUserScope");
@@ -9759,8 +9763,100 @@ async function loadCustomerDirectory({ silent = false } = {}) {
   return request;
 }
 
+let incompleteServiceGeneration = 0;
+const incompleteServiceRequests = new Map();
+
+function resetIncompleteServiceTab() {
+  incompleteServiceGeneration++;
+  const panel = document.getElementById("incompleteServicePanel");
+  if (panel) {
+    panel.classList.add("hidden");
+    panel.replaceChildren();
+  }
+  document.getElementById("activeTreatmentStrip")?.classList.remove("hidden");
+  for (const [id, isSelected] of [["currentServiceTab", true], ["incompleteServiceTab", false]]) {
+    const tab = document.getElementById(id);
+    tab?.classList.toggle("active", isSelected);
+    tab?.setAttribute("aria-selected", String(isSelected));
+    if (tab) tab.tabIndex = isSelected ? 0 : -1;
+  }
+}
+
+function bindCustomerServiceTabs() {
+  const tabs = document.getElementById("customerServiceTabs");
+  if (!tabs || tabs.dataset.bound) return;
+  tabs.dataset.bound = "1";
+  const current = tabs.querySelector("#currentServiceTab");
+  const incomplete = tabs.querySelector("#incompleteServiceTab");
+  const panel = document.getElementById("incompleteServicePanel");
+  current.addEventListener("click", resetIncompleteServiceTab);
+  incomplete.addEventListener("click", () => {
+    if (!panel.classList.contains("hidden")) return;
+    current.classList.remove("active");
+    current.setAttribute("aria-selected", "false");
+    current.tabIndex = -1;
+    incomplete.classList.add("active");
+    incomplete.setAttribute("aria-selected", "true");
+    incomplete.tabIndex = 0;
+    document.getElementById("activeTreatmentStrip").classList.add("hidden");
+    panel.classList.remove("hidden");
+    void loadIncompleteServicePage(panel, 1);
+  });
+  tabs.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const target = event.key === "Home" ? current : event.key === "End" ? incomplete : (event.target === current ? incomplete : current);
+    target.focus();
+    target.click();
+  });
+}
+
+async function loadIncompleteServicePage(panel, page) {
+  const generation = ++incompleteServiceGeneration;
+  panel.innerHTML = '<div class="active-treatment-empty" role="status">Дутуу үйлчилгээг уншиж байна…</div>';
+  const stillActive = () => generation === incompleteServiceGeneration && activeView === "customers" && panel.isConnected && !panel.classList.contains("hidden");
+  try {
+    const key = JSON.stringify([activeAccount.id, activeAccount.role, activeAccount.salon, page]);
+    let request = incompleteServiceRequests.get(key);
+    if (!request) {
+      request = serverApi(`customer-incomplete-services.php?page=${page}`).finally(() => incompleteServiceRequests.delete(key));
+      incompleteServiceRequests.set(key, request);
+    }
+    const result = await request;
+    if (!stillActive()) return;
+    const items = Array.isArray(result.items) ? result.items : [];
+    panel.innerHTML = `
+      ${items.length ? `<div class="table-wrap"><table><thead><tr><th>Нээсэн огноо</th><th>Хэрэглэгч</th><th>Үйлчилгээ</th><th>Салбар</th><th>Явц</th><th></th></tr></thead><tbody>
+      ${items.map(item => `<tr>
+        <td>${htmlSafe(item.opened || "—")}</td><td><strong>${htmlSafe(item.display_name)}</strong> <small>${htmlSafe(item.phone)}</small></td>
+        <td>${htmlSafe(item.title)}</td><td>${htmlSafe(item.salon || "—")}</td>
+        <td>${Number(item.pending) === 1 ? "Урьдчилж төлсөн · үйлчилгээ хүлээж байна" : `${Number(item.done)}/${Number(item.target)} оролт`}</td>
+        <td><button class="secondary-btn compact-action incomplete-service-detail" type="button" data-id="${htmlSafe(String(item.customer_id))}">Дэлгэрэнгүй</button></td>
+      </tr>`).join("")}</tbody></table></div>` : '<div class="active-treatment-empty">Дутуу үйлчилгээ олдсонгүй.</div>'}
+      ${page > 1 || result.hasMore ? `<div class="pagination">
+        <button class="secondary-btn" type="button" data-service-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Өмнөх</button>
+        <span>${page}-р хуудас</span>
+        <button class="secondary-btn" type="button" data-service-page="${page + 1}" ${result.hasMore ? "" : "disabled"}>Дараах</button>
+      </div>` : ""}`;
+    panel.querySelectorAll("[data-service-page]").forEach(button => button.addEventListener("click", () => void loadIncompleteServicePage(panel, Number(button.dataset.servicePage))));
+    panel.querySelectorAll(".incomplete-service-detail").forEach(button => button.addEventListener("click", () => {
+      const id = Number(button.dataset.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return;
+      clearCustomerUiState(state.customers.find(customer => Number(customer.id) === id));
+      state.selectedCustomerId = id;
+      setView("profile");
+    }));
+  } catch (error) {
+    if (!stillActive()) return;
+    panel.innerHTML = '<div class="active-treatment-empty" role="status"></div><button class="secondary-btn" type="button">Дахин унших</button>';
+    panel.querySelector("[role=status]").textContent = error.message || "Жагсаалт ачаалсангүй.";
+    panel.querySelector("button").addEventListener("click", () => void loadIncompleteServicePage(panel, page));
+  }
+}
+
 function renderCustomers() {
   if (!document.getElementById("customersView")?.isConnected) return;
+  bindCustomerServiceTabs();
   renderCustomerTypeFilter();
   renderCustomerInlineForm();
   enhanceNativeSelects(["inlineCustomerGender", "inlineCustomerDistrict", "inlineCustomerType", "inlineCustomerSalon", "customerTypeFilter", "customerWorkFilter"]);

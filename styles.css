@@ -709,6 +709,9 @@ body.sidebar-collapsed .pwa-install-button { padding: 0; }
   gap: 10px;
 }
 
+.customer-service-tabs { margin-bottom: 8px; }
+#incompleteServicePanel .table-wrap { overflow-x: auto; }
+
 .customer-strip-head {
   display: flex;
   align-items: center;
