@@ -7642,42 +7642,44 @@ function renderTemporaryRepair() {
     "2. Тэжээлийн эмчилгээ",
     "3. Уургийн эмчилгээ",
     "4. 83,930₮ төлбөрийн арга",
-    "5. 139,900₮ дансны төлбөрийн огноо"
+    "5. 139,900₮ дансны төлбөрийн огноо",
+    "6. 89085351 · Гурван үйлчилгээний төлбөр"
   ];
   view.innerHTML = `<section class="panel">
     <h3>Түр засвар</h3>
-    <p class="muted">Зөвхөн энэ дөрвөн хэрэглэгчид зориулсан. Хадгалахаас өмнө дүнг тулгана уу.</p>
+    <p class="muted">Зөвхөн доорх бүртгэлүүдэд зориулсан. Хадгалахаас өмнө дүнг тулгана уу.</p>
     <button type="button" class="secondary-btn repair-backup">Дөрвөн бүртгэлийн хуулбар татах</button>
     <p class="repair-backup-status" role="status"></p>
     ${labels.map((label, index) => `<form class="panel" data-repair-case="${index + 1}">
       <strong>${label}</strong>
-      ${index === 4 ? '<p><label><input type="checkbox" class="repair-date"> Төлбөр шилжүүлсэн өдөр 2026-11-17 мөн</label></p>' : index < 3 ? '<p><label><input type="checkbox" class="repair-date"> Үйлчилгээ авсан өдөр 2026-11-17 мөн</label></p>' : ''}
+      ${index === 5 ? '<p><button type="button" class="secondary-btn repair-backup repair-split-backup">Энэ бүртгэлийн хуулбарыг татах</button></p><p class="repair-split-backup-status" role="status"></p><p><label><input type="checkbox" class="repair-date"> 2026-11-17-нд дансаар нийт 293,790₮ төлсөн</label></p>'
+        : index === 4 ? '<p><label><input type="checkbox" class="repair-date"> Төлбөр шилжүүлсэн өдөр 2026-11-17 мөн</label></p>' : index < 3 ? '<p><label><input type="checkbox" class="repair-date"> Үйлчилгээ авсан өдөр 2026-11-17 мөн</label></p>' : ''}
       <p class="repair-result" role="status"></p>
       <button type="button" class="secondary-btn repair-preview">Тооцоог харах</button>
       <button type="submit" class="primary-btn repair-save" disabled>Залруулж хадгалах</button>
     </form>`).join("")}
   </section>`;
-  let backupDownloaded = false;
-  const backupButton = view.querySelector(".repair-backup");
-  backupButton.addEventListener("click", async () => {
+  const downloadedBackups = new Set();
+  view.querySelectorAll(".repair-backup").forEach(backupButton => backupButton.addEventListener("click", async () => {
     if (!isAdminAccount()) return;
+    const split = backupButton.classList.contains("repair-split-backup");
     backupButton.disabled = true;
-    const status = view.querySelector(".repair-backup-status");
+    const status = view.querySelector(split ? ".repair-split-backup-status" : ".repair-backup-status");
     try {
-      const { backup } = await serverApi("state.php", { method: "POST", body: JSON.stringify({ action: "temporaryRepairBackup" }) });
+      const { backup } = await serverApi("state.php", { method: "POST", body: JSON.stringify({ action: "temporaryRepairBackup", ...(split ? { case: "6" } : {}) }) });
       if (!backupButton.isConnected || activeView !== "temporaryRepair" || !isAdminAccount()) return;
-      if (backup?.customers?.length !== 4) throw new Error("Дөрвөн бүртгэлийн хуулбар бүрэн биш байна.");
+      if (backup?.customers?.length !== (split ? 1 : 4)) throw new Error("Бүртгэлийн хуулбар бүрэн биш байна.");
       const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `salon-temporary-repair-backup-${todayText()}.json`;
+      link.download = `salon-temporary-repair-backup-${split ? "89085351-" : ""}${todayText()}.json`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      backupDownloaded = true;
+      downloadedBackups.add(split ? "split" : "original");
       status.textContent = "Хуулбар татах хүсэлт илгээлээ. Татсан файлаа шалгана уу.";
     } catch (error) { status.textContent = error.message || "Хуулбар татаж чадсангүй."; }
     finally { backupButton.disabled = false; }
-  });
+  }));
   view.querySelectorAll("form[data-repair-case]").forEach(form => {
     const date = form.querySelector(".repair-date");
     const output = form.querySelector(".repair-result");
@@ -7715,7 +7717,7 @@ function renderTemporaryRepair() {
     form.addEventListener("submit", async event => {
       event.preventDefault();
       if (busy || !draft || !isAdminAccount()) return;
-      if (!backupDownloaded) { output.textContent = "Эхлээд дөрвөн бүртгэлийн хуулбарыг татна уу. Дараа нь тооцоог дахин шалгана уу."; return; }
+      if (!downloadedBackups.has(form.dataset.repairCase === "6" ? "split" : "original")) { output.textContent = "Эхлээд бүртгэлийн хуулбарыг татна уу. Дараа нь тооцоог дахин шалгана уу."; return; }
       lock(true);
       try {
         const code = await requireEditCodeValue();

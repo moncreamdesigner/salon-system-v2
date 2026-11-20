@@ -8,13 +8,13 @@ function temporary_repair_phones(): array
     return ['91111399', '96480248', '86906077', '99098082'];
 }
 
-function temporary_repair_backup(array $sections): array
+function temporary_repair_backup(array $sections, bool $splitOnly = false): array
 {
     $profiles = [];
-    foreach (temporary_repair_phones() as $phone) {
+    foreach ($splitOnly ? ['89085351'] : temporary_repair_phones() as $phone) {
         $matched = array_values(array_filter((array)($sections['customers'] ?? []), static fn($row) =>
             is_array($row) && empty($row['deleted']) && empty($row['deletedAt']) && (string)($row['phone'] ?? '') === $phone));
-        if (count($matched) !== 1) throw new DomainException('Дөрвөн хэрэглэгчийн бүртгэлийг нэг утгаар таньж чадсангүй. Хуулбар үүсгээгүй.');
+        if (count($matched) !== 1) throw new DomainException('Хэрэглэгчийн бүртгэлийг нэг утгаар таньж чадсангүй. Хуулбар үүсгээгүй.');
         $profiles[] = $matched[0];
     }
     return $profiles;
@@ -23,6 +23,7 @@ function temporary_repair_backup(array $sections): array
 function temporary_repair_plan(array $sections, array $request, string $cutoff): array
 {
     $case = (string)($request['case'] ?? '');
+    if ($case === '6') return temporary_split_bank_payment_plan($sections, $request, $cutoff);
     $cases = [
         '1' => ['Хуурай үсний курс эмчилгээ', 'course', 449900, '2026-11-17'],
         '2' => ['Тэжээлийн эмчилгээ', 'single', 71900, '2026-11-18'],
@@ -92,7 +93,97 @@ function temporary_repair_plan(array $sections, array $request, string $cutoff):
     return [$ci, $si, $changes, $preview];
 }
 
-function service_campaign_reprice_plan(array $sections, array $request, string $cutoff, bool $useRequestedDate = false): array
+function temporary_split_bank_payment_plan(array $sections, array $request, string $cutoff): array
+{
+    $date = '2026-11-17';
+    $amount = 97930;
+    $oldAmount = 139900;
+    $salon = 'Чингэлтэй салбар';
+    if (($request['date'] ?? '') !== $date || $date < $cutoff) throw new DomainException('Төлбөрийн огноо эсвэл засварлах хугацааг шалгана уу.');
+    [$customer] = temporary_repair_backup($sections, true);
+    $ci = array_search($customer, $sections['customers'], true);
+    $slots = [];
+    $original = null;
+    foreach ($customer['serviceHistory'] ?? [] as $i => $service) {
+        if (!is_array($service) || empty($service['id']) || !empty($service['deleted']) || !empty($service['deletedAt']) || !empty($service['transferClosed'])
+            || ($service['kind'] ?? '') !== 'single' || ($service['service'] ?? $service['title'] ?? '') !== 'Уургийн эмчилгээ'
+            || ($service['salon'] ?? '') !== $salon) continue;
+        $payments = (array)($service['payments'] ?? []);
+        $pending = ($service['prepaidPending'] ?? false) === true;
+        $slot = $pending ? 'pending' : (string)($service['staff'] ?? '');
+        if ($pending) {
+            if (($service['prepaid'] ?? false) !== true || !empty($service['date']) || !empty($service['staff']) || count($payments) !== 1) continue;
+            $p = reset($payments);
+            if (!is_array($p) || empty($p['id']) || !empty($p['deleted']) || !empty($p['deletedAt']) || !empty($p['reversedAt'])
+                || ($p['method'] ?? '') !== 'transfer' || ($p['date'] ?? '') !== $date || ($p['createdAt'] ?? '') !== "$date 10:51"
+                || (float)($p['amount'] ?? 0) !== (float)$oldAmount || (float)($p['paidAmount'] ?? 0) !== (float)$oldAmount
+                || !empty($p['bonusAmount']) || !empty($p['groupBonusUsed']) || !empty($p['internalCredit'])) continue;
+        } elseif (!in_array($slot, ['Молор-Эрдэнэ', 'Номинзул'], true) || ($service['date'] ?? '') !== '2026-11-20'
+            || !empty($service['prepaid']) || $payments || (float)($service['balance'] ?? 0) !== (float)$oldAmount) continue;
+        if (isset($slots[$slot]) || (float)($service['basePrice'] ?? 0) !== (float)$oldAmount
+            || (float)($service['price'] ?? 0) !== (float)$oldAmount || !empty($service['campaignDiscountAmount'])) {
+            throw new DomainException('Үйлчилгээний үнэ эсвэл тоо өөрчлөгдсөн байна.');
+        }
+        $slots[$slot] = $i;
+        if ($pending) $original = $p;
+    }
+    if (count($slots) !== 3 || !$original || count(array_unique(array_map(static fn($i) => (string)$customer['serviceHistory'][$i]['id'], $slots))) !== 3) {
+        throw new DomainException('Хүлээж буй нэг, үзүүлсэн хоёр үйлчилгээ яг таарсангүй. Төлбөр нэмээгүй.');
+    }
+    $targetIds = array_map(static fn($i) => (string)$customer['serviceHistory'][$i]['id'], $slots);
+    foreach ($customer['creditLedger'] ?? [] as $entry) {
+        if (in_array((string)($entry['sourceServiceId'] ?? ''), $targetIds, true) || in_array((string)($entry['targetServiceId'] ?? ''), $targetIds, true)) {
+            throw new DomainException('Холбоотой кредит байна. Автоматаар өөрчлөхгүй.');
+        }
+    }
+    $groups = array_filter($sections['customerGroups'] ?? [], static fn($g) => is_array($g) && !empty($original['groupId'])
+        && (string)($g['id'] ?? '') === (string)$original['groupId']);
+    $gi = array_key_first($groups);
+    $group = $groups[$gi] ?? null;
+    $spent = (float)($original['groupSpentAmount'] ?? -1);
+    $eligible = (float)($original['groupBonusEligibleAmount'] ?? -1);
+    $percent = (float)($original['groupBonusPercent'] ?? -1);
+    $earned = (float)($original['groupBonusEarned'] ?? -1);
+    if (count($groups) !== 1 || !in_array($spent, [0.0, (float)$oldAmount], true) || !in_array($eligible, [0.0, $spent], true)
+        || !in_array($percent, [0.0, 2.0], true) || $earned !== round($eligible * $percent / 100)
+        || ($original['groupPaymentDate'] ?? '') !== $date || !is_numeric($group['spent2y'] ?? null)
+        || !is_numeric($group['bonusPool'] ?? null) || (float)$group['spent2y'] < $spent
+        || (float)$group['bonusPool'] < $earned || (float)$group['spent2y'] + 153890 >= 2000000) {
+        throw new DomainException('Групп бонусын бүртгэлийг автоматаар тулгаж чадсангүй. Төлбөр өөрчлөөгүй.');
+    }
+    $paymentSpent = $spent > 0 ? $amount : 0;
+    $paymentEligible = $eligible > 0 ? $amount : 0;
+    $paymentEarned = (int)round($paymentEligible * $percent / 100);
+    $updates = [];
+    $now = (new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d H:i:s');
+    foreach ($slots as $slot => $i) {
+        $service = $customer['serviceHistory'][$i];
+        [, , $changes, $p] = service_campaign_reprice_plan($sections, [
+            'customerId' => $customer['id'], 'serviceId' => $service['id'], 'date' => $date,
+        ], $cutoff, true, $slot === 'pending');
+        if ((float)$p['percent'] !== 30.0 || (float)$p['total'] !== (float)$amount
+            || strtolower((string)preg_replace('/[\s_-]+/', '', $p['campaign'])) !== 'blackfriday') {
+            throw new DomainException('Black Friday 30%-ийн тохиргоо таарсангүй.');
+        }
+        $payment = array_replace($slot === 'pending' ? $original : [
+            'id' => 'repair-bank-split-' . hash('sha256', $original['id'] . '/' . $service['id']),
+            'date' => $date, 'createdAt' => $now, 'dateCorrected' => true, 'method' => 'transfer',
+            'methodLabel' => 'Данс', 'bonusAmount' => 0, 'groupId' => $original['groupId'],
+            'groupBonusUsed' => 0, 'groupPaymentDate' => $date,
+        ], ['amount' => $amount, 'paidAmount' => $amount, 'groupSpentAmount' => $paymentSpent,
+            'groupBonusEligibleAmount' => $paymentEligible, 'groupBonusEarned' => $paymentEarned, 'groupBonusPercent' => $percent]);
+        $updates[$i] = array_replace($changes, ['balance' => 0, 'payments' => [$payment]]);
+    }
+    $groupChanges = ['spent2y' => (float)$group['spent2y'] + 3 * $paymentSpent - $spent,
+        'bonusPool' => (float)$group['bonusPool'] + 3 * $paymentEarned - $earned];
+    // The preview token must match after reload; creation time is added only on commit.
+    $preview = ['summary' => '89085351 · 3 × 97,930₮ = 293,790₮ · 2026-11-17 Данс. Өмнөх 139,900₮-ийг давхардуулахгүй. 3 үлдэгдэл хаагдана. Үйлчилгээний огноо, ажилтан, урьдчилсан төлөв хэвээр.',
+        'date' => $date, 'auditTitle' => 'bank_payment_split_corrected',
+        'token' => hash('sha256', json_encode([$customer, $group, array_map(static fn($row) => $row['campaignDiscount'], $updates), $groupChanges], JSON_THROW_ON_ERROR))];
+    return [$ci, $slots['pending'], $updates[$slots['pending']], $preview, ['services' => $updates, 'groupIndex' => $gi, 'groupChanges' => $groupChanges]];
+}
+
+function service_campaign_reprice_plan(array $sections, array $request, string $cutoff, bool $useRequestedDate = false, bool $allowPendingPrepaid = false): array
 {
     $customerId = (string)($request['customerId'] ?? '');
     $serviceId = (string)($request['serviceId'] ?? '');
@@ -112,7 +203,7 @@ function service_campaign_reprice_plan(array $sections, array $request, string $
     $salon = (string)($service['salon'] ?? '');
     if (!in_array($kind, ['single', 'course'], true) || !$day || $day->format('Y-m-d') !== $date
         || $salon === '' || $date !== ($request['date'] ?? '') || !empty($service['deleted']) || !empty($service['deletedAt'])
-        || !empty($service['transferClosed']) || !empty($service['prepaid'])) {
+        || !empty($service['transferClosed']) || (!empty($service['prepaid']) && !($allowPendingPrepaid && ($service['prepaidPending'] ?? false) === true))) {
         throw new DomainException('Үйлчилгээний хадгалсан огноо, төлөвийг шалгана уу.');
     }
     if ($date < $cutoff) throw new DomainException('Засварлах хугацаа дууссан байна.');

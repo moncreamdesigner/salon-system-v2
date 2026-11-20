@@ -674,14 +674,28 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $previewRequest = request_payload();
     if (($previewRequest['action'] ?? '') === 'temporaryRepairBackup') {
         try {
-            $profiles = temporary_repair_backup(load_all_sections($pdo, ['customers']));
-            json_response(['ok' => true, 'backup' => ['capturedAt' => gmdate(DATE_ATOM), 'customers' => $profiles]]);
+            $split = ($previewRequest['case'] ?? '') === '6';
+            $backupSections = load_all_sections($pdo, $split ? ['customers', 'customerGroups'] : ['customers']);
+            $profiles = temporary_repair_backup($backupSections, $split);
+            $backup = ['capturedAt' => gmdate(DATE_ATOM), 'customers' => $profiles];
+            if ($split) {
+                $groupIds = [];
+                foreach ($profiles[0]['serviceHistory'] ?? [] as $history) {
+                    foreach ($history['payments'] ?? [] as $payment) {
+                        if (($payment['date'] ?? '') === '2026-11-17' && !empty($payment['groupId'])) $groupIds[] = (string)$payment['groupId'];
+                    }
+                }
+                $backup['customerGroups'] = array_values(array_filter($backupSections['customerGroups'] ?? [], static fn($g) =>
+                    is_array($g) && in_array((string)($g['id'] ?? ''), $groupIds, true)));
+                if (!$backup['customerGroups']) throw new DomainException('Төлбөртэй холбоотой группийн хуулбар олдсонгүй.');
+            }
+            json_response(['ok' => true, 'backup' => $backup]);
         } catch (DomainException $error) {
             json_response(['ok' => false, 'message' => $error->getMessage()], 422);
         }
     }
     if (($previewRequest['action'] ?? '') !== 'temporaryRepairPreview') json_response(['ok' => false, 'message' => 'Үйлдэл буруу байна.'], 422);
-    $previewSections = load_all_sections($pdo, ['customers', 'discounts', '_serviceSettings', 'generalSettings']);
+    $previewSections = load_all_sections($pdo, ['customers', 'customerGroups', 'discounts', '_serviceSettings', 'generalSettings']);
     try {
         [, , , $preview] = temporary_repair_plan($previewSections, $previewRequest, operational_cutoff($previewSections, []));
         json_response(['ok' => true, 'preview' => $preview]);
@@ -842,32 +856,50 @@ try {
         ? array_values(array_unique(array_merge(array_keys($sections), $mutationKeys, ['generalSettings', '_serviceSettings', 'discounts'])))
         : [];
     if ($repriceRequest !== null) $loadKeys = array_values(array_unique(array_merge($loadKeys, ['customers', 'audit'])));
+    if (($repriceRequest['case'] ?? '') === '6') $loadKeys[] = 'customerGroups';
     $currentSections = load_all_sections($pdo, $loadKeys);
-    $verifiedCampaignTarget = null;
+    $verifiedCampaignTargets = [];
     if ($repriceRequest !== null) {
         $code = (string)($repriceRequest['code'] ?? '');
         $expectedCode = (string)($currentSections['generalSettings']['deleteCode'] ?? '1989');
         if (!preg_match('/^\d{4}$/', $code) || !hash_equals($expectedCode, $code)) throw new DomainException('Засах код буруу байна.');
-        [$ci, $si, $changes, $preview] = temporary_repair_plan($currentSections, $repriceRequest, operational_cutoff($currentSections, []));
+        $plan = temporary_repair_plan($currentSections, $repriceRequest, operational_cutoff($currentSections, []));
+        [$ci, $si, $changes, $preview] = $plan;
         if (!hash_equals($preview['token'], (string)($repriceRequest['token'] ?? ''))) throw new DomainException('Үйлчилгээ эсвэл хямдрал шинэчлэгдсэн байна. Дүнг дахин шалгана уу.');
         $sections['customers'] = $currentSections['customers'];
         $customer =& $sections['customers'][$ci];
-        $service =& $customer['serviceHistory'][$si];
-        $service = array_replace($service, $changes);
-        $target = [(string)$customer['id'], (string)$service['id']];
-        if (isset($changes['campaignDiscount'])) {
-            $verifiedCampaignTarget = $target;
-            if ((string)($customer['currentTreatment']['historyId'] ?? '') === (string)$service['id']) {
-                $customer['currentTreatment']['paymentBalance'] = $preview['balance'];
+        $targets = [];
+        $campaignChanged = false;
+        foreach ($plan[4]['services'] ?? [$si => $changes] as $index => $serviceChanges) {
+            $service =& $customer['serviceHistory'][$index];
+            $service = array_replace($service, $serviceChanges);
+            $target = [(string)$customer['id'], (string)$service['id']];
+            $targets[] = implode(' / ', $target);
+            if (isset($serviceChanges['campaignDiscount'])) {
+                $campaignChanged = true;
+                $verifiedCampaignTargets[] = $target;
+                if ((string)($customer['currentTreatment']['historyId'] ?? '') === (string)$service['id']) {
+                    $customer['currentTreatment']['paymentBalance'] = $serviceChanges['balance'];
+                }
             }
+            unset($service);
+        }
+        if ($campaignChanged) {
             $customer['unpaid'] = array_sum(array_map(static fn($row) => max(0, (float)($row['balance'] ?? 0)), $customer['serviceHistory'])) > 0;
         }
-        unset($customer, $service);
-        $customerMutations = ['profiles' => [['id' => $target[0]]]];
+        $customerMutations = ['profiles' => [['id' => (string)$customer['id']]]];
+        unset($customer);
+        if (isset($plan[4]['groupChanges'])) {
+            $groupIndex = $plan[4]['groupIndex'];
+            $sections['customerGroups'] = $currentSections['customerGroups'];
+            $group = array_replace($sections['customerGroups'][$groupIndex], $plan[4]['groupChanges']);
+            $sections['customerGroups'][$groupIndex] = $group;
+            $customerMutations['groups'] = [['id' => (string)$group['id']]];
+        }
         $sections['audit'] = [[
             'id' => 'temporary-repair-' . bin2hex(random_bytes(12)), 'title' => $preview['auditTitle'] ?? (isset($changes['payments']) ? 'payment_method_corrected' : 'service_campaign_repriced'),
             'createdAt' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d H:i:s'),
-            'meta' => ($user['username'] ?? 'admin') . ' • ' . implode(' / ', $target) . ' • ' . ($preview['summary'] ??
+            'meta' => ($user['username'] ?? 'admin') . ' • ' . implode(', ', $targets) . ' • ' . ($preview['summary'] ??
                 ($preview['oldDate'] . ' → ' . $preview['date'] . ' • ' . $preview['campaign'] . ' • ' . $preview['oldTotal'] . ' → ' . $preview['total'])),
         ]];
     }
@@ -906,9 +938,9 @@ try {
     $sections = merge_salon_sections($currentSections, $sections, $user, $partial);
     $sections = merge_append_only_audit($currentSections, $sections);
     assert_course_prices_preserved($currentSections, $sections);
-    assert_prepaid_services_preserved($currentSections, $sections, $user);
+    assert_prepaid_services_preserved($currentSections, $sections, $user, $verifiedCampaignTargets);
     assert_product_commission_contracts($currentSections, $sections);
-    assert_service_campaign_contracts($currentSections, $sections, $verifiedCampaignTarget);
+    assert_service_campaign_contracts($currentSections, $sections, $verifiedCampaignTargets);
     if (!$bulkCustomerImport) assert_new_course_price_current($currentSections, $sections);
     if (is_array($sections['performanceStatements'] ?? null)) {
         $sections['performanceStatements'] = performance_normalize_statements($sections['performanceStatements']);

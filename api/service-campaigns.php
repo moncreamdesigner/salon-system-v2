@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function assert_service_campaign_contracts(array $current, array $incoming, ?array $verifiedTarget = null): void
+function assert_service_campaign_contracts(array $current, array $incoming, array $verifiedTargets = []): void
 {
     $old = [];
     foreach ((array)($current['customers'] ?? []) as $customer) {
@@ -20,7 +20,7 @@ function assert_service_campaign_contracts(array $current, array $incoming, ?arr
             if (!is_array($item) || !in_array($item['kind'] ?? '', ['single', 'course'], true)) continue;
             $previous = $old[(string)($customer['id'] ?? '')][(string)($item['id'] ?? '')] ?? null;
             if ($previous) {
-                if ($verifiedTarget === [(string)($customer['id'] ?? ''), (string)($item['id'] ?? '')]) continue;
+                if (in_array([(string)($customer['id'] ?? ''), (string)($item['id'] ?? '')], $verifiedTargets, true)) continue;
                 foreach (['campaignDiscountAmount', 'campaignDiscount', 'serviceCommissionBasisVersion'] as $key) {
                     if (($item[$key] ?? null) != ($previous[$key] ?? null)) throw new DomainException('Өмнө бүртгэсэн үйлчилгээний хямдралын нөхцөлийг автоматаар солих боломжгүй.');
                 }

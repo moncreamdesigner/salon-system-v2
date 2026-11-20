@@ -11,7 +11,7 @@ function prepaid_service_completing(array $old, array $new): bool
     return prepaid_service_pending($old) && ($new['prepaid'] ?? false) === true && ($new['prepaidPending'] ?? null) === false;
 }
 
-function assert_prepaid_services_preserved(array $current, array $incoming, array $user = []): void
+function assert_prepaid_services_preserved(array $current, array $incoming, array $user = [], array $verifiedCampaignTargets = []): void
 {
     $oldCustomers = [];
     foreach ((array)($current['customers'] ?? []) as $customer) {
@@ -53,7 +53,10 @@ function assert_prepaid_services_preserved(array $current, array $incoming, arra
             }
             // Payments and balance can change independently, but fulfillment
             // must never reprice or move the original cash transaction.
+            $verifiedPricing = prepaid_service_pending($old) && prepaid_service_pending($item)
+                && in_array([(string)$customer['id'], (string)$item['id']], $verifiedCampaignTargets, true);
             foreach (['kind', 'prepaid', 'salon', 'title', 'service', 'price', 'basePrice', 'createdAt', 'registeredAt', 'employeeDiscountPercent', 'employeeDiscountAmount', 'vipRoom', 'vipRoomFee', 'masterStaffFee', 'campaignDiscountAmount', 'campaignDiscount', 'serviceCommissionBasisVersion'] as $key) {
+                if ($verifiedPricing && in_array($key, ['price', 'campaignDiscountAmount', 'campaignDiscount', 'serviceCommissionBasisVersion'], true)) continue;
                 if (($item[$key] ?? null) != ($old[$key] ?? null)) throw new DomainException('Урьдчилсан үйлчилгээний анхны үнэ, төлбөрийн салбарыг өөрчлөх боломжгүй.');
             }
             if (!prepaid_service_pending($old)) {

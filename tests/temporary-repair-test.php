@@ -2,6 +2,8 @@
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit;
 require __DIR__ . '/../api/service-campaign-reprice.php';
+require __DIR__ . '/../api/service-campaigns.php';
+require __DIR__ . '/../api/prepaid-services.php';
 function check(bool $valid): void { if (!$valid) throw new RuntimeException('Temporary repair assertion failed'); }
 function rejects(callable $fn): void {
     try { $fn(); } catch (DomainException) { return; }
@@ -54,4 +56,34 @@ $sections['customers'][3]['serviceHistory'][0] = array_replace($prepaid, $change
 rejects(fn()=>temporary_repair_plan($sections, ['case'=>'4'], '2026-11-16'));
 $sections['customers'][] = $customers[1];
 rejects(fn()=>temporary_repair_backup($sections));
+$splitCustomer = ['id'=>6, 'phone'=>'89085351', 'serviceHistory'=>[]];
+$bank = array_replace($bankPayment, ['date'=>$date, 'createdAt'=>"$date 10:51", 'groupId'=>9, 'groupSpentAmount'=>139900,
+    'groupBonusEligibleAmount'=>139900, 'groupBonusEarned'=>2798, 'groupBonusPercent'=>2, 'groupBonusUsed'=>0, 'groupPaymentDate'=>$date]);
+$splitService = array_replace($service, ['service'=>'Уургийн эмчилгээ', 'basePrice'=>139900, 'price'=>139900, 'balance'=>139900, 'payments'=>[], 'date'=>'2026-11-20']);
+$splitCustomer['serviceHistory'] = [
+    array_replace($splitService, ['id'=>'pending', 'date'=>'', 'prepaid'=>true, 'prepaidPending'=>true, 'balance'=>0, 'payments'=>[$bank]]),
+    array_replace($splitService, ['id'=>'served1', 'staff'=>'Молор-Эрдэнэ']),
+    array_replace($splitService, ['id'=>'served2', 'staff'=>'Номинзул']),
+];
+$splitSections = ['customers'=>[$splitCustomer], 'customerGroups'=>[['id'=>9, 'spent2y'=>433300, 'bonusPool'=>8666]],
+    '_serviceSettings'=>['data'=>['single'=>[['name'=>'Уургийн эмчилгээ', 'code'=>'p', 'price'=>139900]]]],
+    'discounts'=>[array_replace($sections['discounts'][0], ['services'=>['single:p:Уургийн эмчилгээ']])]];
+$splitRequest = ['case'=>'6', 'date'=>$date];
+[, , , $splitPreview, $splitPlan] = temporary_repair_plan($splitSections, $splitRequest, $date);
+$after = $splitSections;
+foreach ($splitPlan['services'] as $i => $updates) $after['customers'][0]['serviceHistory'][$i] = array_replace($splitCustomer['serviceHistory'][$i], $updates);
+$rows = $after['customers'][0]['serviceHistory'];
+check(array_column($rows, 'price') === [97930.0, 97930.0, 97930.0] && array_column($rows, 'balance') === [0, 0, 0]);
+check(array_sum(array_map(static fn($row) => $row['payments'][0]['paidAmount'], $rows)) === 293790);
+check(count(array_unique(array_map(static fn($row) => $row['payments'][0]['id'], $rows))) === 3 && $rows[0]['payments'][0]['id'] === $bank['id']);
+check($rows[0]['prepaidPending'] === true && $rows[0]['date'] === '' && $rows[1]['date'] === '2026-11-20' && $rows[2]['staff'] === 'Номинзул');
+check($splitPlan['groupChanges']['spent2y'] === 587190.0 && $splitPlan['groupChanges']['bonusPool'] === 11745.0);
+$targets = [['6','pending'], ['6','served1'], ['6','served2']];
+assert_prepaid_services_preserved($splitSections, $after, [], $targets);
+assert_service_campaign_contracts($splitSections, $after, $targets);
+rejects(fn()=>assert_prepaid_services_preserved($splitSections, $after));
+rejects(fn()=>assert_service_campaign_contracts($splitSections, $after, [['6','pending']]));
+rejects(fn()=>temporary_repair_plan($after, $splitRequest, $date));
+rejects(fn()=>temporary_repair_plan($splitSections, $splitRequest, '2026-11-18'));
+check(temporary_repair_plan($splitSections, $splitRequest, $date)[3]['token'] === $splitPreview['token']);
 echo "temporary-repair-test: OK\n";
