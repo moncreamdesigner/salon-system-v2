@@ -7524,6 +7524,7 @@ td.empty-state {
   border-radius: 7px 7px 0 0;
   border-bottom-color: var(--accent-line);
   background: var(--accent);
+  color: #fff;
 }
 
 .prepaid-paid-details {
@@ -7536,7 +7537,7 @@ td.empty-state {
 
 .prepaid-paid-head .prepaid-paid-details span,
 .prepaid-paid-head .prepaid-paid-status {
-  color: var(--text);
+  color: inherit;
   line-height: 1.35;
 }
 
