@@ -72,6 +72,25 @@ test("fulfillment requires a date and staff and never revives a deleted service"
   assert.throws(() => context.completePrepaidService({ ...prepaid(), deleted: true }, details));
 });
 
+test("only fully paid pending services have the green header and status before delete", () => {
+  const rendering = vm.createContext({
+    orderedServiceHistoryEntries: customer => customer.serviceHistory.map((item, index) => ({ item, index })),
+    profileServiceEditMode: () => "editable", isServiceDeletable: () => true,
+    trashIcon: () => "", editIcon: () => "", renderPrepaidCompletionForm: () => "",
+    renderServicePaymentSummary: () => "", dateWithWeekday: String, serviceDateKey: String,
+  });
+  for (const name of ["isPrepaidServicePending", "serviceTotalAmount", "renderCustomerServiceHistory"]) vm.runInContext(helper(name), rendering);
+  const render = item => rendering.renderCustomerServiceHistory({ serviceHistory: [item] });
+  const pending = prepaid();
+  assert.match(render(pending), /prepaid-paid-head[\s\S]*Төлбөр урьдчилж төлсөн · Үйлчилгээ аваагүй[\s\S]*profile-service-delete/);
+  for (const item of [
+    { ...pending, payments: [] },
+    { ...pending, payments: [{ amount: 50000 }], balance: 25000 },
+    { ...pending, payments: [{ ...pending.payments[0], deletedAt: "2026-10-02" }] },
+    context.completePrepaidService(pending, details),
+  ]) assert.doesNotMatch(render(item), /prepaid-paid-head|Үйлчилгээ аваагүй/);
+});
+
 test("existing one-time services are unchanged and the compact control does not add a new tab", () => {
   assert.equal(context.isPrepaidServicePending({ kind: "single" }), false);
   assert.equal(transactions({ ...prepaid(), prepaid: false, prepaidPending: false, date: details.date, staff: details.staff, staffId: 2 }).filter(row => row.type === "single").length, 1);

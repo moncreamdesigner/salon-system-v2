@@ -10327,13 +10327,16 @@ function renderCustomerServiceHistory(customer) {
     const salon = item.performedSalon || item.salon || customer.salon || activeAccount.salon;
     const price = serviceTotalAmount(item);
     const paid = Math.max(0, price - Number(item.balance || 0));
+    const prepaidPaid = prepaidPending && price > 0 && Array.isArray(item.payments)
+      && item.payments.filter(payment => payment && !payment.deleted && !payment.deletedAt && !payment.reversedAt)
+        .reduce((sum, payment) => sum + Number(payment.amount || payment.paidAmount || 0), 0) >= price;
     const editMode = profileServiceEditMode(item);
     const editAllowed = editMode !== "locked";
     const deleteAllowed = isServiceDeletable(item);
     const active = Boolean(item.paymentFormOpen || item.expandedVisit || item.diagnosisOpen || item.diagnosisExpanded || item.diagnosisWorkOpen || item.signatureOpen || customer.profileServiceEditingIndex === index);
     return `
       <article class="profile-service-card ${active ? "active" : ""} ${diagnosisPending ? "diagnosis-pending" : ""}" ${diagnosisPending ? `data-pending-diagnosis-index="${index}"` : (isDiagnosis ? `data-diagnosis-index="${index}"` : "")}>
-        <div class="profile-service-head">
+        <div class="profile-service-head${prepaidPaid ? " prepaid-paid-head" : ""}">
           ${diagnosisPending ? `
             <button class="diagnosis-pending-toggle" type="button" data-history-index="${index}" aria-expanded="${Boolean(item.diagnosisWorkOpen)}">
               <strong>${title}</strong>
@@ -10341,11 +10344,12 @@ function renderCustomerServiceHistory(customer) {
               <em>Оношилгоо хүлээж байна ${item.diagnosisWorkOpen ? "↑" : "↓"}</em>
             </button>
           ` : `
-            <div>
+            <div${prepaidPaid ? ' class="prepaid-paid-details"' : ""}>
               <strong>${title}</strong>
-              <span>${prepaidPending ? `Урьдчилсан · Үйлчилгээ хүлээж байна • ${salon}` : `<b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}`}</span>
+              <span>${prepaidPaid ? salon : prepaidPending ? `Урьдчилсан · Үйлчилгээ хүлээж байна • ${salon}` : `<b class="profile-service-date">${dateWithWeekday(serviceDateKey(date))}</b>${isDiagnosis ? ` • ${salon}` : ` • ${staff} • ${salon}`}`}</span>
             </div>
           `}
+          ${prepaidPaid ? '<span class="prepaid-paid-status">Төлбөр урьдчилж төлсөн · Үйлчилгээ аваагүй</span>' : ""}
           <div class="service-card-actions ${editAllowed || deleteAllowed ? "" : "actions-disabled"}">
             ${diagnosisPending || prepaidPending ? "" : `<button class="secondary-btn icon-action profile-service-edit" type="button" data-history-index="${index}" aria-label="Засах" ${editAllowed ? "" : "disabled"}>${editIcon()}</button>`}
             <button class="danger-btn icon-danger profile-service-delete" type="button" data-history-index="${index}" aria-label="Устгах" ${deleteAllowed ? "" : "disabled"}>${trashIcon()}</button>

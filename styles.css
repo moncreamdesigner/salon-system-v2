@@ -7516,6 +7516,43 @@ td.empty-state {
   line-height: 2;
 }
 
+.profile-service-head.prepaid-paid-head {
+  align-items: center;
+  gap: 10px;
+  margin: -18px -18px 0;
+  padding: 12px 18px;
+  border-radius: 7px 7px 0 0;
+  border-bottom-color: var(--accent-line);
+  background: var(--accent);
+}
+
+.prepaid-paid-details {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prepaid-paid-head .prepaid-paid-details span,
+.prepaid-paid-head .prepaid-paid-status {
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.prepaid-paid-head .prepaid-paid-status {
+  font-weight: var(--font-weight-strong);
+  text-align: right;
+}
+
+.prepaid-paid-head .service-card-actions {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  .prepaid-paid-details { display: block; }
+}
+
 .diagnosis-pending-toggle {
   flex: 1;
   min-width: 0;
