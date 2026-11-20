@@ -7641,16 +7641,17 @@ function renderTemporaryRepair() {
     "1. Хуурай үсний курс",
     "2. Тэжээлийн эмчилгээ",
     "3. Уургийн эмчилгээ",
-    "4. 83,930₮ төлбөрийн арга"
+    "4. 83,930₮ төлбөрийн арга",
+    "5. 139,900₮ дансны төлбөрийн огноо"
   ];
   view.innerHTML = `<section class="panel">
     <h3>Түр засвар</h3>
-    <p class="muted">Зөвхөн энэ дөрвөн бүртгэлд зориулсан. Хадгалахаас өмнө дүнг тулгана уу.</p>
+    <p class="muted">Зөвхөн энэ дөрвөн хэрэглэгчид зориулсан. Хадгалахаас өмнө дүнг тулгана уу.</p>
     <button type="button" class="secondary-btn repair-backup">Дөрвөн бүртгэлийн хуулбар татах</button>
     <p class="repair-backup-status" role="status"></p>
     ${labels.map((label, index) => `<form class="panel" data-repair-case="${index + 1}">
       <strong>${label}</strong>
-      ${index < 3 ? '<p><label><input type="checkbox" class="repair-date"> Үйлчилгээ авсан өдөр 2026-11-17 мөн</label></p>' : ''}
+      ${index === 4 ? '<p><label><input type="checkbox" class="repair-date"> Төлбөр шилжүүлсэн өдөр 2026-11-17 мөн</label></p>' : index < 3 ? '<p><label><input type="checkbox" class="repair-date"> Үйлчилгээ авсан өдөр 2026-11-17 мөн</label></p>' : ''}
       <p class="repair-result" role="status"></p>
       <button type="button" class="secondary-btn repair-preview">Тооцоог харах</button>
       <button type="submit" class="primary-btn repair-save" disabled>Залруулж хадгалах</button>
@@ -7696,7 +7697,7 @@ function renderTemporaryRepair() {
       draft = null;
       if (date && !date.checked) {
         save.disabled = true;
-        output.textContent = "Үйлчилгээ авсан өдрийг эхлээд тулгана уу.";
+        output.textContent = "Огноог эхлээд тулгана уу.";
         return;
       }
       const request = { case: form.dataset.repairCase, date: date?.checked ? "2026-11-17" : "" };
@@ -11712,7 +11713,7 @@ function renderPaymentHistoryChips(item = {}, historyIndex = null) {
   return `
     <div class="payment-history-chips">
       ${payments.map((payment, paymentIndex) => {
-        const time = payment.createdAt || payment.date || "";
+        const time = (payment.dateCorrected && payment.date) || payment.createdAt || payment.date || "";
         const paidAmount = Number(payment.paidAmount ?? payment.amount ?? 0);
         const label = paidAmount <= 0 && Number(payment.bonusAmount || 0) > 0
           ? "Бонус"

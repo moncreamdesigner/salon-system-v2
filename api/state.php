@@ -865,7 +865,7 @@ try {
         unset($customer, $service);
         $customerMutations = ['profiles' => [['id' => $target[0]]]];
         $sections['audit'] = [[
-            'id' => 'temporary-repair-' . bin2hex(random_bytes(12)), 'title' => isset($changes['payments']) ? 'payment_method_corrected' : 'service_campaign_repriced',
+            'id' => 'temporary-repair-' . bin2hex(random_bytes(12)), 'title' => $preview['auditTitle'] ?? (isset($changes['payments']) ? 'payment_method_corrected' : 'service_campaign_repriced'),
             'createdAt' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Ulaanbaatar')))->format('Y-m-d H:i:s'),
             'meta' => ($user['username'] ?? 'admin') . ' • ' . implode(' / ', $target) . ' • ' . ($preview['summary'] ??
                 ($preview['oldDate'] . ' → ' . $preview['date'] . ' • ' . $preview['campaign'] . ' • ' . $preview['oldTotal'] . ' → ' . $preview['total'])),

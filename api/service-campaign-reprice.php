@@ -28,10 +28,11 @@ function temporary_repair_plan(array $sections, array $request, string $cutoff):
         '2' => ['Тэжээлийн эмчилгээ', 'single', 71900, '2026-11-18'],
         '3' => ['Уургийн эмчилгээ', 'single', 139900, '2026-11-19'],
         '4' => ['Тэжээлийн эмчилгээ', 'single', 119900, ''],
+        '5' => ['Уургийн эмчилгээ', 'single', 139900, '2026-11-17'],
     ];
     if (!isset($cases[$case])) throw new DomainException('Энэ бүртгэл түр засварын жагсаалтад байхгүй.');
     [$name, $kind, $base, $date] = $cases[$case];
-    $phone = temporary_repair_phones()[(int)$case - 1];
+    $phone = temporary_repair_phones()[$case === '5' ? 2 : (int)$case - 1];
     $customers = array_filter((array)($sections['customers'] ?? []), static fn($row) =>
         is_array($row) && empty($row['deleted']) && empty($row['deletedAt']) && (string)($row['phone'] ?? '') === $phone);
     if (count($customers) !== 1) throw new DomainException('Утасны дугаараар нэг бүртгэл олдсонгүй.');
@@ -45,7 +46,25 @@ function temporary_repair_plan(array $sections, array $request, string $cutoff):
     if (count($services) !== 1) throw new DomainException('Тохирох нэг үйлчилгээ олдсонгүй. Бүртгэл өөрчлөгдсөн байж болно.');
     $si = array_key_first($services);
     $service = $services[$si];
-    if ($case === '4') {
+    if ($case === '5') {
+        if (($request['date'] ?? '') !== $date || $date < $cutoff
+            || (float)($service['price'] ?? 0) !== 97930.0 || (float)($service['campaignDiscountAmount'] ?? 0) !== 41970.0) {
+            throw new DomainException('Төлбөрийн огноо, хямдрал эсвэл засварлах хугацааг шалгана уу.');
+        }
+        $payments = (array)($service['payments'] ?? []);
+        $matched = array_filter($payments, static fn($p) => is_array($p) && !empty($p['id'])
+            && empty($p['deleted']) && empty($p['deletedAt']) && empty($p['reversedAt']) && empty($p['bonusAmount'])
+            && ($p['method'] ?? '') === 'transfer' && (float)($p['amount'] ?? 0) === 139900.0
+            && (float)($p['paidAmount'] ?? 0) === 139900.0 && ($p['createdAt'] ?? '') === '2026-11-19 15:58'
+            && ($p['date'] ?? '') === '2026-11-19' && ($p['groupPaymentDate'] ?? '') === '2026-11-19');
+        if (count($matched) !== 1) throw new DomainException('Засах нэг төлбөр олдсонгүй. Өмнө нь зассан байж болно.');
+        $pi = array_key_first($matched);
+        $payments[$pi]['date'] = $date;
+        $payments[$pi]['groupPaymentDate'] = $date;
+        $payments[$pi]['dateCorrected'] = true;
+        $changes = ['payments' => $payments];
+        $preview = ['summary' => '139,900₮ · Данс · Төлбөрийн огноо 2026-11-19 → 2026-11-17. Дүн, анх бүртгэсэн цаг, хямдрал хэвээр.', 'date' => $date, 'auditTitle' => 'payment_date_corrected'];
+    } elseif ($case === '4') {
         if (($service['prepaidPending'] ?? false) !== true) throw new DomainException('Урьдчилсан үйлчилгээний төлөв өөрчлөгдсөн байна.');
         $payments = (array)($service['payments'] ?? []);
         $matched = array_filter($payments, static fn($p) => is_array($p) && ($p['method'] ?? '') === 'previous_payment'
