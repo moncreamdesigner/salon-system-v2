@@ -7643,7 +7643,8 @@ function renderTemporaryRepair() {
     "3. Уургийн эмчилгээ",
     "4. 83,930₮ төлбөрийн арга",
     "5. 139,900₮ дансны төлбөрийн огноо",
-    "6. 89085351 · Гурван үйлчилгээний төлбөр"
+    "6. 89085351 · Гурван үйлчилгээний төлбөр",
+    "7. 99040277 · Зээлийн аппын төлбөр ба Black Friday"
   ];
   view.innerHTML = `<section class="panel">
     <h3>Түр засвар</h3>
@@ -7652,7 +7653,7 @@ function renderTemporaryRepair() {
     <p class="repair-backup-status" role="status"></p>
     ${labels.map((label, index) => `<form class="panel" data-repair-case="${index + 1}">
       <strong>${label}</strong>
-      ${index === 5 ? '<p><button type="button" class="secondary-btn repair-backup repair-split-backup">Энэ бүртгэлийн хуулбарыг татах</button></p><p class="repair-split-backup-status" role="status"></p><p><label><input type="checkbox" class="repair-date"> 2026-11-17-нд дансаар нийт 293,790₮ төлсөн</label></p>'
+      ${index === 5 || index === 6 ? `<p><button type="button" class="secondary-btn repair-backup" data-backup-case="${index + 1}">Энэ бүртгэлийн хуулбарыг татах</button></p><p class="repair-customer-backup-status" role="status"></p><p><label><input type="checkbox" class="repair-date"> ${index === 5 ? "2026-11-17-нд дансаар нийт 293,790₮ төлсөн" : "2026-11-17-нд зээлийн апп-аар 41,930₮ төлсөн"}</label></p>`
         : index === 4 ? '<p><label><input type="checkbox" class="repair-date"> Төлбөр шилжүүлсэн өдөр 2026-11-17 мөн</label></p>' : index < 3 ? '<p><label><input type="checkbox" class="repair-date"> Үйлчилгээ авсан өдөр 2026-11-17 мөн</label></p>' : ''}
       <p class="repair-result" role="status"></p>
       <button type="button" class="secondary-btn repair-preview">Тооцоог харах</button>
@@ -7662,20 +7663,20 @@ function renderTemporaryRepair() {
   const downloadedBackups = new Set();
   view.querySelectorAll(".repair-backup").forEach(backupButton => backupButton.addEventListener("click", async () => {
     if (!isAdminAccount()) return;
-    const split = backupButton.classList.contains("repair-split-backup");
+    const backupCase = backupButton.dataset.backupCase || "";
     backupButton.disabled = true;
-    const status = view.querySelector(split ? ".repair-split-backup-status" : ".repair-backup-status");
+    const status = backupCase ? backupButton.closest("form").querySelector(".repair-customer-backup-status") : view.querySelector(".repair-backup-status");
     try {
-      const { backup } = await serverApi("state.php", { method: "POST", body: JSON.stringify({ action: "temporaryRepairBackup", ...(split ? { case: "6" } : {}) }) });
+      const { backup } = await serverApi("state.php", { method: "POST", body: JSON.stringify({ action: "temporaryRepairBackup", case: backupCase }) });
       if (!backupButton.isConnected || activeView !== "temporaryRepair" || !isAdminAccount()) return;
-      if (backup?.customers?.length !== (split ? 1 : 4)) throw new Error("Бүртгэлийн хуулбар бүрэн биш байна.");
+      if (backup?.customers?.length !== (backupCase ? 1 : 4)) throw new Error("Бүртгэлийн хуулбар бүрэн биш байна.");
       const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `salon-temporary-repair-backup-${split ? "89085351-" : ""}${todayText()}.json`;
+      link.download = `salon-temporary-repair-backup-${backupCase ? `case-${backupCase}-` : ""}${todayText()}.json`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      downloadedBackups.add(split ? "split" : "original");
+      downloadedBackups.add(backupCase);
       status.textContent = "Хуулбар татах хүсэлт илгээлээ. Татсан файлаа шалгана уу.";
     } catch (error) { status.textContent = error.message || "Хуулбар татаж чадсангүй."; }
     finally { backupButton.disabled = false; }
@@ -7717,7 +7718,7 @@ function renderTemporaryRepair() {
     form.addEventListener("submit", async event => {
       event.preventDefault();
       if (busy || !draft || !isAdminAccount()) return;
-      if (!downloadedBackups.has(form.dataset.repairCase === "6" ? "split" : "original")) { output.textContent = "Эхлээд бүртгэлийн хуулбарыг татна уу. Дараа нь тооцоог дахин шалгана уу."; return; }
+      if (!downloadedBackups.has(form.querySelector(".repair-backup")?.dataset.backupCase || "")) { output.textContent = "Эхлээд бүртгэлийн хуулбарыг татна уу. Дараа нь тооцоог дахин шалгана уу."; return; }
       lock(true);
       try {
         const code = await requireEditCodeValue();

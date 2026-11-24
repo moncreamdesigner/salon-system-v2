@@ -86,4 +86,25 @@ rejects(fn()=>assert_service_campaign_contracts($splitSections, $after, [['6','p
 rejects(fn()=>temporary_repair_plan($after, $splitRequest, $date));
 rejects(fn()=>temporary_repair_plan($splitSections, $splitRequest, '2026-11-18'));
 check(temporary_repair_plan($splitSections, $splitRequest, $date)[3]['token'] === $splitPreview['token']);
+$loanName = 'Гүн цэвэрлэгээ /гэмтэлтэй үсний/';
+$loan = array_replace($bank, ['id'=>'loan1', 'method'=>'loan_app', 'createdAt'=>"$date 10:56", 'amount'=>59900, 'paidAmount'=>59900,
+    'groupSpentAmount'=>59900, 'groupBonusEligibleAmount'=>59900, 'groupBonusEarned'=>1198]);
+$loanService = array_replace($splitCustomer['serviceHistory'][0], ['id'=>'loan-service', 'service'=>$loanName, 'salon'=>'Хан-Уул салбар',
+    'basePrice'=>59900, 'price'=>59900, 'createdAt'=>$date, 'payments'=>[$loan]]);
+$loanSections = ['customers'=>[['id'=>7, 'phone'=>'99040277', 'serviceHistory'=>[$loanService]]],
+    'customerGroups'=>[['id'=>9, 'spent2y'=>60000, 'bonusPool'=>1200]],
+    '_serviceSettings'=>['data'=>['single'=>[['name'=>$loanName, 'code'=>'deep', 'price'=>59900]]]],
+    'discounts'=>[array_replace($sections['discounts'][0], ['salons'=>['Хан-Уул салбар'], 'services'=>["single:deep:$loanName"]])]];
+$loanReq = ['case'=>'7', 'date'=>$date];
+[, , $loanChanges, , $loanMeta] = temporary_repair_plan($loanSections, $loanReq, '2026-11-21');
+check($loanChanges['price'] === 41930.0 && $loanChanges['balance'] === 0);
+$newLoan = $loanChanges['payments'][0];
+check($newLoan === array_replace($loan, ['amount'=>41930, 'paidAmount'=>41930, 'groupSpentAmount'=>41930, 'groupBonusEligibleAmount'=>41930, 'groupBonusEarned'=>839]));
+check($loanMeta['historicCorrection'] === true && $loanMeta['groupChanges'] === ['spent2y'=>42030.0, 'bonusPool'=>841.0]);
+$afterLoan = $loanSections;
+$afterLoan['customers'][0]['serviceHistory'][0] = array_replace($loanService, $loanChanges);
+assert_prepaid_services_preserved($loanSections, $afterLoan, ['role'=>'admin'], [['7','loan-service']]);
+assert_service_campaign_contracts($loanSections, $afterLoan, [['7','loan-service']]);
+rejects(fn()=>temporary_repair_plan($afterLoan, $loanReq, '2026-11-21'));
+rejects(fn()=>temporary_repair_plan($loanSections, ['case'=>'7','date'=>'2026-11-18'], '2026-11-21'));
 echo "temporary-repair-test: OK\n";

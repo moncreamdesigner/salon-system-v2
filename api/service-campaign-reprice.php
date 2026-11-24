@@ -8,10 +8,10 @@ function temporary_repair_phones(): array
     return ['91111399', '96480248', '86906077', '99098082'];
 }
 
-function temporary_repair_backup(array $sections, bool $splitOnly = false): array
+function temporary_repair_backup(array $sections, string $case = ''): array
 {
     $profiles = [];
-    foreach ($splitOnly ? ['89085351'] : temporary_repair_phones() as $phone) {
+    foreach (match ($case) { '6' => ['89085351'], '7' => ['99040277'], default => temporary_repair_phones() } as $phone) {
         $matched = array_values(array_filter((array)($sections['customers'] ?? []), static fn($row) =>
             is_array($row) && empty($row['deleted']) && empty($row['deletedAt']) && (string)($row['phone'] ?? '') === $phone));
         if (count($matched) !== 1) throw new DomainException('Хэрэглэгчийн бүртгэлийг нэг утгаар таньж чадсангүй. Хуулбар үүсгээгүй.');
@@ -24,6 +24,7 @@ function temporary_repair_plan(array $sections, array $request, string $cutoff):
 {
     $case = (string)($request['case'] ?? '');
     if ($case === '6') return temporary_split_bank_payment_plan($sections, $request, $cutoff);
+    if ($case === '7') return temporary_loan_payment_correction_plan($sections, $request);
     $cases = [
         '1' => ['Хуурай үсний курс эмчилгээ', 'course', 449900, '2026-11-17'],
         '2' => ['Тэжээлийн эмчилгээ', 'single', 71900, '2026-11-18'],
@@ -100,7 +101,7 @@ function temporary_split_bank_payment_plan(array $sections, array $request, stri
     $oldAmount = 139900;
     $salon = 'Чингэлтэй салбар';
     if (($request['date'] ?? '') !== $date || $date < $cutoff) throw new DomainException('Төлбөрийн огноо эсвэл засварлах хугацааг шалгана уу.');
-    [$customer] = temporary_repair_backup($sections, true);
+    [$customer] = temporary_repair_backup($sections, '6');
     $ci = array_search($customer, $sections['customers'], true);
     $slots = [];
     $original = null;
@@ -181,6 +182,82 @@ function temporary_split_bank_payment_plan(array $sections, array $request, stri
         'date' => $date, 'auditTitle' => 'bank_payment_split_corrected',
         'token' => hash('sha256', json_encode([$customer, $group, array_map(static fn($row) => $row['campaignDiscount'], $updates), $groupChanges], JSON_THROW_ON_ERROR))];
     return [$ci, $slots['pending'], $updates[$slots['pending']], $preview, ['services' => $updates, 'groupIndex' => $gi, 'groupChanges' => $groupChanges]];
+}
+
+function temporary_loan_payment_correction_plan(array $sections, array $request): array
+{
+    $date = '2026-11-17';
+    $oldAmount = 59900;
+    $amount = 41930;
+    if (($request['date'] ?? '') !== $date) throw new DomainException('Төлбөрийн огноо, дүнг баталгаажуулна уу.');
+    [$customer] = temporary_repair_backup($sections, '7');
+    $ci = array_search($customer, $sections['customers'], true);
+    $matches = [];
+    foreach ($customer['serviceHistory'] ?? [] as $i => $service) {
+        if (!is_array($service) || empty($service['id']) || !empty($service['deleted']) || !empty($service['deletedAt']) || !empty($service['transferClosed'])
+            || ($service['kind'] ?? '') !== 'single' || ($service['prepaid'] ?? false) !== true || ($service['prepaidPending'] ?? false) !== true
+            || !empty($service['date']) || !empty($service['staff']) || ($service['salon'] ?? '') !== 'Хан-Уул салбар'
+            || !preg_match('~^Гүн цэвэрлэгээ\s*/\s*гэмтэлтэй үсний\s*/$~u', trim((string)($service['service'] ?? $service['title'] ?? '')))
+            || (float)($service['basePrice'] ?? 0) !== (float)$oldAmount || (float)($service['price'] ?? 0) !== (float)$oldAmount
+            || (float)($service['balance'] ?? 0) !== 0.0 || !empty($service['campaignDiscountAmount'])) continue;
+        $payments = (array)($service['payments'] ?? []);
+        if (count($payments) !== 1) continue;
+        $p = reset($payments);
+        if (!is_array($p) || empty($p['id']) || !empty($p['deleted']) || !empty($p['deletedAt']) || !empty($p['reversedAt'])
+            || ($p['method'] ?? '') !== 'loan_app' || ($p['date'] ?? '') !== $date || ($p['createdAt'] ?? '') !== "$date 10:56"
+            || (float)($p['amount'] ?? 0) !== (float)$oldAmount || (float)($p['paidAmount'] ?? 0) !== (float)$oldAmount
+            || !empty($p['bonusAmount']) || !empty($p['groupBonusUsed']) || !empty($p['internalCredit'])) continue;
+        $matches[$i] = $p;
+    }
+    if (count($matches) !== 1) throw new DomainException('17-ны 10:56 цагийн тохирох нэг төлбөр олдсонгүй. Өөрчлөлт хийгээгүй.');
+    $si = array_key_first($matches);
+    $payment = $original = $matches[$si];
+    $service = $customer['serviceHistory'][$si];
+    foreach ($customer['creditLedger'] ?? [] as $entry) {
+        if ((string)($entry['sourceServiceId'] ?? '') === (string)$service['id'] || (string)($entry['targetServiceId'] ?? '') === (string)$service['id']) {
+            throw new DomainException('Холбоотой кредит байна. Автоматаар өөрчлөхгүй.');
+        }
+    }
+    [, , $changes, $campaign] = service_campaign_reprice_plan($sections, [
+        'customerId' => $customer['id'], 'serviceId' => $service['id'], 'date' => $date,
+    ], $date, true, true);
+    if ((float)$campaign['percent'] !== 30.0 || (float)$campaign['total'] !== (float)$amount
+        || strtolower((string)preg_replace('/[\s_-]+/', '', $campaign['campaign'])) !== 'blackfriday') {
+        throw new DomainException('Хан-Уулын Black Friday 30%-ийн тохиргоо таарсангүй.');
+    }
+    $meta = ['historicCorrection' => true];
+    $group = null;
+    if (!empty($original['groupId'])) {
+        $groups = array_filter($sections['customerGroups'] ?? [], static fn($g) => is_array($g) && (string)($g['id'] ?? '') === (string)$original['groupId']);
+        $gi = array_key_first($groups);
+        $group = $groups[$gi] ?? null;
+        $spent = (float)($original['groupSpentAmount'] ?? -1);
+        $eligible = (float)($original['groupBonusEligibleAmount'] ?? -1);
+        $percent = (float)($original['groupBonusPercent'] ?? -1);
+        $earned = (float)($original['groupBonusEarned'] ?? -1);
+        if (count($groups) !== 1 || !in_array($spent, [0.0, (float)$oldAmount], true) || !in_array($eligible, [0.0, $spent], true)
+            || $percent < 0 || $percent > 100 || $earned !== round($eligible * $percent / 100)
+            || ($original['groupPaymentDate'] ?? '') !== $date || !is_numeric($group['spent2y'] ?? null)
+            || !is_numeric($group['bonusPool'] ?? null) || (float)$group['spent2y'] < $spent || (float)$group['bonusPool'] < $earned) {
+            throw new DomainException('Групп бонусын бүртгэлийг тулгаж чадсангүй. Төлбөр өөрчлөөгүй.');
+        }
+        $payment['groupSpentAmount'] = $spent > 0 ? $amount : 0;
+        $payment['groupBonusEligibleAmount'] = $eligible > 0 ? $amount : 0;
+        $payment['groupBonusEarned'] = (int)round($payment['groupBonusEligibleAmount'] * $percent / 100);
+        $meta['groupIndex'] = $gi;
+        $meta['groupChanges'] = ['spent2y' => (float)$group['spent2y'] + $payment['groupSpentAmount'] - $spent,
+            'bonusPool' => (float)$group['bonusPool'] + $payment['groupBonusEarned'] - $earned];
+    } elseif (!empty($original['groupSpentAmount']) || !empty($original['groupBonusEarned'])) {
+        throw new DomainException('Групп бонусын бүртгэл тодорхойгүй байна.');
+    }
+    $payment['amount'] = $payment['paidAmount'] = $amount;
+    $payments = $service['payments'];
+    $payments[array_key_first($payments)] = $payment;
+    $changes = array_replace($changes, ['balance' => 0, 'payments' => $payments]);
+    $preview = ['summary' => '99040277 · Гүн цэвэрлэгээ · Black Friday 30% · Үнэ ба 2026-11-17 10:56 зээлийн аппын төлбөр 59,900₮ → 41,930₮. Үлдэгдэл 0₮. Үйлчилгээ хүлээж буй төлөв хэвээр.',
+        'date' => $date, 'auditTitle' => 'loan_payment_amount_corrected',
+        'token' => hash('sha256', json_encode([$customer, $group, $changes, $meta], JSON_THROW_ON_ERROR))];
+    return [$ci, $si, $changes, $preview, $meta];
 }
 
 function service_campaign_reprice_plan(array $sections, array $request, string $cutoff, bool $useRequestedDate = false, bool $allowPendingPrepaid = false): array

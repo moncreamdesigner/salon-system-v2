@@ -32,6 +32,11 @@ prepaid_reject(fn() => assert_customer_operations_unlocked($wrap($item), $wrap(a
 $editedPayment = $completed;
 $editedPayment['payments'][0]['amount'] = 1;
 prepaid_reject(fn() => assert_customer_operations_unlocked($wrap($item), $wrap($editedPayment), $cutoff));
+$lockedCorrection = array_replace($item, ['price' => 52500, 'payments' => [['id' => 'pay-1', 'amount' => 52500, 'date' => '2026-01-01']]]);
+$exactProof = ['1', 'prepaid-1', $lockedCorrection];
+prepaid_reject(fn() => assert_customer_operations_unlocked($wrap($item), $wrap($lockedCorrection), $cutoff));
+assert_customer_operations_unlocked($wrap($item), $wrap($lockedCorrection), $cutoff, $exactProof);
+prepaid_reject(fn() => assert_customer_operations_unlocked($wrap($item), $wrap(array_replace($lockedCorrection, ['price' => 1])), $cutoff, $exactProof));
 $rows = daily_queue_recover_from_history($wrap($item)['customers'], '2026-01-01');
 prepaid_expect(empty($rows[0]['dailyQueueDate']), 'Pending service must not enter the daily queue');
 $rows = daily_queue_recover_from_history($wrap($completed)['customers'], $today);
